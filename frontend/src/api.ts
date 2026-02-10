@@ -23,4 +23,11 @@ export const toggleContractProtection = async (id: number) => {
     return api.put(`/contracts/${id}/toggle-protection`)
 }
 
+export const exportContracts = async (filters: any, format: 'csv' | 'excel') => {
+    return api.get('/contracts/export', {
+        params: { ...filters, format },
+        responseType: 'blob'
+    })
+}
+
 export default api

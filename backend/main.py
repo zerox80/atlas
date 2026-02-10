@@ -12,6 +12,8 @@ import qrcode
 import io
 import os
 from datetime import datetime, timedelta, timezone
+import pandas as pd
+from fastapi.responses import StreamingResponse
 
 import secrets
 
@@ -329,6 +331,99 @@ def read_contracts(
     statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))
     contracts = session.exec(statement).all()
     return contracts
+
+@app.get("/contracts/export")
+def export_contracts(
+    q: Optional[str] = None,
+    tags: Optional[str] = None,
+    list_id: Optional[int] = None,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
+    start_date_from: Optional[datetime] = None,
+    start_date_to: Optional[datetime] = None,
+    status: Optional[str] = None,
+    format: str = "csv",
+    current_user: User = Depends(get_current_user), 
+    session: Session = Depends(get_session)
+):
+    """
+    Export filtered contracts as CSV or Excel.
+    """
+    statement = select(Contract)
+    
+    # --- Filter Logic (Duplicated from read_contracts for safety) ---
+    if q:
+        search_term = f"%{q}%"
+        statement = statement.where(
+            or_(
+                Contract.title.ilike(search_term),
+                Contract.description.ilike(search_term)
+            )
+        )
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        if tag_list:
+            statement = statement.join(ContractTagLink).join(Tag).where(Tag.name.in_(tag_list))
+    if list_id is not None:
+        statement = statement.join(ContractListLink).where(ContractListLink.list_id == list_id)
+    if min_value is not None:
+        statement = statement.where(Contract.value >= min_value)
+    if max_value is not None:
+        statement = statement.where(Contract.value <= max_value)
+    if start_date_from:
+        statement = statement.where(Contract.start_date >= start_date_from)
+    if start_date_to:
+        statement = statement.where(Contract.start_date <= start_date_to)
+    
+    now = datetime.now(timezone.utc)
+    if status == "active":
+        statement = statement.where(Contract.end_date >= now)
+    elif status == "expired":
+        statement = statement.where(Contract.end_date < now)
+        
+    statement = statement.distinct()
+    statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))
+    contracts = session.exec(statement).all()
+    
+    # --- Data Processing ---
+    data = []
+    for c in contracts:
+        data.append({
+            "ID": c.id,
+            "Titel": c.title,
+            "Beschreibung": c.description,
+            "Wert (€)": c.value,
+            "Startdatum": c.start_date.strftime("%Y-%m-%d") if c.start_date else "",
+            "Enddatum": c.end_date.strftime("%Y-%m-%d") if c.end_date else "",
+            "Kündigungsfrist (Tage)": c.notice_period,
+            "Geschützt": "Ja" if c.is_protected else "Nein",
+            "Tags": ", ".join([t.name for t in c.tags]),
+            "Listen": ", ".join([l.name for l in c.lists]),
+            "Erstellt am": c.uploaded_at.strftime("%Y-%m-%d %H:%M") if c.uploaded_at else ""
+        })
+        
+    df = pd.DataFrame(data)
+    
+    if format == "excel":
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Verträge')
+        output.seek(0)
+        
+        headers = {
+            'Content-Disposition': 'attachment; filename="vertrage_export.xlsx"'
+        }
+        return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        
+    else: # Default to CSV
+        output = io.StringIO()
+        df.to_csv(output, index=False, sep=';', encoding='utf-8-sig') # German Excel compatible CSV
+        output_bytes = io.BytesIO(output.getvalue().encode('utf-8-sig'))
+        
+        headers = {
+            'Content-Disposition': 'attachment; filename="vertrage_export.csv"'
+        }
+        return StreamingResponse(output_bytes, headers=headers, media_type='text/csv')
 
 @app.post("/contracts", response_model=ContractRead)
 async def create_contract(

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { FiSearch, FiFilter, FiX, FiChevronDown, FiArrowUp, FiArrowDown } from 'react-icons/fi'
-import api from '../api'
+import { FiSearch, FiFilter, FiX, FiChevronDown, FiArrowUp, FiArrowDown, FiDownload } from 'react-icons/fi'
+import api, { exportContracts } from '../api'
 import { formatGermanNumber, parseGermanNumber } from '../utils/formatUtils'
 
 interface Tag {
@@ -36,6 +36,7 @@ export interface FilterState {
 
 const SearchFilterBar: React.FC<SearchFilterBarProps> = ({ onFiltersChange }) => {
     const [isExpanded, setIsExpanded] = useState(false)
+    const [isExportMenuOpen, setIsExportMenuOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
     const [selectedTags, setSelectedTags] = useState<string[]>([])
     const [selectedListId, setSelectedListId] = useState<number | null>(null)
@@ -108,6 +109,23 @@ const SearchFilterBar: React.FC<SearchFilterBarProps> = ({ onFiltersChange }) =>
         setSortOrder('desc')
     }
 
+    const handleExport = async (format: 'csv' | 'excel') => {
+        setIsExportMenuOpen(false);
+        try {
+            const response = await exportContracts(filters, format);
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `vertrage_export.${format === 'excel' ? 'xlsx' : 'csv'}`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (e) {
+            console.error("Export failed", e);
+            alert("Fehler beim Exportieren der Verträge.");
+        }
+    }
+
     const hasActiveFilters = selectedTags.length > 0 || selectedListId !== null || minValue || maxValue || startDateFrom || startDateTo || status
 
     return (
@@ -132,6 +150,37 @@ const SearchFilterBar: React.FC<SearchFilterBarProps> = ({ onFiltersChange }) =>
                         </button>
                     )}
                 </div>
+
+                {/* Export Button */}
+                <div className="relative">
+                    <button
+                        onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-gray-800 border border-gray-700 hover:border-gray-600 text-gray-300 hover:text-white rounded-lg transition-colors"
+                        title="Exportieren"
+                    >
+                        <FiDownload />
+                        <span className="hidden md:inline">Export</span>
+                        <FiChevronDown className={`transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isExportMenuOpen && (
+                        <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                            <button
+                                onClick={() => handleExport('excel')}
+                                className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors border-b border-gray-700/50"
+                            >
+                                Als Excel (.xlsx)
+                            </button>
+                            <button
+                                onClick={() => handleExport('csv')}
+                                className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+                            >
+                                Als CSV (.csv)
+                            </button>
+                        </div>
+                    )}
+                </div>
+
                 <button
                     onClick={() => setIsExpanded(!isExpanded)}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${isExpanded || hasActiveFilters
@@ -140,7 +189,7 @@ const SearchFilterBar: React.FC<SearchFilterBarProps> = ({ onFiltersChange }) =>
                         }`}
                 >
                     <FiFilter />
-                    <span>Filter</span>
+                    <span className="hidden md:inline">Filter</span>
                     {hasActiveFilters && (
                         <span className="bg-white/20 text-xs px-1.5 py-0.5 rounded-full">
                             {selectedTags.length + (selectedListId ? 1 : 0) + (status ? 1 : 0) + (minValue || maxValue ? 1 : 0) + (startDateFrom || startDateTo ? 1 : 0)}
