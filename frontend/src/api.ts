@@ -18,4 +18,9 @@ api.interceptors.response.use(
     }
 )
 
+
+export const toggleContractProtection = async (id: number) => {
+    return api.put(`/contracts/${id}/toggle-protection`)
+}
+
 export default api

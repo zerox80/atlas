@@ -79,6 +79,7 @@ class ContractRead(BaseModel):
     tags: List[TagRead] = []
     lists: List[ContractListRead] = []
     notice_period: int
+    is_protected: bool
     file_extension: str
 
     class Config:

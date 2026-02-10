@@ -579,6 +579,12 @@ def delete_contract(
     if not check_contract_permission(current_user, contract_id, "full", session):
         raise HTTPException(status_code=403, detail="You don't have permission to delete this contract")
     
+    if contract.is_protected:
+        raise HTTPException(
+            status_code=403, 
+            detail="This contract is protected. You must unprotect it from the Protected Contracts page before deleting."
+        )
+    
     # Save file path before deleting record
     file_path_to_delete = contract.file_path
 
@@ -592,6 +598,41 @@ def delete_contract(
         except Exception as e:
             print(f"Error deleting file: {e}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.put("/contracts/{contract_id}/toggle-protection", response_model=ContractRead)
+def toggle_contract_protection(
+    contract_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """Toggle the protected status of a contract (Admin only or Full Permission?) -> Let's say Full Perm."""
+    contract = session.get(Contract, contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    
+    # Check permission (need "full" level to change protection)
+    # Alternatively, maybe only Admin? User asked: "auch vor Admins" -> implies Admins can remove it but need extra step.
+    # So "full" permission or Admin is fine, but the UI flow prevents accidental delete.
+    if not check_contract_permission(current_user, contract_id, "full", session):
+        raise HTTPException(status_code=403, detail="You don't have permission to modify protection status")
+        
+    contract.is_protected = not contract.is_protected
+    session.add(contract)
+    session.commit()
+    session.refresh(contract)
+    
+    action = "PROTECTED" if contract.is_protected else "UNPROTECTED"
+    log_audit(
+        session, 
+        current_user.id, 
+        f"CONTRACT_{action}", 
+        f"[CID:{contract_id}] Contract {action}", 
+        "unknown",
+        "unknown"
+    )
+    
+    return contract
 
 
 # Helper dependency for admin-only endpoints

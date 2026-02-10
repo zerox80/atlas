@@ -82,6 +82,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                         <FiFolder />
                         <span>Listen</span>
                     </Link>
+                    <Link
+                        to="/protected"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="flex items-center space-x-2 p-3 rounded hover:bg-gray-700 transition-colors text-gray-300 hover:text-white"
+                    >
+                        <FiShield />
+                        <span>Geschützt</span>
+                    </Link>
                     {/* Admin Link - only visible for admins */}
                     {isAdmin && (
                         <Link

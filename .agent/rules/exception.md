@@ -1,6 +1,5 @@
 ---
 trigger: always_on
-glob:
-description:
 ---
 
+Das Projekt läuft nur über Docker Compose.

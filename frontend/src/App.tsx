@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard'
 import Contracts from './pages/Contracts'
 import AdminPanel from './pages/AdminPanel'
 import Lists from './pages/Lists'
+import ProtectedContracts from './pages/ProtectedContracts'
 import Layout from './components/Layout'
 import { useState, useEffect, createContext, useContext } from 'react'
 import api from './api'
@@ -82,6 +83,9 @@ export function AppRoutes() {
                 } />
                 <Route path="/lists" element={
                     isAuthenticated ? <Layout><Lists /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/protected" element={
+                    isAuthenticated ? <Layout><ProtectedContracts /></Layout> : <Navigate to="/login" />
                 } />
                 <Route path="/admin" element={
                     isAuthenticated && user?.role === 'admin'

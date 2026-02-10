@@ -1,9 +1,9 @@
 import React, { useState, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
-import { FiPlus, FiDownload, FiCalendar, FiClock, FiDollarSign, FiTrash2, FiFolder } from 'react-icons/fi'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+import { FiPlus, FiDownload, FiCalendar, FiClock, FiDollarSign, FiTrash2, FiFolder, FiShield, FiLock } from 'react-icons/fi'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
-import api from '../api'
+import api, { toggleContractProtection } from '../api'
 import { parseGermanNumber, formatGermanNumber } from '../utils/formatUtils'
 import UploadModal from '../components/UploadModal'
 import CommandPalette from '../components/CommandPalette'
@@ -24,12 +24,14 @@ interface Contract {
     lists?: { id: number, name: string, color: string }[]
     version?: number
     file_extension: string
+    is_protected: boolean
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 const Dashboard: React.FC = () => {
     const [searchParams] = useSearchParams()
+    const navigate = useNavigate()
     const [isUploadOpen, setIsUploadOpen] = useState(false)
     const [isAuditOpen, setIsAuditOpen] = useState(false)
     const [auditContract, setAuditContract] = useState<{ id: number, title: string } | null>(null)
@@ -74,7 +76,12 @@ const Dashboard: React.FC = () => {
         }
     )
 
-    const handleDelete = async (id: number, title: string) => {
+    const handleDelete = async (id: number, title: string, isProtected: boolean) => {
+        if (isProtected) {
+            alert('Dieser Vertrag ist geschützt. Bitte heben Sie den Schutz in der "Geschützte Verträge" Übersicht auf, bevor Sie ihn löschen.');
+            return;
+        }
+
         if (window.confirm(`Möchten Sie den Vertrag "${title}" wirklich löschen?`)) {
             try {
                 await api.delete(`/contracts/${id}`)
@@ -83,6 +90,21 @@ const Dashboard: React.FC = () => {
                 console.error("Delete failed", e)
                 alert("Fehler beim Löschen des Vertrags")
             }
+        }
+    }
+
+    const handleToggleProtection = async (id: number, currentStatus: boolean, title: string) => {
+        const action = currentStatus ? "aufheben" : "aktivieren";
+        if (!window.confirm(`Möchten Sie den Schutz für "${title}" wirklich ${action}?`)) {
+            return;
+        }
+
+        try {
+            await toggleContractProtection(id);
+            queryClient.invalidateQueries(['contracts']);
+        } catch (e) {
+            console.error("Protection toggle failed", e);
+            alert("Fehler beim Ändern des Schutz-Status.");
         }
     }
 
@@ -308,7 +330,12 @@ const Dashboard: React.FC = () => {
             {/* Contract List */}
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                 {contracts?.map((contract) => (
-                    <div key={contract.id} className="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:border-gray-600 transition-all group relative hover:-translate-y-1 hover:shadow-xl">
+                    <div key={contract.id} className={`bg-gray-800 border ${contract.is_protected ? 'border-green-800' : 'border-gray-700'} rounded-xl p-6 hover:border-gray-600 transition-all group relative hover:-translate-y-1 hover:shadow-xl`}>
+                        {contract.is_protected && (
+                            <div className="absolute top-0 right-0 p-2 bg-green-900/80 text-green-200 text-xs font-bold rounded-bl-lg rounded-tr-xl flex items-center gap-1">
+                                <FiShield size={12} /> GESCHÜTZT
+                            </div>
+                        )}
                         <div className="flex justify-between items-start mb-4">
                             <div className="p-3 bg-blue-500/10 rounded-lg text-blue-400 group-hover:bg-blue-500/20 transition-colors">
                                 <FiCalendar size={24} />
@@ -336,16 +363,20 @@ const Dashboard: React.FC = () => {
                                     Bearbeiten
                                 </button>
                                 <button
-                                    onClick={() => handleDelete(contract.id, contract.title)}
-                                    className="p-1 px-2 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded text-xs transition-colors"
-                                    title="Löschen"
+                                    onClick={() => handleDelete(contract.id, contract.title, contract.is_protected)}
+                                    className={`p-1 px-2 rounded text-xs transition-colors ${contract.is_protected ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-red-900/30 hover:bg-red-900/50 text-red-400'}`}
+                                    title={contract.is_protected ? "Geschützt (In 'Geschützt' entsperren)" : "Löschen"}
+                                    disabled={contract.is_protected}
                                 >
                                     <FiTrash2 />
                                 </button>
                             </div>
                         </div>
 
-                        <h3 className="text-lg font-semibold text-white mb-1">{contract.title}</h3>
+                        <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+                            {contract.is_protected && <FiShield className="text-green-500" size={16} />}
+                            {contract.title}
+                        </h3>
 
                         {/* Tags */}
                         <div className="flex flex-wrap gap-2 mb-3">
@@ -380,6 +411,13 @@ const Dashboard: React.FC = () => {
                             </button>
                             <button className="px-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-400 hover:text-white transition-colors">
                                 v{contract.version || 1}
+                            </button>
+                            <button
+                                onClick={() => handleToggleProtection(contract.id, contract.is_protected, contract.title)}
+                                className={`px-3 rounded-lg transition-colors ${contract.is_protected ? 'bg-green-900/30 hover:bg-green-900/50 text-green-400' : 'bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-white'}`}
+                                title={contract.is_protected ? "Schutz aufheben" : "Schützen"}
+                            >
+                                {contract.is_protected ? <FiShield /> : <FiLock />}
                             </button>
                             <button
                                 onClick={() => {

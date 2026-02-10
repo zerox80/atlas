@@ -63,6 +63,9 @@ class Contract(SQLModel, table=True):
     # Financials
     value: float = Field(default=0.0)
     
+    # Status
+    is_protected: bool = Field(default=False, description="Protected from deletion")
+    
     # Versioning
     version: int = Field(default=1)
     parent_id: Optional[int] = Field(default=None, foreign_key="contract.id")
