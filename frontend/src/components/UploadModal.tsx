@@ -242,13 +242,13 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                                     </button>
                                 )}
 
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-1">Titel</label>
+                                    <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" required />
+                                </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Titel</label>
-                                        <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Wert (€)</label>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Gesamtwert (€)</label>
                                         <input
                                             type="text"
                                             value={value}
