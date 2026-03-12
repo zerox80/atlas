@@ -10,11 +10,12 @@ interface Contract {
     id: number
     title: string
     description: string
-    start_date: string
-    end_date: string
+    start_date?: string
+    end_date?: string
     file_path: string
     uploaded_at: string
-    value: number
+    value?: number
+    annual_value?: number
     tags: { name: string, color: string }[]
     version?: number
     notice_period: number
@@ -76,10 +77,12 @@ const Contracts: React.FC = () => {
         }
     }
 
-    const getStatusColor = (endDate: string, noticePeriod: number) => {
+    const getStatusColor = (endDate?: string, noticePeriod?: number) => {
+        if (!endDate) return { color: 'bg-emerald-900/10 border-emerald-500/30', text: 'text-emerald-400', status: 'Unbefristet', icon: <FiCheckCircle /> }; // No end date
+        
         const end = new Date(endDate);
         const cancellationDeadline = new Date(end);
-        cancellationDeadline.setDate(end.getDate() - noticePeriod);
+        cancellationDeadline.setDate(end.getDate() - (noticePeriod || 30));
 
         const now = new Date();
         const daysToDeadline = Math.ceil((cancellationDeadline.getTime() - now.getTime()) / (1000 * 3600 * 24));
@@ -90,10 +93,12 @@ const Contracts: React.FC = () => {
         return { color: 'bg-emerald-900/10 border-emerald-500/30', text: 'text-emerald-400', status: 'Aktiv', icon: <FiCheckCircle /> }; // Good
     }
 
-    const getDeadlineText = (endDate: string, noticePeriod: number) => {
+    const getDeadlineText = (endDate?: string, noticePeriod?: number) => {
+        if (!endDate) return "Unbefristeter Vertrag / Kein Enddatum";
+        
         const end = new Date(endDate);
         const cancellationDeadline = new Date(end);
-        cancellationDeadline.setDate(end.getDate() - noticePeriod);
+        cancellationDeadline.setDate(end.getDate() - (noticePeriod || 30));
         const now = new Date();
 
         if (end < now) return "Vertrag ist abgelaufen";
@@ -181,7 +186,7 @@ const Contracts: React.FC = () => {
                                         <span>Laufzeit</span>
                                     </div>
                                     <span className="text-white font-medium">
-                                        {new Date(contract.start_date).toLocaleDateString()} - {new Date(contract.end_date).toLocaleDateString()}
+                                        {contract.start_date ? new Date(contract.start_date).toLocaleDateString() : 'Unbekannt'} - {contract.end_date ? new Date(contract.end_date).toLocaleDateString() : 'Unbefristet'}
                                     </span>
                                 </div>
                                 <div className="flex justify-between text-sm">
@@ -194,10 +199,19 @@ const Contracts: React.FC = () => {
                                 <div className="flex justify-between text-sm">
                                     <div className="flex items-center gap-2 text-gray-400">
                                         <span>€</span>
-                                        <span>Wert</span>
+                                        <span>Gesamtwert</span>
                                     </div>
-                                    <span className="text-white font-medium">{contract.value?.toLocaleString('de-DE')} €</span>
+                                    <span className="text-white font-medium">{contract.value != null ? `${contract.value.toLocaleString('de-DE')} €` : 'N/A'}</span>
                                 </div>
+                                {contract.annual_value != null && (
+                                    <div className="flex justify-between text-sm mt-1">
+                                        <div className="flex items-center gap-2 text-gray-400">
+                                            <span>€</span>
+                                            <span>Jährlich</span>
+                                        </div>
+                                        <span className="text-white font-medium">{contract.annual_value.toLocaleString('de-DE')} €</span>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex flex-wrap gap-2 mb-6">

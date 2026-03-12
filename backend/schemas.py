@@ -51,11 +51,12 @@ class ContractListRead(BaseModel):
 class ContractCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=2000)
-    start_date: datetime
-    end_date: datetime
-    value: float = Field(default=0.0, ge=0)
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    value: Optional[float] = Field(default=None, ge=0)
+    annual_value: Optional[float] = Field(default=None, ge=0)
     tags: List[str] = []
-    notice_period: int = Field(default=30, ge=0, description="Notice period in days")
+    notice_period: Optional[int] = Field(default=30, ge=0, description="Notice period in days")
 
 class ContractUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=255)
@@ -63,6 +64,7 @@ class ContractUpdate(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     value: Optional[float] = Field(None, ge=0)
+    annual_value: Optional[float] = Field(None, ge=0)
     tags: Optional[List[str]] = None
     notice_period: Optional[int] = Field(None, ge=0)
 
@@ -70,15 +72,16 @@ class ContractRead(BaseModel):
     id: int
     title: str
     description: Optional[str] = None
-    start_date: datetime
-    end_date: datetime
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
     # file_path removed - internal server path should not be exposed!
     uploaded_at: datetime
-    value: float
+    value: Optional[float] = None
+    annual_value: Optional[float] = None
     version: int
     tags: List[TagRead] = []
     lists: List[ContractListRead] = []
-    notice_period: int
+    notice_period: Optional[int] = None
     is_protected: bool
     file_extension: str
 
@@ -157,6 +160,7 @@ class ContractAnalysisResult(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     value: Optional[float] = None
+    annual_value: Optional[float] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     notice_period: Optional[int] = None

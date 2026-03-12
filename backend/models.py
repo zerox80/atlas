@@ -52,16 +52,17 @@ class Contract(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str
     description: Optional[str] = None
-    start_date: datetime
-    end_date: datetime
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
     file_path: str
     uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Cancellation Logic
-    notice_period: int = Field(default=30, description="Notice period in days")
+    notice_period: Optional[int] = Field(default=30, description="Notice period in days")
     
     # Financials
     value: float = Field(default=0.0)
+    annual_value: Optional[float] = Field(default=None)
     
     # Status
     is_protected: bool = Field(default=False, description="Protected from deletion")

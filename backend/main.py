@@ -298,16 +298,16 @@ def read_contracts(
     
     # Date range (start_date filter)
     if start_date_from:
-        statement = statement.where(Contract.start_date >= start_date_from)
+        statement = statement.where(Contract.start_date != None, Contract.start_date >= start_date_from)
     if start_date_to:
-        statement = statement.where(Contract.start_date <= start_date_to)
+        statement = statement.where(Contract.start_date != None, Contract.start_date <= start_date_to)
     
     # Status filter
     now = datetime.now(timezone.utc)
     if status == "active":
-        statement = statement.where(Contract.end_date >= now)
+        statement = statement.where(or_(Contract.end_date == None, Contract.end_date >= now))
     elif status == "expired":
-        statement = statement.where(Contract.end_date < now)
+        statement = statement.where(Contract.end_date != None, Contract.end_date < now)
     
     # Sorting
     sort_columns = {
@@ -371,15 +371,15 @@ def export_contracts(
     if max_value is not None:
         statement = statement.where(Contract.value <= max_value)
     if start_date_from:
-        statement = statement.where(Contract.start_date >= start_date_from)
+        statement = statement.where(Contract.start_date != None, Contract.start_date >= start_date_from)
     if start_date_to:
-        statement = statement.where(Contract.start_date <= start_date_to)
+        statement = statement.where(Contract.start_date != None, Contract.start_date <= start_date_to)
     
     now = datetime.now(timezone.utc)
     if status == "active":
-        statement = statement.where(Contract.end_date >= now)
+        statement = statement.where(or_(Contract.end_date == None, Contract.end_date >= now))
     elif status == "expired":
-        statement = statement.where(Contract.end_date < now)
+        statement = statement.where(Contract.end_date != None, Contract.end_date < now)
         
     statement = statement.distinct()
     statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))
@@ -393,9 +393,10 @@ def export_contracts(
             "Titel": c.title,
             "Beschreibung": c.description,
             "Wert (€)": c.value,
+            "Jährlicher Wert (€)": c.annual_value,
             "Startdatum": c.start_date.strftime("%Y-%m-%d") if c.start_date else "",
             "Enddatum": c.end_date.strftime("%Y-%m-%d") if c.end_date else "",
-            "Kündigungsfrist (Tage)": c.notice_period,
+            "Kündigungsfrist (Tage)": c.notice_period if c.notice_period is not None else "",
             "Geschützt": "Ja" if c.is_protected else "Nein",
             "Tags": ", ".join([t.name for t in c.tags]),
             "Listen": ", ".join([l.name for l in c.lists]),
@@ -425,15 +426,31 @@ def export_contracts(
         }
         return StreamingResponse(output_bytes, headers=headers, media_type='text/csv')
 
+def parse_date_form(val: Optional[str]) -> Optional[datetime]:
+    if not val: return None
+    try: return datetime.fromisoformat(val.replace("Z", "+00:00"))
+    except ValueError: raise HTTPException(status_code=422, detail="Invalid date format")
+
+def parse_float_form(val: Optional[str]) -> Optional[float]:
+    if not val: return None
+    try: return float(val)
+    except ValueError: raise HTTPException(status_code=422, detail="Invalid float format")
+
+def parse_int_form(val: Optional[str]) -> Optional[int]:
+    if not val: return None
+    try: return int(val)
+    except ValueError: raise HTTPException(status_code=422, detail="Invalid int format")
+
 @app.post("/contracts", response_model=ContractRead)
 async def create_contract(
     request: Request,
     title: Annotated[str, Form()],
-    start_date: Annotated[datetime, Form()],
-    end_date: Annotated[datetime, Form()],
     file: UploadFile = File(...),
-    value: Annotated[float, Form()] = 0.0,
-    notice_period: Annotated[int, Form()] = 30,
+    start_date: Annotated[Optional[str], Form()] = None,
+    end_date: Annotated[Optional[str], Form()] = None,
+    value: Annotated[Optional[str], Form()] = None,
+    annual_value: Annotated[Optional[str], Form()] = None,
+    notice_period: Annotated[Optional[str], Form()] = "30",
     description: Annotated[Optional[str], Form()] = None,
     tags: Annotated[Optional[str], Form()] = "",
     current_user: User = Depends(get_current_user),
@@ -456,12 +473,13 @@ async def create_contract(
         
     contract = Contract(
         title=title,
-        description=description,
-        start_date=start_date,
-        end_date=end_date,
+        description=description if description else None,
+        start_date=parse_date_form(start_date),
+        end_date=parse_date_form(end_date),
         file_path=file_path,
-        value=value,
-        notice_period=notice_period
+        value=parse_float_form(value),
+        annual_value=parse_float_form(annual_value),
+        notice_period=parse_int_form(notice_period)
     )
     
     # Handle Tags
@@ -552,10 +570,11 @@ async def update_contract(
     request: Request,
     title: Annotated[Optional[str], Form()] = None,
     description: Annotated[Optional[str], Form()] = None,
-    start_date: Annotated[Optional[datetime], Form()] = None,
-    end_date: Annotated[Optional[datetime], Form()] = None,
-    value: Annotated[Optional[float], Form()] = None,
-    notice_period: Annotated[Optional[int], Form()] = None,
+    start_date: Annotated[Optional[str], Form()] = None,
+    end_date: Annotated[Optional[str], Form()] = None,
+    value: Annotated[Optional[str], Form()] = None,
+    annual_value: Annotated[Optional[str], Form()] = None,
+    notice_period: Annotated[Optional[str], Form()] = None,
     tags: Annotated[Optional[str], Form()] = None,
     file: UploadFile = File(None),
     current_user: User = Depends(get_current_user), 
@@ -572,26 +591,30 @@ async def update_contract(
     changes = []
     
     # helper to check and update
-    def check_and_update(field_name, new_val):
+    def check_and_update_str(field_name, new_val):
         if new_val is not None:
+            if new_val == "" and field_name != "title":
+                new_val = None
             old_val = getattr(contract, field_name)
-            
-            # Normalize dates for comparison (ignore time/timezone)
-            # Normalize dates for comparison (ignore time/timezone)
-            # REMOVED: Strict date-only comparison prevented time updates.
-            # if field_name in ['start_date', 'end_date']:
-            #     ... logic removed to allow time updates ...
-
             if old_val != new_val:
                 changes.append(f"{field_name}: '{old_val}' -> '{new_val}'")
                 setattr(contract, field_name, new_val)
+
+    def check_and_update_parsed(field_name, new_val_str, parser_func):
+        if new_val_str is not None:
+            parsed_val = parser_func(new_val_str)
+            old_val = getattr(contract, field_name)
+            if old_val != parsed_val:
+                changes.append(f"{field_name}: '{old_val}' -> '{parsed_val}'")
+                setattr(contract, field_name, parsed_val)
     
-    check_and_update("title", title)
-    check_and_update("description", description)
-    check_and_update("start_date", start_date)
-    check_and_update("end_date", end_date)
-    check_and_update("value", value)
-    check_and_update("notice_period", notice_period)
+    check_and_update_str("title", title)
+    check_and_update_str("description", description)
+    check_and_update_parsed("start_date", start_date, parse_date_form)
+    check_and_update_parsed("end_date", end_date, parse_date_form)
+    check_and_update_parsed("value", value, parse_float_form)
+    check_and_update_parsed("annual_value", annual_value, parse_float_form)
+    check_and_update_parsed("notice_period", notice_period, parse_int_form)
 
     # Handle File Update
     if file:

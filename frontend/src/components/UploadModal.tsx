@@ -17,6 +17,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
     const [title, setTitle] = useState('')
     const [description, setDescription] = useState('')
     const [value, setValue] = useState('')
+    const [annualValue, setAnnualValue] = useState('')
     const [tags, setTags] = useState('')
     const [startDate, setStartDate] = useState('')
     const [endDate, setEndDate] = useState('')
@@ -30,23 +31,32 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
         if (isOpen && initialData) {
             setTitle(initialData.title || '')
             setDescription(initialData.description || '')
-            setValue(formatGermanNumber(initialData.value) || '')
+            setValue(initialData.value != null ? formatGermanNumber(initialData.value) : '')
+            setAnnualValue(initialData.annual_value != null ? formatGermanNumber(initialData.annual_value) : '')
             setTags(initialData.tags?.map((t: any) => t.name).join(', ') || '')
             setNoticePeriod(initialData.notice_period?.toString() || '30')
             // Format dates for input type="date" (YYYY-MM-DD) - Use local time to avoid timezone shifts
             if (initialData.start_date) {
                 const d = new Date(initialData.start_date)
-                const year = d.getFullYear()
-                const month = String(d.getMonth() + 1).padStart(2, '0')
-                const day = String(d.getDate()).padStart(2, '0')
-                setStartDate(`${year}-${month}-${day}`)
+                if (!isNaN(d.getTime())) {
+                    const year = d.getFullYear()
+                    const month = String(d.getMonth() + 1).padStart(2, '0')
+                    const day = String(d.getDate()).padStart(2, '0')
+                    setStartDate(`${year}-${month}-${day}`)
+                }
+            } else {
+                setStartDate('')
             }
             if (initialData.end_date) {
                 const d = new Date(initialData.end_date)
-                const year = d.getFullYear()
-                const month = String(d.getMonth() + 1).padStart(2, '0')
-                const day = String(d.getDate()).padStart(2, '0')
-                setEndDate(`${year}-${month}-${day}`)
+                if (!isNaN(d.getTime())) {
+                    const year = d.getFullYear()
+                    const month = String(d.getMonth() + 1).padStart(2, '0')
+                    const day = String(d.getDate()).padStart(2, '0')
+                    setEndDate(`${year}-${month}-${day}`)
+                }
+            } else {
+                setEndDate('')
             }
             setFile(null)
         } else if (isOpen && !initialData) {
@@ -54,6 +64,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
             setTitle('')
             setDescription('')
             setValue('')
+            setAnnualValue('')
             setTags('')
             setNoticePeriod('')
             setStartDate('')
@@ -97,6 +108,9 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
             if (data.value !== null && data.value !== undefined) {
                 setValue(formatGermanNumber(data.value))
             }
+            if (data.annual_value !== null && data.annual_value !== undefined) {
+                setAnnualValue(formatGermanNumber(data.annual_value))
+            }
             if (data.start_date) setStartDate(data.start_date)
             if (data.end_date) setEndDate(data.end_date)
             if (data.notice_period !== null && data.notice_period !== undefined) {
@@ -119,7 +133,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
         e.preventDefault()
         // File is required only for new contracts
         if (!initialData && !file) return
-        if (!title || !startDate || !endDate) return
+        if (!title) return
 
         setUploading(true)
 
@@ -127,12 +141,13 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
             const formData = new FormData()
             if (file) formData.append('file', file)
             formData.append('title', title)
-            formData.append('description', description)
-            formData.append('value', parseGermanNumber(value).toString())
-            formData.append('notice_period', noticePeriod || '30')
-            formData.append('tags', tags)
-            formData.append('start_date', new Date(startDate).toISOString())
-            formData.append('end_date', new Date(endDate).toISOString())
+            formData.append('description', description || '')
+            formData.append('value', value ? parseGermanNumber(value).toString() : '')
+            formData.append('annual_value', annualValue ? parseGermanNumber(annualValue).toString() : '')
+            formData.append('notice_period', noticePeriod || '')
+            formData.append('tags', tags || '')
+            formData.append('start_date', startDate ? new Date(startDate).toISOString() : '')
+            formData.append('end_date', endDate ? new Date(endDate).toISOString() : '')
 
             if (initialData) {
                 // Edit Mode: PUT request (FormData)
@@ -153,6 +168,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
             setTitle('')
             setDescription('')
             setValue('')
+            setAnnualValue('')
             setTags('')
             setNoticePeriod('')
             setStartDate('')
@@ -241,6 +257,16 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                                             className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                                         />
                                     </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Jährlicher Preis (€)</label>
+                                        <input
+                                            type="text"
+                                            value={annualValue}
+                                            onChange={e => setAnnualValue(e.target.value)}
+                                            placeholder="z.B. 2.500"
+                                            className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                                        />
+                                    </div>
                                 </div>
 
                                 <div>
@@ -256,11 +282,11 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-400 mb-1">Startdatum</label>
-                                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" required />
+                                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-400 mb-1">Enddatum</label>
-                                        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" required />
+                                        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
                                     </div>
                                 </div>
 

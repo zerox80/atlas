@@ -176,6 +176,7 @@ Antworte NUR mit einem validen JSON-Objekt, ohne zusätzlichen Text oder Erklär
     "title": "Kurzer, prägnanter Vertragstitel",
     "description": "Kurze Zusammenfassung des Vertrags (max 200 Zeichen)",
     "value": 0.0,
+    "annual_value": 0.0,
     "start_date": "YYYY-MM-DD",
     "end_date": "YYYY-MM-DD",
     "notice_period": 30,
@@ -183,11 +184,12 @@ Antworte NUR mit einem validen JSON-Objekt, ohne zusätzlichen Text oder Erklär
 }}
 
 Regeln:
-- value: Der GESAMTWERT des Vertrags. Berechne: (Summe aller monatlichen Kosten inkl. Versicherung/Steuer) * (Laufzeit in Monaten). Falls Laufzeit unbegrenzt/unbekannt: Nimm (Monatliche Kosten * 12). Gib nur die Zahl zurück.
-- start_date/end_date: Vertragslaufzeit im ISO-Format
+- value: Der GESAMTWERT des Vertrags (falls berechenbar, sonst null). Berechne: (Summe aller monatlichen Kosten inkl. Versicherung/Steuer) * (Laufzeit in Monaten). Falls Laufzeit unbegrenzt/unbekannt: Nimm (Monatliche Kosten * 12).
+- annual_value: Der jährliche Preis oder Basiswert (falls anwendbar). Z.B. monatliche Kosten * 12. Falls nicht zutreffend, null.
+- start_date/end_date: Vertragslaufzeit im ISO-Format. Wenn kein Datum explizit genannt wird oder es z.B. unbefristet ist, setze das Feld zwingend auf null.
 - notice_period: Kündigungsfrist in Tagen. Falls KEINE Frist explizit genannt ist, verwende null.
 - tags: 1-3 passende Kategorien (z.B. "Software", "Lizenz", "Miete", "Service")
-- WICHTIG: Wenn ein Wert nicht explizit im Text steht, gib null zurück. Erfinde KEINE Daten. Insbesondere bei Kündigungsfristen und Enddaten: Wenn unklar, nimm null!"""
+- WICHTIG: Wenn ein Wert nicht explizit im Text steht, gib null zurück. Erfinde KEINE Daten. Insbesondere bei Kündigungsfristen und Start-/Enddaten: Wenn unklar, nimm null!"""
         }]
     else:
         # Image mode: Convert to images (max 8 pages)
@@ -213,6 +215,7 @@ Antworte NUR mit einem validen JSON-Objekt, ohne zusätzlichen Text oder Erklär
     "title": "Kurzer, prägnanter Vertragstitel",
     "description": "Kurze Zusammenfassung des Vertrags (max 200 Zeichen)",
     "value": 0.0,
+    "annual_value": 0.0,
     "start_date": "YYYY-MM-DD",
     "end_date": "YYYY-MM-DD",
     "notice_period": 30,
@@ -220,11 +223,12 @@ Antworte NUR mit einem validen JSON-Objekt, ohne zusätzlichen Text oder Erklär
 }
 
 Regeln:
-- value: Der GESAMTWERT des Vertrags. Berechne: (Summe aller monatlichen Kosten inkl. Versicherung/Steuer) * (Laufzeit in Monaten). Falls Laufzeit unbegrenzt/unbekannt: Nimm (Monatliche Kosten * 12). Gib nur die Zahl zurück.
-- start_date/end_date: Vertragslaufzeit im ISO-Format
+- value: Der GESAMTWERT des Vertrags (falls berechenbar, sonst null). Berechne: (Summe aller monatlichen Kosten inkl. Versicherung/Steuer) * (Laufzeit in Monaten). Falls Laufzeit unbegrenzt/unbekannt: Nimm (Monatliche Kosten * 12).
+- annual_value: Der jährliche Preis oder Basiswert (falls anwendbar). Z.B. monatliche Kosten * 12. Falls nicht zutreffend, null.
+- start_date/end_date: Vertragslaufzeit im ISO-Format. Wenn kein Datum explizit genannt wird oder es z.B. unbefristet ist, setze das Feld zwingend auf null.
 - notice_period: Kündigungsfrist in Tagen. Falls KEINE Frist explizit genannt ist, verwende null.
 - tags: 1-3 passende Kategorien (z.B. "Software", "Lizenz", "Miete", "Service")
-- WICHTIG: Wenn ein Wert nicht explizit im Text steht, gib null zurück. Erfinde KEINE Daten. Insbesondere bei Kündigungsfristen und Enddaten: Wenn unklar, nimm null!"""
+- WICHTIG: Wenn ein Wert nicht explizit im Text steht, gib null zurück. Erfinde KEINE Daten. Insbesondere bei Kündigungsfristen und Start-/Enddaten: Wenn unklar, nimm null!"""
         })
     
     response = await _retry_on_rate_limit(
@@ -264,6 +268,7 @@ Regeln:
         "title": None,
         "description": None,
         "value": None,
+        "annual_value": None,
         "start_date": None,
         "end_date": None,
         "notice_period": None,

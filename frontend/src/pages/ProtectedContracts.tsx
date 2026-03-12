@@ -8,9 +8,10 @@ interface Contract {
     id: number
     title: string
     description?: string
-    start_date: string
-    end_date: string
-    value: number
+    start_date?: string
+    end_date?: string
+    value?: number
+    annual_value?: number
     file_extension: string
     is_protected: boolean
 }
@@ -112,11 +113,17 @@ const ProtectedContracts: React.FC = () => {
                                 <div className="space-y-2 text-sm text-gray-300 mb-6">
                                     <div className="flex justify-between">
                                         <span>Wert:</span>
-                                        <span className="font-mono">{contract.value.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}</span>
+                                        <span className="font-mono">{contract.value != null ? contract.value.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) : 'N/A'}</span>
                                     </div>
+                                    {contract.annual_value != null && (
+                                        <div className="flex justify-between">
+                                            <span>Jährlicher Preis:</span>
+                                            <span className="font-mono">{contract.annual_value.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}</span>
+                                        </div>
+                                    )}
                                     <div className="flex justify-between">
                                         <span>Ende:</span>
-                                        <span>{new Date(contract.end_date).toLocaleDateString('de-DE')}</span>
+                                        <span>{contract.end_date ? new Date(contract.end_date).toLocaleDateString('de-DE') : 'Unbefristet'}</span>
                                     </div>
                                 </div>
 

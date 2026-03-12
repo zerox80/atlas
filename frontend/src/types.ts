@@ -7,11 +7,12 @@ export interface Contract {
     id: number
     title: string
     description: string
-    start_date: string
-    end_date: string
+    start_date?: string
+    end_date?: string
     file_path: string
     uploaded_at: string
-    value: number
+    value?: number
+    annual_value?: number
     tags: Tag[]
     lists?: { id: number, name: string, color: string }[]
     version?: number

@@ -25,9 +25,16 @@ def migrate():
             print("Adding column 'is_protected'...")
             # Add column with default value 0 (False)
             cursor.execute("ALTER TABLE contract ADD COLUMN is_protected BOOLEAN DEFAULT 0")
-            conn.commit()
             print("Migration successful: Added 'is_protected' column.")
             
+        if "annual_value" in columns:
+            print("Column 'annual_value' already exists. No action needed.")
+        else:
+            print("Adding column 'annual_value'...")
+            cursor.execute("ALTER TABLE contract ADD COLUMN annual_value FLOAT")
+            print("Migration successful: Added 'annual_value' column.")
+            
+        conn.commit()
         conn.close()
         
     except Exception as e:
