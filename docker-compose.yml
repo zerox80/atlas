@@ -4,7 +4,7 @@ services:
     container_name: ze-backend
     restart: always
     environment:
-      - DATABASE_URL=${DATABASE_URL:-sqlite:///./ze_dashboard.db}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/ze_dashboard.db}
       - SECRET_KEY=${SECRET_KEY}
       - ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
