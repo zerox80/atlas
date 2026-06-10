@@ -1,8 +1,12 @@
 import sqlite3
 import os
 
-# Path to your database file
-DB_PATH = "data/ze_dashboard.db"
+# Path to your database file - dynamically resolved from environment
+db_url = os.getenv("DATABASE_URL", "sqlite:///./data/ze_dashboard.db")
+if db_url.startswith("sqlite:///"):
+    DB_PATH = db_url.replace("sqlite:///", "")
+else:
+    DB_PATH = "data/ze_dashboard.db"
 
 def migrate():
     print(f"Connecting to database at {DB_PATH}...")
