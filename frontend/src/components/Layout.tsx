@@ -2,6 +2,7 @@ import React from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { FiLogOut, FiFileText, FiPieChart, FiMenu, FiX, FiShield, FiFolder, FiCalendar } from 'react-icons/fi'
 import { useUser } from '../App'
+import api from '../api'
 
 interface LayoutProps {
     children: React.ReactNode
@@ -14,7 +15,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
     const handleLogout = async () => {
         try {
-            await fetch('/api/logout', { method: 'POST', credentials: 'include' })
+            await api.post('/logout')
         } catch (e) {
             // Ignore errors
         }
