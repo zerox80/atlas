@@ -51,7 +51,7 @@ class TestContractPermissions:
         admin_user: User,
     ):
         visible = create_contract(session, "Visible Contract")
-        hidden = create_contract(session, "Hidden Contract")
+        create_contract(session, "Hidden Contract")
         grant_permission(session, test_user, visible, "read")
 
         authenticate_as(test_user)
@@ -95,6 +95,7 @@ class TestContractPermissions:
             .where(ContractPermission.contract_id == full_access_contract.id)
         ).first()
         assert read_permission is not None
+        assert full_permission is not None
         assert read_permission.permission_level == "read"
         assert full_permission.permission_level == "full"
 

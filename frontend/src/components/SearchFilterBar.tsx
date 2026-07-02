@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { FiSearch, FiFilter, FiX, FiChevronDown, FiArrowUp, FiArrowDown, FiDownload } from 'react-icons/fi'
 import api, { exportContracts } from '../api'
+import type { ContractFilterState } from '../utils/filterParams'
 
 interface Tag {
     id: number
@@ -20,18 +21,7 @@ interface SearchFilterBarProps {
     onFiltersChange: (filters: FilterState) => void
 }
 
-export interface FilterState {
-    q: string
-    tags: string[]
-    listId: number | null
-    minValue: string
-    maxValue: string
-    startDateFrom: string
-    startDateTo: string
-    status: string
-    sortBy: string
-    sortOrder: 'asc' | 'desc'
-}
+export type FilterState = ContractFilterState
 
 const SearchFilterBar: React.FC<SearchFilterBarProps> = ({ onFiltersChange }) => {
     const [isExpanded, setIsExpanded] = useState(false)

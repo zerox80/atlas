@@ -138,12 +138,25 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
         setUploading(true)
 
         try {
+            const parsedValue = value ? parseGermanNumber(value) : null
+            const parsedAnnualValue = annualValue ? parseGermanNumber(annualValue) : null
+
+            if (value && (parsedValue === null || parsedValue < 0)) {
+                alert('Bitte geben Sie einen gültigen nicht-negativen Gesamtwert ein.')
+                return
+            }
+
+            if (annualValue && (parsedAnnualValue === null || parsedAnnualValue < 0)) {
+                alert('Bitte geben Sie einen gültigen nicht-negativen jährlichen Preis ein.')
+                return
+            }
+
             const formData = new FormData()
             if (file) formData.append('file', file)
             formData.append('title', title)
             formData.append('description', description || '')
-            formData.append('value', value ? parseGermanNumber(value).toString() : '')
-            formData.append('annual_value', annualValue ? parseGermanNumber(annualValue).toString() : '')
+            formData.append('value', parsedValue !== null ? parsedValue.toString() : '')
+            formData.append('annual_value', parsedAnnualValue !== null ? parsedAnnualValue.toString() : '')
             formData.append('notice_period', noticePeriod || '')
             formData.append('tags', tags || '')
             formData.append('start_date', startDate ? new Date(startDate).toISOString() : '')

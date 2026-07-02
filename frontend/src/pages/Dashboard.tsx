@@ -4,7 +4,8 @@ import { useSearchParams } from 'react-router-dom'
 import { FiPlus, FiDownload, FiCalendar, FiClock, FiTrash2, FiFolder, FiShield, FiLock } from 'react-icons/fi'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import api, { toggleContractProtection } from '../api'
-import { parseGermanNumber, formatGermanNumber } from '../utils/formatUtils'
+import { formatGermanNumber } from '../utils/formatUtils'
+import { buildContractQueryParams } from '../utils/filterParams'
 import UploadModal from '../components/UploadModal'
 import CommandPalette from '../components/CommandPalette'
 import AuditModal from '../components/AuditModal'
@@ -75,20 +76,7 @@ const Dashboard: React.FC = () => {
     const { data: contracts, isLoading } = useQuery<Contract[]>(
         ['contracts', filters, urlListId],
         async () => {
-            const params: any = {}
-
-            if (filters) {
-                if (filters.q) params.q = filters.q
-                if (filters.tags.length > 0) params.tags = filters.tags.join(',')
-                if (filters.listId !== null) params.list_id = filters.listId
-                if (filters.minValue) params.min_value = parseGermanNumber(filters.minValue)
-                if (filters.maxValue) params.max_value = parseGermanNumber(filters.maxValue)
-                if (filters.startDateFrom) params.start_date_from = filters.startDateFrom
-                if (filters.startDateTo) params.start_date_to = filters.startDateTo
-                if (filters.status) params.status = filters.status
-                if (filters.sortBy) params.sort_by = filters.sortBy
-                if (filters.sortOrder) params.sort_order = filters.sortOrder
-            }
+            const params = buildContractQueryParams(filters)
 
             // URL list_id takes precedence (from Lists page navigation)
             if (urlListId && !filters?.listId) {
