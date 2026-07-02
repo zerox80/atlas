@@ -4,6 +4,7 @@ import { FiPlus, FiFolder, FiEdit2, FiTrash2, FiFileText } from 'react-icons/fi'
 import { useNavigate } from 'react-router-dom'
 import api from '../api'
 import ListModal from '../components/ListModal'
+import { useUser } from '../App'
 
 interface ContractList {
     id: number
@@ -16,6 +17,7 @@ interface ContractList {
 
 const Lists: React.FC = () => {
     const navigate = useNavigate()
+    const { isAdmin } = useUser()
     const queryClient = useQueryClient()
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [editingList, setEditingList] = useState<ContractList | null>(null)
@@ -74,16 +76,18 @@ const Lists: React.FC = () => {
                     <h1 className="text-3xl font-bold text-white mb-2">Listen</h1>
                     <p className="text-gray-400">Organisieren Sie Ihre Verträge in benutzerdefinierten Listen.</p>
                 </div>
-                <button
-                    onClick={() => {
-                        setEditingList(null)
-                        setIsModalOpen(true)
-                    }}
-                    className="mt-4 md:mt-0 w-full md:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-blue-500/20"
-                >
-                    <FiPlus />
-                    <span>Neue Liste</span>
-                </button>
+                {isAdmin && (
+                    <button
+                        onClick={() => {
+                            setEditingList(null)
+                            setIsModalOpen(true)
+                        }}
+                        className="mt-4 md:mt-0 w-full md:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-blue-500/20"
+                    >
+                        <FiPlus />
+                        <span>Neue Liste</span>
+                    </button>
+                )}
             </div>
 
             {lists && lists.length > 0 ? (
@@ -101,25 +105,27 @@ const Lists: React.FC = () => {
                                 >
                                     <FiFolder size={24} style={{ color: list.color }} />
                                 </div>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => {
-                                            setEditingList(list)
-                                            setIsModalOpen(true)
-                                        }}
-                                        className="p-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs transition-colors"
-                                        title="Bearbeiten"
-                                    >
-                                        <FiEdit2 size={16} />
-                                    </button>
-                                    <button
-                                        onClick={() => handleDelete(list)}
-                                        className="p-2 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded-lg text-xs transition-colors"
-                                        title="Löschen"
-                                    >
-                                        <FiTrash2 size={16} />
-                                    </button>
-                                </div>
+                                {isAdmin && (
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setEditingList(list)
+                                                setIsModalOpen(true)
+                                            }}
+                                            className="p-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs transition-colors"
+                                            title="Bearbeiten"
+                                        >
+                                            <FiEdit2 size={16} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDelete(list)}
+                                            className="p-2 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded-lg text-xs transition-colors"
+                                            title="Löschen"
+                                        >
+                                            <FiTrash2 size={16} />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
 
                             <h3 className="text-lg font-semibold text-white mb-1">{list.name}</h3>
@@ -156,17 +162,23 @@ const Lists: React.FC = () => {
                         <FiFolder size={40} className="text-indigo-400" />
                     </div>
                     <h3 className="text-xl font-semibold text-white mb-2">Keine Listen vorhanden</h3>
-                    <p className="text-gray-400 mb-6">Erstellen Sie Ihre erste Liste, um Verträge zu organisieren.</p>
-                    <button
-                        onClick={() => {
-                            setEditingList(null)
-                            setIsModalOpen(true)
-                        }}
-                        className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-                    >
-                        <FiPlus />
-                        <span>Erste Liste erstellen</span>
-                    </button>
+                    <p className="text-gray-400 mb-6">
+                        {isAdmin
+                            ? 'Erstellen Sie Ihre erste Liste, um Verträge zu organisieren.'
+                            : 'Keine Listen mit freigegebenen Verträgen vorhanden.'}
+                    </p>
+                    {isAdmin && (
+                        <button
+                            onClick={() => {
+                                setEditingList(null)
+                                setIsModalOpen(true)
+                            }}
+                            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                        >
+                            <FiPlus />
+                            <span>Erste Liste erstellen</span>
+                        </button>
+                    )}
                 </div>
             )}
 

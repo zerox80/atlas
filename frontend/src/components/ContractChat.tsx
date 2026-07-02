@@ -61,52 +61,64 @@ const ContractChat: React.FC<ContractChatProps> = ({ isOpen, onClose, contractId
             }
 
             let fullContent = ''
+            let pending = ''
+
+            const applyAssistantContent = () => {
+                setMessages(prev => {
+                    const newMessages = [...prev]
+                    const lastIdx = newMessages.length - 1
+                    if (lastIdx >= 0 && newMessages[lastIdx].role === 'assistant') {
+                        newMessages[lastIdx] = {
+                            ...newMessages[lastIdx],
+                            content: fullContent
+                        }
+                    }
+                    return newMessages
+                })
+            }
+
+            const handleSseEvent = (event: string) => {
+                const dataLines = event
+                    .split('\n')
+                    .filter(line => line.startsWith('data: '))
+                    .map(line => line.slice(6))
+
+                for (const jsonData of dataLines) {
+                    const data = JSON.parse(jsonData)
+
+                    if (data === '[DONE]') {
+                        continue
+                    }
+
+                    if (typeof data === 'string' && data.startsWith('[ERROR]')) {
+                        throw new Error(data.slice(8))
+                    }
+
+                    if (typeof data === 'string') {
+                        fullContent += data
+                        applyAssistantContent()
+                    }
+                }
+            }
 
             while (true) {
                 const { done, value } = await reader.read()
                 if (done) break
 
-                const chunk = decoder.decode(value, { stream: true })
-                // Parse SSE format: data: <json-encoded-content>\n\n
-                const lines = chunk.split('\n')
+                pending += decoder.decode(value, { stream: true })
+                const events = pending.split('\n\n')
+                pending = events.pop() ?? ''
 
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const jsonData = line.slice(6) // Remove 'data: ' prefix
-
-                        try {
-                            // Parse JSON-encoded chunk
-                            const data = JSON.parse(jsonData)
-
-                            if (data === '[DONE]') {
-                                // Stream finished
-                                continue
-                            }
-
-                            if (typeof data === 'string' && data.startsWith('[ERROR]')) {
-                                throw new Error(data.slice(8))
-                            }
-
-                            fullContent += data
-
-                            // Update the last message with new content
-                            setMessages(prev => {
-                                const newMessages = [...prev]
-                                const lastIdx = newMessages.length - 1
-                                if (lastIdx >= 0 && newMessages[lastIdx].role === 'assistant') {
-                                    newMessages[lastIdx] = {
-                                        ...newMessages[lastIdx],
-                                        content: fullContent
-                                    }
-                                }
-                                return newMessages
-                            })
-                        } catch (parseError) {
-                            // Skip invalid JSON (incomplete chunks)
-                            console.debug('Skipping incomplete chunk:', jsonData)
-                        }
+                for (const event of events) {
+                    if (event.trim()) {
+                        handleSseEvent(event)
                     }
                 }
+            }
+
+            pending += decoder.decode()
+            if (pending.trim()) {
+                handleSseEvent(pending)
             }
 
             // Mark streaming as complete
@@ -133,7 +145,7 @@ const ContractChat: React.FC<ContractChatProps> = ({ isOpen, onClose, contractId
                 if (lastIdx >= 0 && newMessages[lastIdx].role === 'assistant') {
                     newMessages[lastIdx] = {
                         role: 'assistant',
-                        content: `❌ Fehler: ${detail}`,
+                        content: `Fehler: ${detail}`,
                         isStreaming: false
                     }
                 }

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react'
 import api, { toggleContractProtection } from '../api'
-import { FiShield, FiUnlock, FiTrash2, FiAlertCircle } from 'react-icons/fi'
+import { FiShield, FiUnlock, FiAlertCircle } from 'react-icons/fi'
 import { useNavigate } from 'react-router-dom'
 
 interface Contract {
@@ -14,6 +14,7 @@ interface Contract {
     annual_value?: number
     file_extension: string
     is_protected: boolean
+    can_manage_protection: boolean
 }
 
 const ProtectedContracts: React.FC = () => {
@@ -127,13 +128,19 @@ const ProtectedContracts: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <button
-                                    onClick={() => handleUnprotect(contract.id, contract.title)}
-                                    className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-gray-700 hover:bg-red-900/50 text-gray-300 hover:text-red-300 rounded transition-all border border-gray-600 hover:border-red-800"
-                                >
-                                    <FiUnlock />
-                                    <span>Schutz aufheben</span>
-                                </button>
+                                {contract.can_manage_protection ? (
+                                    <button
+                                        onClick={() => handleUnprotect(contract.id, contract.title)}
+                                        className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-gray-700 hover:bg-red-900/50 text-gray-300 hover:text-red-300 rounded transition-all border border-gray-600 hover:border-red-800"
+                                    >
+                                        <FiUnlock />
+                                        <span>Schutz aufheben</span>
+                                    </button>
+                                ) : (
+                                    <div className="w-full py-2 px-4 bg-gray-900/50 text-center text-sm text-gray-500 rounded border border-gray-700">
+                                        Nur Vollzugriff kann den Schutz aendern.
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))}

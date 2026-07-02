@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { FiSearch, FiFilter, FiX, FiChevronDown, FiArrowUp, FiArrowDown, FiDownload } from 'react-icons/fi'
 import api, { exportContracts } from '../api'
-import { formatGermanNumber, parseGermanNumber } from '../utils/formatUtils'
 
 interface Tag {
     id: number

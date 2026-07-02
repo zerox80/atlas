@@ -5,13 +5,19 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '../test/utils';
 import Layout from './Layout';
 
-// Mock the auth context
-vi.mock('../context/AuthContext', () => ({
-    useAuth: () => ({
+// Mock the user context exposed by App.tsx
+vi.mock('../App', () => ({
+    useUser: () => ({
         user: { username: 'testuser', role: 'user' },
-        logout: vi.fn(),
-        isAuthenticated: true,
+        setUser: vi.fn(),
+        isAdmin: false,
     }),
+}));
+
+vi.mock('../api', () => ({
+    default: {
+        post: vi.fn(),
+    },
 }));
 
 describe('Layout', () => {

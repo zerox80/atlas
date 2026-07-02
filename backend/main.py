@@ -27,11 +27,12 @@ from models import User, Contract, Tag, ContractTagLink, AuditLog, ContractPermi
 from schemas import ContractRead, UserCreate, UserRead, UserUpdate, PermissionCreate, PermissionRead, ContractListRead, ContractListCreate, ContractListUpdate, AuditLogRead, OTPVerify, TagRead, TagCreate, TagUpdate, ContractAnalysisResult, ChatRequest, ChatResponse
 from auth import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_MINUTES
 from security_utils import log_audit
-from file_utils import validate_file, save_upload_file, resolve_file_path
+from file_utils import validate_file, save_upload_file, resolve_file_path, delete_upload_file
 
 # Configuration
 PRODUCTION_MODE = os.getenv("PRODUCTION", "false").lower() == "true"
 RATE_LIMIT_LOGIN = os.getenv("RATE_LIMIT_LOGIN", "5/minute")
+ACL_BACKFILL_ACTION = "ACL_BACKFILL_V1"
 
 # Initialize Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -95,6 +96,8 @@ def on_startup():
             for t in tags: 
                 session.add(t)
             session.commit()
+
+        backfill_existing_contract_read_permissions(session)
 
 async def get_current_user(
     token: Annotated[Optional[str], Depends(oauth2_scheme)] = None, 
@@ -267,8 +270,7 @@ def read_contracts(
 ):
     """
     Get contracts with optional search and filters.
-    By default, ALL users see ALL contracts.
-    Permissions are OPTIONAL restrictions, not required grants.
+    Non-admin users only see contracts they have explicit read access to.
     """
     statement = select(Contract)
     
@@ -310,6 +312,8 @@ def read_contracts(
         statement = statement.where(or_(Contract.end_date == None, Contract.end_date >= now))
     elif status == "expired":
         statement = statement.where(Contract.end_date != None, Contract.end_date < now)
+
+    statement = filter_contracts_for_user(statement, current_user, "read")
     
     # Sorting
     sort_columns = {
@@ -332,7 +336,7 @@ def read_contracts(
     # Eager load relationships to prevent N+1 queries and DetachedInstanceError
     statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))
     contracts = session.exec(statement).all()
-    return contracts
+    return [contract_read_for_user(contract, current_user, session) for contract in contracts]
 
 @app.get("/contracts/export")
 def export_contracts(
@@ -382,7 +386,8 @@ def export_contracts(
         statement = statement.where(or_(Contract.end_date == None, Contract.end_date >= now))
     elif status == "expired":
         statement = statement.where(Contract.end_date != None, Contract.end_date < now)
-        
+
+    statement = filter_contracts_for_user(statement, current_user, "read")
     statement = statement.distinct()
     statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))
     contracts = session.exec(statement).all()
@@ -518,13 +523,24 @@ async def create_contract(
         session.refresh(contract)
     except Exception as e:
         # Cleanup file if DB insert fails
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        try:
+            delete_upload_file(file_path)
+        except Exception as cleanup_error:
+            print(f"Error cleaning up failed upload: {cleanup_error}")
         raise e
+
+    if current_user.id is not None and contract.id is not None:
+        session.add(ContractPermission(
+            user_id=current_user.id,
+            contract_id=contract.id,
+            permission_level="full"
+        ))
+        session.commit()
+        session.refresh(contract)
     
     client_host = request.client.host if request.client else "unknown"
     log_audit(session, current_user.id, "UPLOAD", f"[CID:{contract.id}] Uploaded contract {contract.title}", client_host, request.headers.get("user-agent"))
-    return contract
+    return contract_read_for_user(contract, current_user, session)
 
 # Removed unused StreamingResponse import
 @app.get("/contracts/{contract_id}/download")
@@ -542,6 +558,8 @@ def download_contract(contract_id: int, request: Request, current_user: User = D
     except FileNotFoundError:
         print(f"[ERROR] File not found on disk: {contract.file_path}")
         raise HTTPException(status_code=404, detail="File not found on server")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Stored file path is outside the upload directory")
 
     # Standard download
     client_host = request.client.host if request.client else "unknown"
@@ -667,10 +685,10 @@ async def update_contract(
         session.refresh(contract)
 
         # Now it is safe to remove the old file if it was updated
-        if old_file_path and os.path.exists(old_file_path) and old_file_path != contract.file_path:
-             try:
-                os.remove(old_file_path)
-             except Exception as e:
+        if old_file_path and old_file_path != contract.file_path:
+            try:
+                delete_upload_file(old_file_path)
+            except Exception as e:
                 print(f"Error removing old file: {e}")
         
         diff_summary = "; ".join(changes)
@@ -683,7 +701,7 @@ async def update_contract(
             request.headers.get("user-agent")
         )
     
-    return contract
+    return contract_read_for_user(contract, current_user, session)
 
 @app.delete("/contracts/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_contract(
@@ -708,13 +726,16 @@ def delete_contract(
     # Save file path before deleting record
     file_path_to_delete = contract.file_path
 
+    session.exec(delete(ContractTagLink).where(ContractTagLink.contract_id == contract_id))
+    session.exec(delete(ContractListLink).where(ContractListLink.contract_id == contract_id))
+    session.exec(delete(ContractPermission).where(ContractPermission.contract_id == contract_id))
     session.delete(contract)
     session.commit()
 
     # Delete file if exists (After commit checks pass)
-    if file_path_to_delete and os.path.exists(file_path_to_delete):
+    if file_path_to_delete:
         try:
-            os.remove(file_path_to_delete)
+            delete_upload_file(file_path_to_delete)
         except Exception as e:
             print(f"Error deleting file: {e}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -752,7 +773,7 @@ def toggle_contract_protection(
         "unknown"
     )
     
-    return contract
+    return contract_read_for_user(contract, current_user, session)
 
 
 # Helper dependency for admin-only endpoints
@@ -870,6 +891,13 @@ def get_contract_audit_logs(
     current_user: User = Depends(get_current_user), 
     session: Session = Depends(get_session)
 ):
+    contract = session.get(Contract, contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    if not check_contract_permission(current_user, contract_id, "read", session):
+        raise HTTPException(status_code=403, detail="You don't have permission to access this contract")
+
     pattern = f"%[CID:{contract_id}]%"
     results = session.exec(select(AuditLog, User).join(User, isouter=True).where(AuditLog.details.like(pattern)).order_by(AuditLog.timestamp.desc())).all()
     
@@ -888,12 +916,7 @@ def get_contract_audit_logs(
 
 # Helper to check contract permission
 def check_contract_permission(user: User, contract_id: int, required_level: str, session: Session) -> bool:
-    """Check if user has required permission level for a contract.
-    Admin users always have full access.
-    If NO permission entry exists for the user/contract, DEFAULT IS FULL ACCESS.
-    Permissions are OPTIONAL RESTRICTIONS, not required grants.
-    required_level: 'read', 'write', or 'full'
-    """
+    """Check if user has the required explicit permission level for a contract."""
     if user.role == "admin":
         return True
     
@@ -903,16 +926,112 @@ def check_contract_permission(user: User, contract_id: int, required_level: str,
         .where(ContractPermission.contract_id == contract_id)
     ).first()
     
-    # NO permission entry
-    # Default: READ matches "Wiki-style" open access.
-    # WRITE/FULL are restricted to protect data integrity.
     if not permission:
-        if required_level == "read":
-            return True
         return False
     
     level_hierarchy = {"read": 1, "write": 2, "full": 3}
     return level_hierarchy.get(permission.permission_level, 0) >= level_hierarchy.get(required_level, 0)
+
+
+def contract_read_for_user(contract: Contract, user: User, session: Session) -> dict:
+    """Serialize a contract with the caller's effective capabilities."""
+    data = ContractRead.model_validate(contract).model_dump()
+    can_full = check_contract_permission(user, contract.id, "full", session) if contract.id is not None else False
+    data["can_read"] = check_contract_permission(user, contract.id, "read", session) if contract.id is not None else False
+    data["can_write"] = check_contract_permission(user, contract.id, "write", session) if contract.id is not None else False
+    data["can_delete"] = can_full
+    data["can_manage_protection"] = can_full
+    return data
+
+
+def backfill_existing_contract_read_permissions(session: Session) -> int:
+    """Preserve pre-ACL read access for contracts that existed before this rollout."""
+    already_ran = session.exec(
+        select(AuditLog).where(AuditLog.action == ACL_BACKFILL_ACTION)
+    ).first()
+    if already_ran:
+        return 0
+
+    contracts = session.exec(select(Contract)).all()
+    users = session.exec(
+        select(User)
+        .where(User.role != "admin")
+        .where(User.is_active == True)
+    ).all()
+
+    created = 0
+    for contract in contracts:
+        if contract.id is None:
+            continue
+        for user in users:
+            if user.id is None:
+                continue
+            existing_permission = session.exec(
+                select(ContractPermission)
+                .where(ContractPermission.user_id == user.id)
+                .where(ContractPermission.contract_id == contract.id)
+            ).first()
+            if existing_permission:
+                continue
+
+            session.add(ContractPermission(
+                user_id=user.id,
+                contract_id=contract.id,
+                permission_level="read",
+            ))
+            created += 1
+
+    session.add(AuditLog(
+        user_id=None,
+        action=ACL_BACKFILL_ACTION,
+        details=f"Granted read access for {created} existing user-contract pairs.",
+    ))
+    session.commit()
+
+    if created:
+        print(f"[ACL_BACKFILL] Granted read access for {created} existing user-contract pairs.")
+
+    return created
+
+
+def allowed_permission_levels(required_level: str) -> List[str]:
+    level_hierarchy = {"read": 1, "write": 2, "full": 3}
+    required_rank = level_hierarchy.get(required_level, 0)
+    return [level for level, rank in level_hierarchy.items() if rank >= required_rank]
+
+
+def filter_contracts_for_user(statement, user: User, required_level: str = "read"):
+    """Apply contract ACLs to a select statement that includes Contract."""
+    if user.role == "admin":
+        return statement
+
+    return (
+        statement
+        .join(ContractPermission, ContractPermission.contract_id == Contract.id)
+        .where(ContractPermission.user_id == user.id)
+        .where(ContractPermission.permission_level.in_(allowed_permission_levels(required_level)))
+    )
+
+
+def visible_contract_count_for_list(list_id: int, user: User, session: Session) -> int:
+    statement = (
+        select(func.count(func.distinct(ContractListLink.contract_id)))
+        .join(Contract, Contract.id == ContractListLink.contract_id)
+        .where(ContractListLink.list_id == list_id)
+    )
+    statement = filter_contracts_for_user(statement, user, "read")
+    return session.exec(statement).one() or 0
+
+
+def get_visible_list_or_404(list_id: int, user: User, session: Session) -> ContractList:
+    lst = session.get(ContractList, list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    if user.role != "admin" and visible_contract_count_for_list(list_id, user, session) == 0:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    return lst
 
 
 # --- Current User Info Endpoint ---
@@ -1212,15 +1331,15 @@ def get_lists(
     current_user: User = Depends(get_current_user), 
     session: Session = Depends(get_session)
 ):
-    """Get all contract lists with contract counts."""
-    statement = (
-        select(ContractList, func.count(ContractListLink.contract_id))
-        .outerjoin(ContractListLink, ContractList.id == ContractListLink.list_id)
-        .group_by(ContractList.id)
-    )
-    results = session.exec(statement).all()
+    """Get visible contract lists with permission-aware contract counts."""
+    lists = session.exec(select(ContractList).order_by(ContractList.name.asc())).all()
     result = []
-    for lst, count in results:
+    for lst in lists:
+        if lst.id is None:
+            continue
+        count = visible_contract_count_for_list(lst.id, current_user, session)
+        if current_user.role != "admin" and count == 0:
+            continue
         result.append({
             "id": lst.id,
             "name": lst.name,
@@ -1235,7 +1354,7 @@ def get_lists(
 @app.post("/lists", response_model=ContractListRead, status_code=201)
 def create_list(
     list_data: ContractListCreate,
-    current_user: User = Depends(get_current_user),
+    admin: User = Depends(require_admin),
     session: Session = Depends(get_session)
 ):
     """Create a new contract list."""
@@ -1264,14 +1383,8 @@ def get_list(
     session: Session = Depends(get_session)
 ):
     """Get a specific list with its contract count."""
-    lst = session.get(ContractList, list_id)
-    if not lst:
-        raise HTTPException(status_code=404, detail="List not found")
-    
-    count = session.exec(
-        select(func.count(ContractListLink.contract_id))
-        .where(ContractListLink.list_id == lst.id)
-    ).one()
+    lst = get_visible_list_or_404(list_id, current_user, session)
+    count = visible_contract_count_for_list(list_id, current_user, session)
     
     return {
         "id": lst.id,
@@ -1287,7 +1400,7 @@ def get_list(
 def update_list(
     list_id: int,
     list_data: ContractListUpdate,
-    current_user: User = Depends(get_current_user),
+    admin: User = Depends(require_admin),
     session: Session = Depends(get_session)
 ):
     """Update a list."""
@@ -1306,10 +1419,7 @@ def update_list(
     session.commit()
     session.refresh(lst)
     
-    count = session.exec(
-        select(func.count(ContractListLink.contract_id))
-        .where(ContractListLink.list_id == lst.id)
-    ).one()
+    count = visible_contract_count_for_list(list_id, admin, session)
     
     return {
         "id": lst.id,
@@ -1324,7 +1434,7 @@ def update_list(
 @app.delete("/lists/{list_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_list(
     list_id: int, 
-    current_user: User = Depends(get_current_user), 
+    admin: User = Depends(require_admin),
     session: Session = Depends(get_session)
 ):
     """Delete a list (contracts are NOT deleted, only the association)."""
@@ -1343,7 +1453,7 @@ def delete_list(
 def add_contract_to_list(
     list_id: int,
     contract_id: int,
-    current_user: User = Depends(get_current_user),
+    admin: User = Depends(require_admin),
     session: Session = Depends(get_session)
 ):
     """Add a contract to a list."""
@@ -1378,10 +1488,18 @@ def add_contract_to_list(
 def remove_contract_from_list(
     list_id: int,
     contract_id: int,
-    current_user: User = Depends(get_current_user),
+    admin: User = Depends(require_admin),
     session: Session = Depends(get_session)
 ):
     """Remove a contract from a list."""
+    lst = session.get(ContractList, list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    contract = session.get(Contract, contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
     link = session.exec(
         select(ContractListLink).where(
             ContractListLink.list_id == list_id,
@@ -1404,17 +1522,18 @@ def get_list_contracts(
     session: Session = Depends(get_session)
 ):
     """Get all contracts in a specific list."""
-    lst = session.get(ContractList, list_id)
-    if not lst:
-        raise HTTPException(status_code=404, detail="List not found")
+    get_visible_list_or_404(list_id, current_user, session)
     
-    contracts = session.exec(
+    statement = (
         select(Contract)
         .join(ContractListLink)
         .where(ContractListLink.list_id == list_id)
-    ).all()
+        .options(selectinload(Contract.tags), selectinload(Contract.lists))
+    )
+    statement = filter_contracts_for_user(statement, current_user, "read").distinct()
+    contracts = session.exec(statement).all()
     
-    return contracts
+    return [contract_read_for_user(contract, current_user, session) for contract in contracts]
 
 
 # ========================================
@@ -1501,6 +1620,8 @@ async def chat_with_contract(
         abs_path = resolve_file_path(contract.file_path)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Vertragsdatei nicht gefunden")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Stored file path is outside the upload directory")
     
     try:
         import aiofiles
@@ -1519,8 +1640,6 @@ async def chat_with_contract(
             detail="KI-Chat fehlgeschlagen. Bitte versuche es erneut."
         )
 
-
-from fastapi.responses import StreamingResponse
 
 @app.post("/contracts/{contract_id}/chat/stream")
 @limiter.limit("10/minute")
@@ -1553,6 +1672,8 @@ async def chat_with_contract_stream(
         abs_path = resolve_file_path(contract.file_path)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Vertragsdatei nicht gefunden")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Stored file path is outside the upload directory")
     
     # Read PDF into memory
     import aiofiles
