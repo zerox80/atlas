@@ -32,6 +32,7 @@ from file_utils import validate_file, save_upload_file, resolve_file_path, delet
 # Configuration
 PRODUCTION_MODE = os.getenv("PRODUCTION", "false").lower() == "true"
 RATE_LIMIT_LOGIN = os.getenv("RATE_LIMIT_LOGIN", "5/minute")
+ACL_BACKFILL_ACTION = "ACL_BACKFILL_V1"
 
 # Initialize Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -95,6 +96,8 @@ def on_startup():
             for t in tags: 
                 session.add(t)
             session.commit()
+
+        backfill_existing_contract_read_permissions(session)
 
 async def get_current_user(
     token: Annotated[Optional[str], Depends(oauth2_scheme)] = None, 
@@ -333,7 +336,7 @@ def read_contracts(
     # Eager load relationships to prevent N+1 queries and DetachedInstanceError
     statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))
     contracts = session.exec(statement).all()
-    return contracts
+    return [contract_read_for_user(contract, current_user, session) for contract in contracts]
 
 @app.get("/contracts/export")
 def export_contracts(
@@ -537,7 +540,7 @@ async def create_contract(
     
     client_host = request.client.host if request.client else "unknown"
     log_audit(session, current_user.id, "UPLOAD", f"[CID:{contract.id}] Uploaded contract {contract.title}", client_host, request.headers.get("user-agent"))
-    return contract
+    return contract_read_for_user(contract, current_user, session)
 
 # Removed unused StreamingResponse import
 @app.get("/contracts/{contract_id}/download")
@@ -698,7 +701,7 @@ async def update_contract(
             request.headers.get("user-agent")
         )
     
-    return contract
+    return contract_read_for_user(contract, current_user, session)
 
 @app.delete("/contracts/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_contract(
@@ -770,7 +773,7 @@ def toggle_contract_protection(
         "unknown"
     )
     
-    return contract
+    return contract_read_for_user(contract, current_user, session)
 
 
 # Helper dependency for admin-only endpoints
@@ -928,6 +931,67 @@ def check_contract_permission(user: User, contract_id: int, required_level: str,
     
     level_hierarchy = {"read": 1, "write": 2, "full": 3}
     return level_hierarchy.get(permission.permission_level, 0) >= level_hierarchy.get(required_level, 0)
+
+
+def contract_read_for_user(contract: Contract, user: User, session: Session) -> dict:
+    """Serialize a contract with the caller's effective capabilities."""
+    data = ContractRead.model_validate(contract).model_dump()
+    can_full = check_contract_permission(user, contract.id, "full", session) if contract.id is not None else False
+    data["can_read"] = check_contract_permission(user, contract.id, "read", session) if contract.id is not None else False
+    data["can_write"] = check_contract_permission(user, contract.id, "write", session) if contract.id is not None else False
+    data["can_delete"] = can_full
+    data["can_manage_protection"] = can_full
+    return data
+
+
+def backfill_existing_contract_read_permissions(session: Session) -> int:
+    """Preserve pre-ACL read access for contracts that existed before this rollout."""
+    already_ran = session.exec(
+        select(AuditLog).where(AuditLog.action == ACL_BACKFILL_ACTION)
+    ).first()
+    if already_ran:
+        return 0
+
+    contracts = session.exec(select(Contract)).all()
+    users = session.exec(
+        select(User)
+        .where(User.role != "admin")
+        .where(User.is_active == True)
+    ).all()
+
+    created = 0
+    for contract in contracts:
+        if contract.id is None:
+            continue
+        for user in users:
+            if user.id is None:
+                continue
+            existing_permission = session.exec(
+                select(ContractPermission)
+                .where(ContractPermission.user_id == user.id)
+                .where(ContractPermission.contract_id == contract.id)
+            ).first()
+            if existing_permission:
+                continue
+
+            session.add(ContractPermission(
+                user_id=user.id,
+                contract_id=contract.id,
+                permission_level="read",
+            ))
+            created += 1
+
+    session.add(AuditLog(
+        user_id=None,
+        action=ACL_BACKFILL_ACTION,
+        details=f"Granted read access for {created} existing user-contract pairs.",
+    ))
+    session.commit()
+
+    if created:
+        print(f"[ACL_BACKFILL] Granted read access for {created} existing user-contract pairs.")
+
+    return created
 
 
 def allowed_permission_levels(required_level: str) -> List[str]:
@@ -1469,7 +1533,7 @@ def get_list_contracts(
     statement = filter_contracts_for_user(statement, current_user, "read").distinct()
     contracts = session.exec(statement).all()
     
-    return contracts
+    return [contract_read_for_user(contract, current_user, session) for contract in contracts]
 
 
 # ========================================

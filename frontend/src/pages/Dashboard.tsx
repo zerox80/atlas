@@ -27,6 +27,10 @@ interface Contract {
     notice_period?: number | null
     file_extension: string
     is_protected: boolean
+    can_read: boolean
+    can_write: boolean
+    can_delete: boolean
+    can_manage_protection: boolean
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
@@ -373,16 +377,19 @@ const Dashboard: React.FC = () => {
                                 >
                                     Ansicht
                                 </button>
-                                <button
-                                    onClick={() => {
-                                        setEditingContract(contract);
-                                        setIsUploadOpen(true);
-                                    }}
-                                    className="p-1 px-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-xs transition-colors"
-                                >
-                                    Bearbeiten
-                                </button>
-                                <button
+                                {contract.can_write && (
+                                    <button
+                                        onClick={() => {
+                                            setEditingContract(contract);
+                                            setIsUploadOpen(true);
+                                        }}
+                                        className="p-1 px-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded text-xs transition-colors"
+                                    >
+                                        Bearbeiten
+                                    </button>
+                                )}
+                                {contract.can_delete && (
+                                    <button
                                     onClick={() => handleDelete(contract.id, contract.title, contract.is_protected)}
                                     className={`p-1 px-2 rounded text-xs transition-colors ${contract.is_protected ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-red-900/30 hover:bg-red-900/50 text-red-400'}`}
                                     title={contract.is_protected ? "Geschützt (In 'Geschützt' entsperren)" : "Löschen"}
@@ -390,6 +397,7 @@ const Dashboard: React.FC = () => {
                                 >
                                     <FiTrash2 />
                                 </button>
+                                )}
                             </div>
                         </div>
 
@@ -432,13 +440,15 @@ const Dashboard: React.FC = () => {
                             <button className="px-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-400 hover:text-white transition-colors">
                                 v{contract.version || 1}
                             </button>
-                            <button
+                            {contract.can_manage_protection && (
+                                <button
                                 onClick={() => handleToggleProtection(contract.id, contract.is_protected, contract.title)}
                                 className={`px-3 rounded-lg transition-colors ${contract.is_protected ? 'bg-green-900/30 hover:bg-green-900/50 text-green-400' : 'bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-white'}`}
                                 title={contract.is_protected ? "Schutz aufheben" : "Schützen"}
                             >
                                 {contract.is_protected ? <FiShield /> : <FiLock />}
                             </button>
+                            )}
                             {isAdmin && (
                                 <button
                                     onClick={() => {

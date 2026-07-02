@@ -84,6 +84,10 @@ class ContractRead(BaseModel):
     notice_period: Optional[int] = None
     is_protected: bool
     file_extension: str
+    can_read: bool = True
+    can_write: bool = False
+    can_delete: bool = False
+    can_manage_protection: bool = False
 
     class Config:
         from_attributes = True

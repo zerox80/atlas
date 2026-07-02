@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from main import app, get_current_user
+from main import backfill_existing_contract_read_permissions
 from models import (
     AuditLog,
     Contract,
@@ -57,12 +58,49 @@ class TestContractPermissions:
         response = client.get("/contracts")
         assert response.status_code == 200
         assert [contract["title"] for contract in response.json()] == ["Visible Contract"]
+        visible_payload = response.json()[0]
+        assert visible_payload["can_read"] is True
+        assert visible_payload["can_write"] is False
+        assert visible_payload["can_delete"] is False
+        assert visible_payload["can_manage_protection"] is False
 
         authenticate_as(admin_user)
         response = client.get("/contracts")
         assert response.status_code == 200
         titles = {contract["title"] for contract in response.json()}
         assert titles == {"Visible Contract", "Hidden Contract"}
+        assert all(contract["can_write"] is True for contract in response.json())
+        assert all(contract["can_delete"] is True for contract in response.json())
+
+    def test_acl_backfill_grants_read_once_for_existing_contracts(
+        self,
+        session: Session,
+        test_user: User,
+    ):
+        existing_contract = create_contract(session, "Existing Contract")
+        full_access_contract = create_contract(session, "Full Access Contract")
+        grant_permission(session, test_user, full_access_contract, "full")
+
+        created = backfill_existing_contract_read_permissions(session)
+        assert created == 1
+
+        read_permission = session.exec(
+            select(ContractPermission)
+            .where(ContractPermission.user_id == test_user.id)
+            .where(ContractPermission.contract_id == existing_contract.id)
+        ).first()
+        full_permission = session.exec(
+            select(ContractPermission)
+            .where(ContractPermission.user_id == test_user.id)
+            .where(ContractPermission.contract_id == full_access_contract.id)
+        ).first()
+        assert read_permission is not None
+        assert read_permission.permission_level == "read"
+        assert full_permission.permission_level == "full"
+
+        assert backfill_existing_contract_read_permissions(session) == 0
+        permissions = session.exec(select(ContractPermission)).all()
+        assert len(permissions) == 2
 
     def test_export_only_contains_readable_contracts(
         self,

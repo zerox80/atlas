@@ -19,6 +19,11 @@ interface Contract {
     version?: number
     notice_period?: number | null
     file_extension: string
+    is_protected: boolean
+    can_read: boolean
+    can_write: boolean
+    can_delete: boolean
+    can_manage_protection: boolean
 }
 
 const Contracts: React.FC = () => {
@@ -32,7 +37,12 @@ const Contracts: React.FC = () => {
         return res.data
     })
 
-    const handleDelete = async (id: number, title: string) => {
+    const handleDelete = async (id: number, title: string, isProtected: boolean) => {
+        if (isProtected) {
+            alert('Dieser Vertrag ist geschuetzt. Bitte heben Sie zuerst den Schutz auf.');
+            return;
+        }
+
         if (window.confirm(`Möchten Sie den Vertrag "${title}" wirklich löschen?`)) {
             try {
                 await api.delete(`/contracts/${id}`)
@@ -144,18 +154,23 @@ const Contracts: React.FC = () => {
                                 >
                                     <FiMessageCircle />
                                 </button>
-                                <button
-                                    onClick={() => { setEditingContract(contract); setIsUploadOpen(true); }}
-                                    className="p-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
-                                >
-                                    Bearbeiten
-                                </button>
-                                <button
-                                    onClick={() => handleDelete(contract.id, contract.title)}
-                                    className="p-2 bg-red-900/50 hover:bg-red-900 text-red-300 rounded-lg transition-colors"
-                                >
-                                    <FiTrash2 />
-                                </button>
+                                {contract.can_write && (
+                                    <button
+                                        onClick={() => { setEditingContract(contract); setIsUploadOpen(true); }}
+                                        className="p-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
+                                    >
+                                        Bearbeiten
+                                    </button>
+                                )}
+                                {contract.can_delete && (
+                                    <button
+                                        onClick={() => handleDelete(contract.id, contract.title, contract.is_protected)}
+                                        className={`p-2 rounded-lg transition-colors ${contract.is_protected ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-red-900/50 hover:bg-red-900 text-red-300'}`}
+                                        disabled={contract.is_protected}
+                                    >
+                                        <FiTrash2 />
+                                    </button>
+                                )}
                             </div>
 
                             <div className="flex items-center gap-3 mb-4">

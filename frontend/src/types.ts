@@ -19,4 +19,8 @@ export interface Contract {
     notice_period?: number | null
     file_extension: string
     is_protected: boolean
+    can_read: boolean
+    can_write: boolean
+    can_delete: boolean
+    can_manage_protection: boolean
 }
