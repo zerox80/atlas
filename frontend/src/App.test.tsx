@@ -5,16 +5,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from './test/utils';
 import { AppRoutes } from './App';
 
-// Mock auth context
-vi.mock('./context/AuthContext', () => ({
-    AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    useAuth: () => ({
-        user: null,
-        isAuthenticated: false,
-        isLoading: false,
-    }),
-}));
-
 // Mock API
 vi.mock('./api', () => ({
     default: {

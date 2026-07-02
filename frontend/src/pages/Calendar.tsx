@@ -16,7 +16,7 @@ import {
     subDays
 } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { FiChevronLeft, FiChevronRight, FiCalendar } from 'react-icons/fi'
+import { FiChevronLeft, FiChevronRight } from 'react-icons/fi'
 import api from '../api'
 import { Contract } from '../types'
 
@@ -141,7 +141,7 @@ const Calendar: React.FC = () => {
 
                 {/* Days */}
                 <div className="grid grid-cols-7 auto-rows-fr bg-gray-900">
-                    {days.map((day, idx) => {
+                    {days.map((day) => {
                         const events = getEventsForDay(day)
                         const isCurrentMonth = isSameMonth(day, currentDate)
                         const isTodayDate = isToday(day)

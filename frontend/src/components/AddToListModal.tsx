@@ -43,7 +43,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({ isOpen, onClose, contra
                     } else {
                         setContractLists([])
                     }
-                } catch (e) {
+                } catch {
                     setContractLists([])
                 }
             }

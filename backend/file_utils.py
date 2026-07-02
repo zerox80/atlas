@@ -1,6 +1,5 @@
 
 import os
-import shutil
 import uuid
 import aiofiles
 from fastapi import UploadFile, HTTPException
@@ -103,22 +102,37 @@ def resolve_file_path(file_path: str) -> str:
         raise FileNotFoundError("Empty file path")
         
     if os.path.isabs(file_path):
-        abs_path = file_path
+        candidate_path = file_path
     else:
-        # Assume relative to UPLOAD_DIR or root?
-        # Existing code had confusion. Let's try UPLOAD_DIR first, then CWD.
-        # But `file_path` in DB usually stores "uploads/filename" or just "uploads\filename"
-        # if it was joined with os.path.join.
-        abs_path = os.path.abspath(file_path)
+        normalized_path = os.path.normpath(file_path)
+        normalized_upload_dir = os.path.normpath(UPLOAD_DIR)
+        if normalized_path == normalized_upload_dir or normalized_path.startswith(normalized_upload_dir + os.sep):
+            candidate_path = normalized_path
+        else:
+            candidate_path = os.path.join(UPLOAD_DIR, normalized_path)
+    abs_path = os.path.abspath(candidate_path)
     
     # Secure resolution to prevent path traversal
     abs_path = os.path.realpath(abs_path)
-    base_dir = os.path.realpath(UPLOAD_DIR)
+    base_dir = os.path.realpath(os.path.abspath(UPLOAD_DIR))
     
-    if not abs_path.startswith(base_dir):
+    if os.path.commonpath([base_dir, abs_path]) != base_dir:
         raise PermissionError("Access denied: Path is outside the uploads directory")
         
     if not os.path.exists(abs_path):
         raise FileNotFoundError(f"File not found: {abs_path}")
         
     return abs_path
+
+
+def delete_upload_file(file_path: str) -> None:
+    """
+    Deletes a stored upload only after resolving it inside UPLOAD_DIR.
+    Missing files are ignored so database cleanup can still complete.
+    """
+    try:
+        abs_path = resolve_file_path(file_path)
+    except FileNotFoundError:
+        return
+
+    os.remove(abs_path)

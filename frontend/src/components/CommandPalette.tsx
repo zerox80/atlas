@@ -1,14 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
 import { FiSearch, FiFileText } from 'react-icons/fi'
-import { useNavigate } from 'react-router-dom'
 import api from '../api'
 
 // Simple CMDK styling via standard CSS or inline
 const CommandPalette = () => {
     const [open, setOpen] = useState(false)
     const [contracts, setContracts] = useState<any[]>([])
-    const navigate = useNavigate()
 
     useEffect(() => {
         const down = (e: KeyboardEvent) => {

@@ -45,7 +45,7 @@ export function AppRoutes() {
                 const meRes = await api.get('/me')
                 setUser(meRes.data)
                 setIsAuthenticated(true)
-            } catch (error) {
+            } catch {
                 setIsAuthenticated(false)
                 setUser(null)
             } finally {
@@ -61,7 +61,7 @@ export function AppRoutes() {
             setUser(meRes.data)
             setIsAuthenticated(true)
             navigate('/')
-        } catch (error) {
+        } catch {
             console.error('Failed to get user info after login')
         }
     }

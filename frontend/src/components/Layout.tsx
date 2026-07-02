@@ -16,7 +16,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const handleLogout = async () => {
         try {
             await api.post('/logout')
-        } catch (e) {
+        } catch {
             // Ignore errors
         }
         navigate('/login')

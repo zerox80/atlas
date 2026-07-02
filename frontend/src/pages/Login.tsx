@@ -28,7 +28,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         }
 
         try {
-            const response = await api.post('/token', formData, { withCredentials: true })
+            await api.post('/token', formData, { withCredentials: true })
             // Token is now set as HttpOnly cookie by backend - no localStorage needed
             onLoginSuccess()
         } catch (err: any) {
