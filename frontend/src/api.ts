@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { buildContractQueryParams, type ContractFilterState } from './utils/filterParams'
 
 const api = axios.create({
     baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -23,9 +24,9 @@ export const toggleContractProtection = async (id: number) => {
     return api.put(`/contracts/${id}/toggle-protection`)
 }
 
-export const exportContracts = async (filters: any, format: 'csv' | 'excel') => {
+export const exportContracts = async (filters: ContractFilterState, format: 'csv' | 'excel') => {
     return api.get('/contracts/export', {
-        params: { ...filters, format },
+        params: { ...buildContractQueryParams(filters), format },
         responseType: 'blob'
     })
 }

@@ -35,7 +35,13 @@ yarn-error.log*
 
 # Build outputs
 frontend/dist/
+frontend/coverage/
+backend/coverage.xml
+backend/htmlcov/
 .cache/
+
+# Test caches
+.pytest_cache/
 
 # IDE
 .vscode/

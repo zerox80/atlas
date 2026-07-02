@@ -17,6 +17,7 @@ import json
 import os
 import re
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Any
 
@@ -30,7 +31,6 @@ OCR_MODEL = "mistral-ocr-latest"  # Mistral OCR model
 MAX_RETRIES = 5
 BASE_DELAY = 2  # seconds
 
-import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 

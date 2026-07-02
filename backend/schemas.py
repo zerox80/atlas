@@ -55,8 +55,21 @@ class ContractCreate(BaseModel):
     end_date: Optional[datetime] = None
     value: Optional[float] = Field(default=None, ge=0)
     annual_value: Optional[float] = Field(default=None, ge=0)
-    tags: List[str] = []
+    tags: List[str] = Field(default_factory=list)
     notice_period: Optional[int] = Field(default=30, ge=0, description="Notice period in days")
+
+    @field_validator('title')
+    @classmethod
+    def title_not_blank(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError('Title must not be blank')
+        return cleaned
+
+    @field_validator('tags')
+    @classmethod
+    def normalize_tags(cls, values: List[str]) -> List[str]:
+        return normalize_tag_names(values)
 
 class ContractUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=255)
@@ -67,6 +80,23 @@ class ContractUpdate(BaseModel):
     annual_value: Optional[float] = Field(None, ge=0)
     tags: Optional[List[str]] = None
     notice_period: Optional[int] = Field(None, ge=0)
+
+    @field_validator('title')
+    @classmethod
+    def title_not_blank(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError('Title must not be blank')
+        return cleaned
+
+    @field_validator('tags')
+    @classmethod
+    def normalize_tags(cls, values: Optional[List[str]]) -> Optional[List[str]]:
+        if values is None:
+            return None
+        return normalize_tag_names(values)
 
 class ContractRead(BaseModel):
     id: int
@@ -123,7 +153,7 @@ class UserRead(BaseModel):
 class UserUpdate(BaseModel):
     username: Optional[str] = Field(None, min_length=3, max_length=32)
     password: Optional[str] = Field(None, min_length=8, max_length=128)
-    role: Optional[str] = None
+    role: Optional[str] = Field(None, pattern="^(admin|user)$")
     is_active: Optional[bool] = None
 
 
@@ -179,3 +209,19 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     """Response from contract chat."""
     answer: str
+
+
+def normalize_tag_names(values: List[str]) -> List[str]:
+    """Trim, deduplicate, and enforce tag name bounds."""
+    normalized: List[str] = []
+    seen = set()
+    for value in values:
+        cleaned = value.strip()
+        if not cleaned:
+            continue
+        if len(cleaned) > 50:
+            raise ValueError('Tag names must be at most 50 characters')
+        if cleaned not in seen:
+            normalized.append(cleaned)
+            seen.add(cleaned)
+    return normalized
