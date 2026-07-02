@@ -2,6 +2,7 @@
 Tests for contract CRUD endpoints.
 """
 from fastapi.testclient import TestClient
+from models import Contract, ContractPermission
 
 
 class TestContractList:
@@ -24,8 +25,27 @@ class TestContractSearch:
     
     def test_search_query_parameter(self, auth_client: TestClient):
         """Test search query parameter is accepted."""
-        response = auth_client.get("/contracts?search=test")
+        response = auth_client.get("/contracts?q=test")
         assert response.status_code == 200
+
+    def test_search_query_filters_results(self, auth_client: TestClient, session, test_user):
+        """Search should filter by title/description, not ignore the query."""
+        first = Contract(title="Acme Master Agreement", file_path="uploads/acme.txt")
+        second = Contract(title="Other Vendor", file_path="uploads/other.txt")
+        session.add(first)
+        session.add(second)
+        session.commit()
+        session.refresh(first)
+        session.refresh(second)
+
+        session.add(ContractPermission(user_id=test_user.id, contract_id=first.id, permission_level="read"))
+        session.add(ContractPermission(user_id=test_user.id, contract_id=second.id, permission_level="read"))
+        session.commit()
+
+        response = auth_client.get("/contracts?q=Acme")
+
+        assert response.status_code == 200
+        assert [contract["title"] for contract in response.json()] == ["Acme Master Agreement"]
     
     def test_filter_by_tag(self, auth_client: TestClient):
         """Test filtering by tag."""
@@ -59,6 +79,16 @@ class TestContractCRUD:
             }
         )
         assert response.status_code == 422
+
+    def test_create_contract_rejects_negative_value(self, auth_client: TestClient):
+        """Form uploads should enforce the same schema constraints as JSON models."""
+        response = auth_client.post(
+            "/contracts",
+            data={"title": "Invalid Contract", "value": "-1"},
+            files={"file": ("contract.txt", b"hello", "text/plain")},
+        )
+
+        assert response.status_code == 422
     
     def test_get_nonexistent_contract(self, auth_client: TestClient):
         """Test getting a contract that doesn't exist."""
@@ -77,3 +107,27 @@ class TestContractCRUD:
             data={"title": "Updated Title"}
         )
         assert response.status_code == 404
+
+
+class TestContractExport:
+    """Test contract exports."""
+
+    def test_export_uses_value_filter(self, auth_client: TestClient, session, test_user):
+        low = Contract(title="Low Value", value=10, file_path="uploads/low.txt")
+        high = Contract(title="High Value", value=500, file_path="uploads/high.txt")
+        session.add(low)
+        session.add(high)
+        session.commit()
+        session.refresh(low)
+        session.refresh(high)
+
+        session.add(ContractPermission(user_id=test_user.id, contract_id=low.id, permission_level="read"))
+        session.add(ContractPermission(user_id=test_user.id, contract_id=high.id, permission_level="read"))
+        session.commit()
+
+        response = auth_client.get("/contracts/export?min_value=100&format=csv")
+        body = response.content.decode("utf-8-sig")
+
+        assert response.status_code == 200
+        assert "High Value" in body
+        assert "Low Value" not in body

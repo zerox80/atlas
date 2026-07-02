@@ -1,12 +1,12 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Response, Request, Cookie
+from fastapi.encoders import jsonable_encoder
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session, select, delete
+from sqlmodel import Session, col, select, delete
 from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
-from typing import List, Annotated, Optional
-import uuid
+from typing import List, Annotated, Optional, Any
 import pyotp
 import qrcode
 import io
@@ -14,6 +14,7 @@ import os
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
 
 import secrets
 
@@ -24,7 +25,7 @@ from slowapi.errors import RateLimitExceeded
 
 from database import create_db_and_tables, get_session
 from models import User, Contract, Tag, ContractTagLink, AuditLog, ContractPermission, ContractList, ContractListLink
-from schemas import ContractRead, UserCreate, UserRead, UserUpdate, PermissionCreate, PermissionRead, ContractListRead, ContractListCreate, ContractListUpdate, AuditLogRead, OTPVerify, TagRead, TagCreate, TagUpdate, ContractAnalysisResult, ChatRequest, ChatResponse
+from schemas import ContractCreate, ContractRead, ContractUpdate, UserCreate, UserRead, UserUpdate, PermissionCreate, PermissionRead, ContractListRead, ContractListCreate, ContractListUpdate, AuditLogRead, OTPVerify, TagRead, TagCreate, TagUpdate, ContractAnalysisResult, ChatRequest, ChatResponse
 from auth import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_MINUTES
 from security_utils import log_audit
 from file_utils import validate_file, save_upload_file, resolve_file_path, delete_upload_file
@@ -39,7 +40,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI()
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,29 +63,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 @app.on_event("startup")
 def on_startup():
     create_db_and_tables()
-    # Create initial admin user if not exists
     with next(get_session()) as session:
-        user = session.exec(select(User).where(User.username == "admin")).first()
-        admin_pw = os.getenv("ADMIN_PASSWORD")
-        if not admin_pw:
-            # Only generate random if not set AND user doesn't exist
-            if not user:
-                admin_pw = secrets.token_urlsafe(16)
-                print(f"\n[SECURITY ALERT] ADMIN_PASSWORD not set. Generated temporary password: {admin_pw}\n")
-        
-        if admin_pw:
-            hashed_pw = get_password_hash(admin_pw)
-            if not user:
-                # Create new
-                admin_user = User(username="admin", hashed_password=hashed_pw, role="admin")
-                session.add(admin_user)
-                session.commit()
-            else:
-                # Update existing (Self-Healing)
-                user.hashed_password = hashed_pw
-                session.add(user)
-                session.commit()
-            
+        bootstrap_admin_user(session)
+
         # Create some default tags
         if not session.exec(select(Tag)).first():
             tags = [
@@ -98,6 +79,28 @@ def on_startup():
             session.commit()
 
         backfill_existing_contract_read_permissions(session)
+
+
+def bootstrap_admin_user(session: Session) -> None:
+    """Create the initial admin account without resetting existing credentials."""
+    user = session.exec(select(User).where(User.username == "admin")).first()
+    if user:
+        if os.getenv("ADMIN_PASSWORD"):
+            print("Existing admin user found. ADMIN_PASSWORD is ignored after bootstrap.")
+        return
+
+    admin_pw = os.getenv("ADMIN_PASSWORD") or secrets.token_urlsafe(16)
+    if not os.getenv("ADMIN_PASSWORD"):
+        print(f"\n[SECURITY ALERT] ADMIN_PASSWORD not set. Generated temporary password: {admin_pw}\n")
+
+    admin_user = User(
+        username="admin",
+        hashed_password=get_password_hash(admin_pw),
+        role="admin",
+        is_active=True,
+    )
+    session.add(admin_user)
+    session.commit()
 
 async def get_current_user(
     token: Annotated[Optional[str], Depends(oauth2_scheme)] = None, 
@@ -224,7 +227,7 @@ def logout(response: Response):
 @app.post("/2fa/setup")
 def setup_2fa(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     secret = pyotp.random_base32()
-    current_user.totp_secret = secret
+    current_user.pending_totp_secret = secret
     session.add(current_user)
     session.commit()
     
@@ -241,14 +244,25 @@ def setup_2fa(current_user: User = Depends(get_current_user), session: Session =
     return Response(content=buf.getvalue(), media_type="image/png")
 
 @app.post("/2fa/verify")
-def verify_2fa(otp_data: OTPVerify, current_user: User = Depends(get_current_user)):
-    if not current_user.totp_secret:
+def verify_2fa(
+    otp_data: OTPVerify,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    secret = current_user.pending_totp_secret or current_user.totp_secret
+    if not secret:
         raise HTTPException(status_code=400, detail="2FA not setup")
         
-    totp = pyotp.TOTP(current_user.totp_secret)
+    totp = pyotp.TOTP(secret)
     if not totp.verify(otp_data.otp):
         raise HTTPException(status_code=400, detail="Invalid OTP")
-        
+
+    if current_user.pending_totp_secret:
+        current_user.totp_secret = current_user.pending_totp_secret
+        current_user.pending_totp_secret = None
+        session.add(current_user)
+        session.commit()
+
     return {"message": "Verified"}
 
 # --- Contract Endpoints ---
@@ -279,8 +293,8 @@ def read_contracts(
         search_term = f"%{q}%"
         statement = statement.where(
             or_(
-                Contract.title.ilike(search_term),
-                Contract.description.ilike(search_term)
+                col(Contract.title).ilike(search_term),
+                col(Contract.description).ilike(search_term)
             )
         )
     
@@ -288,7 +302,7 @@ def read_contracts(
     if tags:
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
         if tag_list:
-            statement = statement.join(ContractTagLink).join(Tag).where(Tag.name.in_(tag_list))
+            statement = statement.join(ContractTagLink).join(Tag).where(col(Tag.name).in_(tag_list))
     
     # Filter by list
     if list_id is not None:
@@ -302,28 +316,28 @@ def read_contracts(
     
     # Date range (start_date filter)
     if start_date_from:
-        statement = statement.where(Contract.start_date != None, Contract.start_date >= start_date_from)
+        statement = statement.where(col(Contract.start_date).is_not(None), col(Contract.start_date) >= start_date_from)
     if start_date_to:
-        statement = statement.where(Contract.start_date != None, Contract.start_date <= start_date_to)
+        statement = statement.where(col(Contract.start_date).is_not(None), col(Contract.start_date) <= start_date_to)
     
     # Status filter
     now = datetime.now(timezone.utc)
     if status == "active":
-        statement = statement.where(or_(Contract.end_date == None, Contract.end_date >= now))
+        statement = statement.where(or_(col(Contract.end_date).is_(None), col(Contract.end_date) >= now))
     elif status == "expired":
-        statement = statement.where(Contract.end_date != None, Contract.end_date < now)
+        statement = statement.where(col(Contract.end_date).is_not(None), col(Contract.end_date) < now)
 
     statement = filter_contracts_for_user(statement, current_user, "read")
     
     # Sorting
-    sort_columns = {
-        "title": Contract.title,
-        "value": Contract.value,
-        "start_date": Contract.start_date,
-        "end_date": Contract.end_date,
-        "uploaded_at": Contract.uploaded_at
+    sort_columns: dict[str, Any] = {
+        "title": col(Contract.title),
+        "value": col(Contract.value),
+        "start_date": col(Contract.start_date),
+        "end_date": col(Contract.end_date),
+        "uploaded_at": col(Contract.uploaded_at),
     }
-    sort_column = sort_columns.get(sort_by, Contract.uploaded_at)
+    sort_column = sort_columns.get(sort_by or "uploaded_at", col(Contract.uploaded_at))
     
     if sort_order == "asc":
         statement = statement.order_by(sort_column.asc())
@@ -334,7 +348,7 @@ def read_contracts(
     statement = statement.distinct()
     
     # Eager load relationships to prevent N+1 queries and DetachedInstanceError
-    statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))
+    statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))  # type: ignore[arg-type]
     contracts = session.exec(statement).all()
     return [contract_read_for_user(contract, current_user, session) for contract in contracts]
 
@@ -348,6 +362,8 @@ def export_contracts(
     start_date_from: Optional[datetime] = None,
     start_date_to: Optional[datetime] = None,
     status: Optional[str] = None,
+    sort_by: Optional[str] = "uploaded_at",
+    sort_order: Optional[str] = "desc",
     format: str = "csv",
     current_user: User = Depends(get_current_user), 
     session: Session = Depends(get_session)
@@ -362,14 +378,14 @@ def export_contracts(
         search_term = f"%{q}%"
         statement = statement.where(
             or_(
-                Contract.title.ilike(search_term),
-                Contract.description.ilike(search_term)
+                col(Contract.title).ilike(search_term),
+                col(Contract.description).ilike(search_term)
             )
         )
     if tags:
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
         if tag_list:
-            statement = statement.join(ContractTagLink).join(Tag).where(Tag.name.in_(tag_list))
+            statement = statement.join(ContractTagLink).join(Tag).where(col(Tag.name).in_(tag_list))
     if list_id is not None:
         statement = statement.join(ContractListLink).where(ContractListLink.list_id == list_id)
     if min_value is not None:
@@ -377,19 +393,33 @@ def export_contracts(
     if max_value is not None:
         statement = statement.where(Contract.value <= max_value)
     if start_date_from:
-        statement = statement.where(Contract.start_date != None, Contract.start_date >= start_date_from)
+        statement = statement.where(col(Contract.start_date).is_not(None), col(Contract.start_date) >= start_date_from)
     if start_date_to:
-        statement = statement.where(Contract.start_date != None, Contract.start_date <= start_date_to)
+        statement = statement.where(col(Contract.start_date).is_not(None), col(Contract.start_date) <= start_date_to)
     
     now = datetime.now(timezone.utc)
     if status == "active":
-        statement = statement.where(or_(Contract.end_date == None, Contract.end_date >= now))
+        statement = statement.where(or_(col(Contract.end_date).is_(None), col(Contract.end_date) >= now))
     elif status == "expired":
-        statement = statement.where(Contract.end_date != None, Contract.end_date < now)
+        statement = statement.where(col(Contract.end_date).is_not(None), col(Contract.end_date) < now)
 
     statement = filter_contracts_for_user(statement, current_user, "read")
+
+    sort_columns: dict[str, Any] = {
+        "title": col(Contract.title),
+        "value": col(Contract.value),
+        "start_date": col(Contract.start_date),
+        "end_date": col(Contract.end_date),
+        "uploaded_at": col(Contract.uploaded_at),
+    }
+    sort_column = sort_columns.get(sort_by or "uploaded_at", col(Contract.uploaded_at))
+    if sort_order == "asc":
+        statement = statement.order_by(sort_column.asc())
+    else:
+        statement = statement.order_by(sort_column.desc())
+
     statement = statement.distinct()
-    statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))
+    statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))  # type: ignore[arg-type]
     contracts = session.exec(statement).all()
     
     # --- Data Processing ---
@@ -406,27 +436,27 @@ def export_contracts(
             "Kündigungsfrist (Tage)": c.notice_period if c.notice_period is not None else "",
             "Geschützt": "Ja" if c.is_protected else "Nein",
             "Tags": ", ".join([t.name for t in c.tags]),
-            "Listen": ", ".join([l.name for l in c.lists]),
+            "Listen": ", ".join([contract_list.name for contract_list in c.lists]),
             "Erstellt am": c.uploaded_at.strftime("%Y-%m-%d %H:%M") if c.uploaded_at else ""
         })
         
     df = pd.DataFrame(data)
     
     if format == "excel":
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        excel_output = io.BytesIO()
+        with pd.ExcelWriter(excel_output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Verträge')
-        output.seek(0)
+        excel_output.seek(0)
         
         headers = {
             'Content-Disposition': 'attachment; filename="vertrage_export.xlsx"'
         }
-        return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        return StreamingResponse(excel_output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         
     else: # Default to CSV
-        output = io.StringIO()
-        df.to_csv(output, index=False, sep=';', encoding='utf-8-sig') # German Excel compatible CSV
-        output_bytes = io.BytesIO(output.getvalue().encode('utf-8-sig'))
+        csv_output = io.StringIO()
+        df.to_csv(csv_output, index=False, sep=';', encoding='utf-8-sig') # German Excel compatible CSV
+        output_bytes = io.BytesIO(csv_output.getvalue().encode('utf-8-sig'))
         
         headers = {
             'Content-Disposition': 'attachment; filename="vertrage_export.csv"'
@@ -434,19 +464,50 @@ def export_contracts(
         return StreamingResponse(output_bytes, headers=headers, media_type='text/csv')
 
 def parse_date_form(val: Optional[str]) -> Optional[datetime]:
-    if not val: return None
-    try: return datetime.fromisoformat(val.replace("Z", "+00:00"))
-    except ValueError: raise HTTPException(status_code=422, detail="Invalid date format")
+    if not val:
+        return None
+    try:
+        return datetime.fromisoformat(val.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format")
 
 def parse_float_form(val: Optional[str]) -> Optional[float]:
-    if not val: return None
-    try: return float(val)
-    except ValueError: raise HTTPException(status_code=422, detail="Invalid float format")
+    if not val:
+        return None
+    try:
+        return float(val)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid float format")
 
 def parse_int_form(val: Optional[str]) -> Optional[int]:
-    if not val: return None
-    try: return int(val)
-    except ValueError: raise HTTPException(status_code=422, detail="Invalid int format")
+    if not val:
+        return None
+    try:
+        return int(val)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid int format")
+
+
+def parse_tags_form(val: Optional[str]) -> List[str]:
+    if not val:
+        return []
+    return [tag.strip() for tag in val.split(",") if tag.strip()]
+
+
+def validation_error_detail(exc: ValidationError) -> list[dict]:
+    errors = exc.errors()
+    for error in errors:
+        ctx = error.get("ctx")
+        if ctx and "error" in ctx:
+            ctx["error"] = str(ctx["error"])
+    return jsonable_encoder(errors)
+
+
+def validate_contract_form(schema_cls, **values):
+    try:
+        return schema_cls(**values)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=validation_error_detail(exc))
 
 @app.post("/contracts", response_model=ContractRead)
 async def create_contract(
@@ -463,6 +524,19 @@ async def create_contract(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
+    parsed_notice_period = parse_int_form(notice_period)
+    contract_data = validate_contract_form(
+        ContractCreate,
+        title=title,
+        description=description if description else None,
+        start_date=parse_date_form(start_date),
+        end_date=parse_date_form(end_date),
+        value=parse_float_form(value),
+        annual_value=parse_float_form(annual_value),
+        notice_period=parsed_notice_period if parsed_notice_period is not None else 30,
+        tags=parse_tags_form(tags),
+    )
+
     # 1. Validate File
     try:
         await validate_file(file)
@@ -479,22 +553,22 @@ async def create_contract(
         raise e
         
     contract = Contract(
-        title=title,
-        description=description if description else None,
-        start_date=parse_date_form(start_date),
-        end_date=parse_date_form(end_date),
+        title=contract_data.title,
+        description=contract_data.description,
+        start_date=contract_data.start_date,
+        end_date=contract_data.end_date,
         file_path=file_path,
-        value=parse_float_form(value),
-        annual_value=parse_float_form(annual_value),
-        notice_period=parse_int_form(notice_period)
+        value=contract_data.value if contract_data.value is not None else 0.0,
+        annual_value=contract_data.annual_value,
+        notice_period=contract_data.notice_period
     )
     
     # Handle Tags
-    if tags:
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    if contract_data.tags:
+        tag_list = contract_data.tags
         if tag_list:
             # Optimization: Fetch existing tags in one query
-            existing_tags = session.exec(select(Tag).where(Tag.name.in_(tag_list))).all()
+            existing_tags = session.exec(select(Tag).where(col(Tag.name).in_(tag_list))).all()
             existing_map = {t.name: t for t in existing_tags}
 
             for t_name in tag_list:
@@ -512,7 +586,8 @@ async def create_contract(
                         session.rollback()
                         # Race condition caught: tag was created by another request
                         tag = session.exec(select(Tag).where(Tag.name == t_name)).first()
-                        if tag: existing_map[t_name] = tag
+                        if tag:
+                            existing_map[t_name] = tag
             
                 if tag:
                      contract.tags.append(tag)
@@ -607,34 +682,37 @@ async def update_contract(
     # Check permission (need at least "write" level)
     if not check_contract_permission(current_user, contract_id, "write", session):
         raise HTTPException(status_code=403, detail="You don't have permission to edit this contract")
-        
+
+    parsed_value = parse_float_form(value)
+    update_data = validate_contract_form(
+        ContractUpdate,
+        title=title,
+        description=description if description else None,
+        start_date=parse_date_form(start_date),
+        end_date=parse_date_form(end_date),
+        value=parsed_value,
+        annual_value=parse_float_form(annual_value),
+        notice_period=parse_int_form(notice_period),
+        tags=parse_tags_form(tags) if tags is not None else None,
+    )
+
     changes = []
     
     # helper to check and update
-    def check_and_update_str(field_name, new_val):
-        if new_val is not None:
-            if new_val == "" and field_name != "title":
-                new_val = None
+    def check_and_update(field_name, new_val, provided):
+        if provided:
             old_val = getattr(contract, field_name)
             if old_val != new_val:
                 changes.append(f"{field_name}: '{old_val}' -> '{new_val}'")
                 setattr(contract, field_name, new_val)
 
-    def check_and_update_parsed(field_name, new_val_str, parser_func):
-        if new_val_str is not None:
-            parsed_val = parser_func(new_val_str)
-            old_val = getattr(contract, field_name)
-            if old_val != parsed_val:
-                changes.append(f"{field_name}: '{old_val}' -> '{parsed_val}'")
-                setattr(contract, field_name, parsed_val)
-    
-    check_and_update_str("title", title)
-    check_and_update_str("description", description)
-    check_and_update_parsed("start_date", start_date, parse_date_form)
-    check_and_update_parsed("end_date", end_date, parse_date_form)
-    check_and_update_parsed("value", value, parse_float_form)
-    check_and_update_parsed("annual_value", annual_value, parse_float_form)
-    check_and_update_parsed("notice_period", notice_period, parse_int_form)
+    check_and_update("title", update_data.title, title is not None)
+    check_and_update("description", update_data.description, description is not None)
+    check_and_update("start_date", update_data.start_date, start_date is not None)
+    check_and_update("end_date", update_data.end_date, end_date is not None)
+    check_and_update("value", update_data.value if update_data.value is not None else 0.0, value is not None)
+    check_and_update("annual_value", update_data.annual_value, annual_value is not None)
+    check_and_update("notice_period", update_data.notice_period, notice_period is not None)
 
     # Handle File Update
     if file:
@@ -659,7 +737,7 @@ async def update_contract(
     if tags is not None:
         # Simple Logic: Clear and Re-add. 
         old_tags = [t.name for t in contract.tags]
-        new_tags = [t.strip() for t in tags.split(",") if t.strip()]
+        new_tags = update_data.tags or []
         
         if set(old_tags) != set(new_tags):
             changes.append(f"tags: {old_tags} -> {new_tags}")
@@ -726,9 +804,9 @@ def delete_contract(
     # Save file path before deleting record
     file_path_to_delete = contract.file_path
 
-    session.exec(delete(ContractTagLink).where(ContractTagLink.contract_id == contract_id))
-    session.exec(delete(ContractListLink).where(ContractListLink.contract_id == contract_id))
-    session.exec(delete(ContractPermission).where(ContractPermission.contract_id == contract_id))
+    session.exec(delete(ContractTagLink).where(col(ContractTagLink.contract_id) == contract_id))
+    session.exec(delete(ContractListLink).where(col(ContractListLink.contract_id) == contract_id))
+    session.exec(delete(ContractPermission).where(col(ContractPermission.contract_id) == contract_id))
     session.delete(contract)
     session.commit()
 
@@ -781,6 +859,34 @@ def require_admin(current_user: User = Depends(get_current_user)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+
+def active_admin_count(session: Session) -> int:
+    count = session.exec(
+        select(func.count(col(User.id)))
+        .where(col(User.role) == "admin")
+        .where(col(User.is_active).is_(True))
+    ).one()
+    return int(count or 0)
+
+
+def ensure_active_admin_remains(
+    session: Session,
+    user: User,
+    proposed_role: Optional[str] = None,
+    proposed_is_active: Optional[bool] = None,
+) -> None:
+    current_is_active = bool(getattr(user, "is_active", True))
+    next_role = proposed_role if proposed_role is not None else user.role
+    next_is_active = proposed_is_active if proposed_is_active is not None else current_is_active
+
+    removes_active_admin = (
+        user.role == "admin"
+        and current_is_active
+        and (next_role != "admin" or not next_is_active)
+    )
+    if removes_active_admin and active_admin_count(session) <= 1:
+        raise HTTPException(status_code=400, detail="At least one active admin must remain")
 
 
 @app.get("/tags", response_model=List[TagRead])
@@ -865,7 +971,7 @@ def delete_tag(
     tag_name = tag.name
     
     # Remove all contract-tag links first
-    session.exec(delete(ContractTagLink).where(ContractTagLink.tag_id == tag_id))
+    session.exec(delete(ContractTagLink).where(col(ContractTagLink.tag_id) == tag_id))
     
     session.delete(tag)
     session.commit()
@@ -877,7 +983,7 @@ def delete_tag(
 def get_audit_logs(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    results = session.exec(select(AuditLog, User).join(User, isouter=True).order_by(AuditLog.timestamp.desc()).limit(100)).all()
+    results = session.exec(select(AuditLog, User).join(User, isouter=True).order_by(col(AuditLog.timestamp).desc()).limit(100)).all()
     logs = []
     for log, user in results:
         l_dict = log.model_dump()
@@ -899,7 +1005,7 @@ def get_contract_audit_logs(
         raise HTTPException(status_code=403, detail="You don't have permission to access this contract")
 
     pattern = f"%[CID:{contract_id}]%"
-    results = session.exec(select(AuditLog, User).join(User, isouter=True).where(AuditLog.details.like(pattern)).order_by(AuditLog.timestamp.desc())).all()
+    results = session.exec(select(AuditLog, User).join(User, isouter=True).where(col(AuditLog.details).like(pattern)).order_by(col(AuditLog.timestamp).desc())).all()
     
     logs = []
     for log, user in results:
@@ -955,8 +1061,8 @@ def backfill_existing_contract_read_permissions(session: Session) -> int:
     contracts = session.exec(select(Contract)).all()
     users = session.exec(
         select(User)
-        .where(User.role != "admin")
-        .where(User.is_active == True)
+        .where(col(User.role) != "admin")
+        .where(col(User.is_active).is_(True))
     ).all()
 
     created = 0
@@ -1007,17 +1113,17 @@ def filter_contracts_for_user(statement, user: User, required_level: str = "read
 
     return (
         statement
-        .join(ContractPermission, ContractPermission.contract_id == Contract.id)
-        .where(ContractPermission.user_id == user.id)
-        .where(ContractPermission.permission_level.in_(allowed_permission_levels(required_level)))
+        .join(ContractPermission, col(ContractPermission.contract_id) == col(Contract.id))
+        .where(col(ContractPermission.user_id) == user.id)
+        .where(col(ContractPermission.permission_level).in_(allowed_permission_levels(required_level)))
     )
 
 
 def visible_contract_count_for_list(list_id: int, user: User, session: Session) -> int:
     statement = (
         select(func.count(func.distinct(ContractListLink.contract_id)))
-        .join(Contract, Contract.id == ContractListLink.contract_id)
-        .where(ContractListLink.list_id == list_id)
+        .join(Contract, col(Contract.id) == col(ContractListLink.contract_id))
+        .where(col(ContractListLink.list_id) == list_id)
     )
     statement = filter_contracts_for_user(statement, user, "read")
     return session.exec(statement).one() or 0
@@ -1118,6 +1224,19 @@ def update_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     changes = []
+
+    if user.id == admin.id:
+        if user_data.role is not None and user_data.role != "admin":
+            raise HTTPException(status_code=400, detail="Cannot demote yourself")
+        if user_data.is_active is False:
+            raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
+
+    ensure_active_admin_remains(
+        session,
+        user,
+        proposed_role=user_data.role,
+        proposed_is_active=user_data.is_active,
+    )
     
     if user_data.username is not None and user_data.username != user.username:
         # Check if new username exists
@@ -1132,8 +1251,6 @@ def update_user(
         changes.append("password: updated")
     
     if user_data.role is not None and user_data.role != user.role:
-        if user_data.role not in ["admin", "user"]:
-            raise HTTPException(status_code=400, detail="Role must be 'admin' or 'user'")
         changes.append(f"role: '{user.role}' -> '{user_data.role}'")
         user.role = user_data.role
     
@@ -1172,6 +1289,8 @@ def delete_user(
     
     if user.id == admin.id:
         raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
+
+    ensure_active_admin_remains(session, user, proposed_is_active=False)
     
     # Deactivate instead of delete
     if hasattr(user, 'is_active'):
@@ -1332,7 +1451,7 @@ def get_lists(
     session: Session = Depends(get_session)
 ):
     """Get visible contract lists with permission-aware contract counts."""
-    lists = session.exec(select(ContractList).order_by(ContractList.name.asc())).all()
+    lists = session.exec(select(ContractList).order_by(col(ContractList.name).asc())).all()
     result = []
     for lst in lists:
         if lst.id is None:
@@ -1443,7 +1562,7 @@ def delete_list(
         raise HTTPException(status_code=404, detail="List not found")
     
     # Remove all links first
-    session.exec(delete(ContractListLink).where(ContractListLink.list_id == list_id))
+    session.exec(delete(ContractListLink).where(col(ContractListLink.list_id) == list_id))
     session.delete(lst)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -1527,8 +1646,8 @@ def get_list_contracts(
     statement = (
         select(Contract)
         .join(ContractListLink)
-        .where(ContractListLink.list_id == list_id)
-        .options(selectinload(Contract.tags), selectinload(Contract.lists))
+        .where(col(ContractListLink.list_id) == list_id)
+        .options(selectinload(Contract.tags), selectinload(Contract.lists))  # type: ignore[arg-type]
     )
     statement = filter_contracts_for_user(statement, current_user, "read").distinct()
     contracts = session.exec(statement).all()

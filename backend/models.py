@@ -1,6 +1,7 @@
 from typing import Optional, List
 from sqlmodel import Field, SQLModel, Relationship
 from datetime import datetime, timezone
+from sqlalchemy import UniqueConstraint
 
 # Join table for Contracts and Tags
 class ContractTagLink(SQLModel, table=True):
@@ -19,13 +20,18 @@ class User(SQLModel, table=True):
     username: str = Field(index=True, unique=True)
     hashed_password: str
     role: str = Field(default="user") # 'admin' or 'user'
-    totp_secret: Optional[str] = None # For 2FA
+    totp_secret: Optional[str] = None # Active 2FA secret
+    pending_totp_secret: Optional[str] = None # Secret waiting for first OTP verification
     is_active: bool = Field(default=True)  # Deactivate users instead of deleting
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # Permission levels: "read" = view only, "write" = edit, "full" = edit + delete
 class ContractPermission(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("user_id", "contract_id", name="uq_contractpermission_user_contract"),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
     contract_id: int = Field(foreign_key="contract.id", index=True)
