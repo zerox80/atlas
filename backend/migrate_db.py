@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from typing import Iterable
+from collections.abc import Callable, Iterable
 
 
 def get_default_db_path() -> str:
@@ -43,6 +43,26 @@ def add_missing_columns(
         cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {definition}")
 
 
+def ensure_migration_table(cursor: sqlite3.Cursor) -> None:
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migration (
+            version VARCHAR PRIMARY KEY,
+            applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+
+def migration_applied(cursor: sqlite3.Cursor, version: str) -> bool:
+    cursor.execute("SELECT 1 FROM schema_migration WHERE version = ?", (version,))
+    return cursor.fetchone() is not None
+
+
+def record_migration(cursor: sqlite3.Cursor, version: str) -> None:
+    cursor.execute("INSERT INTO schema_migration (version) VALUES (?)", (version,))
+
+
 def ensure_unique_permission_index(cursor: sqlite3.Cursor) -> None:
     if not table_exists(cursor, "contractpermission"):
         return
@@ -66,6 +86,46 @@ def ensure_unique_permission_index(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def migration_001_legacy_columns(cursor: sqlite3.Cursor) -> None:
+    add_missing_columns(
+        cursor,
+        "user",
+        (
+            ("is_active", "is_active BOOLEAN DEFAULT 1"),
+            ("created_at", "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"),
+            ("totp_secret", "totp_secret VARCHAR"),
+            ("pending_totp_secret", "pending_totp_secret VARCHAR"),
+        ),
+    )
+    add_missing_columns(
+        cursor,
+        "contract",
+        (
+            ("notice_period", "notice_period INTEGER DEFAULT 30"),
+            ("value", "value FLOAT DEFAULT 0.0"),
+            ("annual_value", "annual_value FLOAT"),
+            ("is_protected", "is_protected BOOLEAN DEFAULT 0"),
+            ("version", "version INTEGER DEFAULT 1"),
+            ("parent_id", "parent_id INTEGER"),
+        ),
+    )
+    add_missing_columns(
+        cursor,
+        "contractlist",
+        (
+            ("description", "description VARCHAR"),
+            ("color", "color VARCHAR DEFAULT '#6366f1'"),
+            ("created_at", "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"),
+        ),
+    )
+    ensure_unique_permission_index(cursor)
+
+
+MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
+    ("001_legacy_columns_and_permission_index", migration_001_legacy_columns),
+)
+
+
 def migrate(db_path: str | None = None) -> None:
     resolved_db_path = db_path or DB_PATH
     print(f"Connecting to database at {resolved_db_path}...")
@@ -80,39 +140,15 @@ def migrate(db_path: str | None = None) -> None:
 
     with sqlite3.connect(resolved_db_path) as conn:
         cursor = conn.cursor()
+        ensure_migration_table(cursor)
 
-        add_missing_columns(
-            cursor,
-            "user",
-            (
-                ("is_active", "is_active BOOLEAN DEFAULT 1"),
-                ("created_at", "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"),
-                ("totp_secret", "totp_secret VARCHAR"),
-                ("pending_totp_secret", "pending_totp_secret VARCHAR"),
-            ),
-        )
-        add_missing_columns(
-            cursor,
-            "contract",
-            (
-                ("notice_period", "notice_period INTEGER DEFAULT 30"),
-                ("value", "value FLOAT DEFAULT 0.0"),
-                ("annual_value", "annual_value FLOAT"),
-                ("is_protected", "is_protected BOOLEAN DEFAULT 0"),
-                ("version", "version INTEGER DEFAULT 1"),
-                ("parent_id", "parent_id INTEGER"),
-            ),
-        )
-        add_missing_columns(
-            cursor,
-            "contractlist",
-            (
-                ("description", "description VARCHAR"),
-                ("color", "color VARCHAR DEFAULT '#6366f1'"),
-                ("created_at", "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"),
-            ),
-        )
-        ensure_unique_permission_index(cursor)
+        for version, migration in MIGRATIONS:
+            if migration_applied(cursor, version):
+                print(f"Migration '{version}' already applied.")
+                continue
+            print(f"Applying migration '{version}'...")
+            migration(cursor)
+            record_migration(cursor, version)
         conn.commit()
 
     print("Migrations completed successfully.")

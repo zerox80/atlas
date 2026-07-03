@@ -25,6 +25,21 @@ Die Anwendung nutzt eine moderne Architektur:
 
 Für den Betrieb ist die Konfiguration der Umgebungsvariablen in einer .env Datei erforderlich, insbesondere der MISTRAL_API_KEY.
 
+### Mistral OCR 4
+
+Die KI Analyse nutzt standardmäßig Mistral OCR 4 über das Modell `mistral-ocr-4-0`. Der OCR Aufruf extrahiert Markdown, Tabellen im Markdown Format, strukturierte OCR 4 Blöcke sowie Seiten Konfidenzwerte. Diese Defaults können per `.env` angepasst werden:
+
+```env
+MISTRAL_CHAT_MODEL=mistral-large-latest
+MISTRAL_OCR_MODEL=mistral-ocr-4-0
+MISTRAL_OCR_TABLE_FORMAT=markdown
+MISTRAL_OCR_INCLUDE_BLOCKS=true
+MISTRAL_OCR_CONFIDENCE_GRANULARITY=page
+MISTRAL_DOCUMENT_PROCESSING_ENABLED=true
+```
+
+Setzen Sie `MISTRAL_DOCUMENT_PROCESSING_ENABLED=false`, um die externe KI Dokumentverarbeitung vollständig zu deaktivieren.
+
 Starten Sie die Anwendung mit folgendem Befehl im Hauptverzeichnis:
 
 docker-compose up -d

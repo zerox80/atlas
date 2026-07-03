@@ -54,8 +54,19 @@ def test_migrate_adds_missing_columns_and_deduplicates_permissions(tmp_path):
         contract_columns = {row[1] for row in conn.execute("PRAGMA table_info(contract)")}
         permission_count = conn.execute("SELECT COUNT(*) FROM contractpermission").fetchone()[0]
         indexes = {row[1] for row in conn.execute("PRAGMA index_list(contractpermission)")}
+        applied_migrations = {
+            row[0] for row in conn.execute("SELECT version FROM schema_migration")
+        }
 
     assert {"is_active", "created_at", "totp_secret", "pending_totp_secret"} <= user_columns
     assert {"annual_value", "is_protected", "notice_period", "version", "parent_id"} <= contract_columns
     assert permission_count == 1
     assert "ix_contractpermission_user_contract" in indexes
+    assert "001_legacy_columns_and_permission_index" in applied_migrations
+
+    migrate(str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        migration_count = conn.execute("SELECT COUNT(*) FROM schema_migration").fetchone()[0]
+
+    assert migration_count == 1

@@ -13,8 +13,9 @@ import io
 import os
 from datetime import datetime, timedelta, timezone
 import pandas as pd
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
+import uuid
 
 import secrets
 
@@ -34,6 +35,10 @@ from file_utils import validate_file, save_upload_file, resolve_file_path, delet
 PRODUCTION_MODE = os.getenv("PRODUCTION", "false").lower() == "true"
 RATE_LIMIT_LOGIN = os.getenv("RATE_LIMIT_LOGIN", "5/minute")
 ACL_BACKFILL_ACTION = "ACL_BACKFILL_V1"
+CSRF_COOKIE_NAME = "csrf_token"
+CSRF_HEADER_NAME = "x-csrf-token"
+CSRF_EXEMPT_PATHS = {"/token", "/csrf-token"}
+MISTRAL_DOCUMENT_PROCESSING_ENABLED = os.getenv("MISTRAL_DOCUMENT_PROCESSING_ENABLED", "true").lower() == "true"
 
 # Initialize Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -59,6 +64,44 @@ app.add_middleware(
 )
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+
+def request_is_https(request: Request) -> bool:
+    """Detect HTTPS when running behind a reverse proxy."""
+    return request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+
+
+def set_csrf_cookie(response: Response, request: Request) -> str:
+    """Set a readable CSRF cookie used with the HttpOnly auth cookie."""
+    csrf_token = secrets.token_urlsafe(32)
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=csrf_token,
+        httponly=False,
+        secure=request_is_https(request),
+        samesite="lax",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    return csrf_token
+
+
+@app.middleware("http")
+async def csrf_protection_middleware(request: Request, call_next):
+    """Require a double-submit CSRF token for cookie-authenticated mutations."""
+    if (
+        request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        and request.url.path not in CSRF_EXEMPT_PATHS
+        and request.cookies.get("access_token")
+    ):
+        csrf_cookie = request.cookies.get(CSRF_COOKIE_NAME)
+        csrf_header = request.headers.get(CSRF_HEADER_NAME)
+        if not csrf_cookie or not csrf_header or not secrets.compare_digest(csrf_cookie, csrf_header):
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={"detail": "Invalid or missing CSRF token"},
+            )
+
+    return await call_next(request)
 
 @app.on_event("startup")
 def on_startup():
@@ -201,15 +244,15 @@ async def login_for_access_token(
     
     # Set HttpOnly Cookie
     # Secure flag only when request comes via HTTPS (check X-Forwarded-Proto from nginx)
-    is_https = request.headers.get("x-forwarded-proto", "http") == "https"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=is_https,  # Only secure if actually using HTTPS
+        secure=request_is_https(request),  # Only secure if actually using HTTPS
         samesite="lax",
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
+    set_csrf_cookie(response, request)
     
     client_host = request.client.host if request.client else "unknown"
     log_audit(session, user.id, "LOGIN", "User logged in", client_host, request.headers.get("user-agent"))
@@ -217,10 +260,19 @@ async def login_for_access_token(
 
 
 @app.post("/logout")
-def logout(response: Response):
+def logout(response: Response, request: Request):
     """Clear the access_token cookie to log out"""
-    response.delete_cookie(key="access_token")
+    secure = request_is_https(request)
+    response.delete_cookie(key="access_token", secure=secure, samesite="lax")
+    response.delete_cookie(key=CSRF_COOKIE_NAME, secure=secure, samesite="lax")
     return {"message": "Logged out"}
+
+
+@app.get("/csrf-token")
+def refresh_csrf_token(request: Request, response: Response):
+    """Refresh the CSRF cookie for existing authenticated browser sessions."""
+    set_csrf_cookie(response, request)
+    return {"csrf_token": "set"}
 
 
 # --- 2FA Endpoints ---
@@ -1660,6 +1712,11 @@ async def analyze_contract_pdf(
             status_code=503, 
             detail="KI-Analyse nicht verfügbar. MISTRAL_API_KEY nicht konfiguriert."
         )
+    if not MISTRAL_DOCUMENT_PROCESSING_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail="KI-Dokumentverarbeitung ist deaktiviert."
+        )
     
     # Use consolidated validation
     try:
@@ -1707,6 +1764,11 @@ async def chat_with_contract(
         raise HTTPException(
             status_code=503, 
             detail="KI-Chat nicht verfügbar. MISTRAL_API_KEY nicht konfiguriert."
+        )
+    if not MISTRAL_DOCUMENT_PROCESSING_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail="KI-Dokumentverarbeitung ist deaktiviert."
         )
     
     contract = session.get(Contract, contract_id)
@@ -1760,6 +1822,11 @@ async def chat_with_contract_stream(
             status_code=503, 
             detail="KI-Chat nicht verfügbar. MISTRAL_API_KEY nicht konfiguriert."
         )
+    if not MISTRAL_DOCUMENT_PROCESSING_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail="KI-Dokumentverarbeitung ist deaktiviert."
+        )
     
     contract = session.get(Contract, contract_id)
     if not contract:
@@ -1792,8 +1859,9 @@ async def chat_with_contract_stream(
             # Send done signal
             yield "data: \"[DONE]\"\n\n"
         except Exception as e:
-            print(f"[AI ERROR] Stream failed: {e}")
-            yield f"data: {_json.dumps(f'[ERROR] {str(e)}')}\n\n"
+            error_id = str(uuid.uuid4())
+            print(f"[AI ERROR] Stream failed ({error_id}): {e}")
+            yield f"data: {_json.dumps(f'[ERROR] KI-Chat fehlgeschlagen. Fehler-ID: {error_id}')}\n\n"
     
     return StreamingResponse(
         generate_stream(),
@@ -1810,8 +1878,12 @@ async def chat_with_contract_stream(
 def get_ai_status(current_user: User = Depends(get_current_user)):
     """Check if AI features are available."""
     has_key = bool(os.getenv("MISTRAL_API_KEY"))
+    document_processing_enabled = MISTRAL_DOCUMENT_PROCESSING_ENABLED
     return {
-        "available": has_key,
-        "model": "mistral-large-latest" if has_key else None,
-        "features": ["contract_analysis", "contract_chat"] if has_key else []
+        "available": has_key and document_processing_enabled,
+        "model": os.getenv("MISTRAL_CHAT_MODEL", "mistral-large-latest") if has_key else None,
+        "ocr_model": os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-4-0") if has_key else None,
+        "external_document_processing": document_processing_enabled,
+        "provider": "Mistral AI" if has_key else None,
+        "features": ["contract_analysis", "contract_chat"] if has_key and document_processing_enabled else []
     }
