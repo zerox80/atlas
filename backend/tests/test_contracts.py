@@ -2,7 +2,9 @@
 Tests for contract CRUD endpoints.
 """
 from fastapi.testclient import TestClient
-from models import Contract, ContractPermission
+from sqlmodel import select
+
+from models import AuditLog, Contract, ContractPermission
 
 
 class TestContractList:
@@ -107,6 +109,45 @@ class TestContractCRUD:
             data={"title": "Updated Title"}
         )
         assert response.status_code == 404
+
+    def test_delete_contract_writes_audit_log(self, auth_client: TestClient, session, test_user):
+        """Deleting a contract should be visible in the audit trail."""
+        contract = Contract(title="Delete Me", file_path="uploads/delete-me.pdf")
+        session.add(contract)
+        session.commit()
+        session.refresh(contract)
+
+        session.add(ContractPermission(user_id=test_user.id, contract_id=contract.id, permission_level="full"))
+        session.commit()
+
+        response = auth_client.delete(f"/contracts/{contract.id}")
+
+        assert response.status_code == 204
+        audit_log = session.exec(select(AuditLog).where(AuditLog.action == "DELETE_CONTRACT")).one()
+        assert audit_log.user_id == test_user.id
+        assert f"[CID:{contract.id}]" in audit_log.details
+
+    def test_chat_rejects_non_pdf_contract_before_file_read(
+        self,
+        auth_client: TestClient,
+        session,
+        test_user,
+        monkeypatch,
+    ):
+        """Contract chat should only accept files the AI path can process safely."""
+        monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
+        contract = Contract(title="Text Contract", file_path="uploads/text-contract.txt")
+        session.add(contract)
+        session.commit()
+        session.refresh(contract)
+
+        session.add(ContractPermission(user_id=test_user.id, contract_id=contract.id, permission_level="read"))
+        session.commit()
+
+        response = auth_client.post(f"/contracts/{contract.id}/chat", json={"question": "Was steht drin?"})
+
+        assert response.status_code == 400
+        assert "PDF" in response.json()["detail"]
 
 
 class TestContractExport:

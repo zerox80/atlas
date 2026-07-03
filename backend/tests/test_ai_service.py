@@ -15,6 +15,13 @@ def test_ocr_4_is_default_model(monkeypatch):
     assert service.OCR_MODEL == "mistral-ocr-4-0"
 
 
+def test_imports_current_mistral_client():
+    import ai_service
+
+    assert ai_service.Mistral is not None
+    assert ai_service.SDKError is not None
+
+
 def test_build_ocr_options_enable_ocr_4_features(monkeypatch):
     monkeypatch.setenv("MISTRAL_OCR_MODEL", "mistral-ocr-4-0")
     monkeypatch.setenv("MISTRAL_OCR_TABLE_FORMAT", "markdown")

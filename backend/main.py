@@ -39,6 +39,7 @@ CSRF_COOKIE_NAME = "csrf_token"
 CSRF_HEADER_NAME = "x-csrf-token"
 CSRF_EXEMPT_PATHS = {"/token", "/csrf-token"}
 MISTRAL_DOCUMENT_PROCESSING_ENABLED = os.getenv("MISTRAL_DOCUMENT_PROCESSING_ENABLED", "true").lower() == "true"
+AI_SUPPORTED_FILE_EXTENSION = ".pdf"
 
 # Initialize Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -543,6 +544,14 @@ def validate_contract_form(schema_cls, **values):
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=validation_error_detail(exc))
 
+
+def ensure_ai_supported_contract_file(contract: Contract) -> None:
+    if contract.file_extension.lower() != AI_SUPPORTED_FILE_EXTENSION:
+        raise HTTPException(
+            status_code=400,
+            detail="KI-Chat unterstuetzt aktuell nur PDF-Dateien.",
+        )
+
 @app.post("/contracts", response_model=ContractRead)
 async def create_contract(
     request: Request,
@@ -818,6 +827,7 @@ async def update_contract(
 @app.delete("/contracts/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_contract(
     contract_id: int, 
+    request: Request,
     current_user: User = Depends(get_current_user), 
     session: Session = Depends(get_session)
 ):
@@ -837,12 +847,23 @@ def delete_contract(
     
     # Save file path before deleting record
     file_path_to_delete = contract.file_path
+    contract_title = contract.title
 
     session.exec(delete(ContractTagLink).where(col(ContractTagLink.contract_id) == contract_id))
     session.exec(delete(ContractListLink).where(col(ContractListLink.contract_id) == contract_id))
     session.exec(delete(ContractPermission).where(col(ContractPermission.contract_id) == contract_id))
     session.delete(contract)
     session.commit()
+
+    client_host = request.client.host if request.client else "unknown"
+    log_audit(
+        session,
+        current_user.id,
+        "DELETE_CONTRACT",
+        f"[CID:{contract_id}] Deleted contract {contract_title}",
+        client_host,
+        request.headers.get("user-agent"),
+    )
 
     # Delete file if exists (After commit checks pass)
     if file_path_to_delete:
@@ -1778,6 +1799,7 @@ async def chat_with_contract(
     # Check permission
     if not check_contract_permission(current_user, contract_id, "read", session):
         raise HTTPException(status_code=403, detail="Keine Berechtigung für diesen Vertrag")
+    ensure_ai_supported_contract_file(contract)
     
     try:
         abs_path = resolve_file_path(contract.file_path)
@@ -1835,6 +1857,7 @@ async def chat_with_contract_stream(
     # Check permission
     if not check_contract_permission(current_user, contract_id, "read", session):
         raise HTTPException(status_code=403, detail="Keine Berechtigung für diesen Vertrag")
+    ensure_ai_supported_contract_file(contract)
     
     try:
         abs_path = resolve_file_path(contract.file_path)
