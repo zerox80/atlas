@@ -38,7 +38,7 @@ describe('Login Page', () => {
     });
 
     it('submits form with valid credentials', async () => {
-        vi.mocked(api.post).mockResolvedValueOnce({ data: { access_token: 'test' } });
+        vi.mocked(api.post).mockResolvedValueOnce({ data: { token_type: 'bearer' } });
 
         render(<Login onLoginSuccess={mockOnLoginSuccess} />);
 

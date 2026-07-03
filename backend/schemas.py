@@ -4,7 +4,6 @@ from typing import Optional, List
 import re
 
 class Token(BaseModel):
-    access_token: str
     token_type: str
 
 class TokenData(BaseModel):
