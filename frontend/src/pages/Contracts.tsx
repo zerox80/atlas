@@ -26,6 +26,10 @@ interface Contract {
     can_manage_protection: boolean
 }
 
+const DEFAULT_NOTICE_PERIOD = 30
+
+const isPdfContract = (contract: Contract) => contract.file_extension.toLowerCase() === '.pdf'
+
 const Contracts: React.FC = () => {
     const [isUploadOpen, setIsUploadOpen] = useState(false)
     const [editingContract, setEditingContract] = useState<Contract | null>(null)
@@ -91,7 +95,7 @@ const Contracts: React.FC = () => {
         
         const end = new Date(endDate);
         const cancellationDeadline = new Date(end);
-        cancellationDeadline.setDate(end.getDate() - (noticePeriod || 30));
+        cancellationDeadline.setDate(end.getDate() - (noticePeriod ?? DEFAULT_NOTICE_PERIOD));
 
         const now = new Date();
         const daysToDeadline = Math.ceil((cancellationDeadline.getTime() - now.getTime()) / (1000 * 3600 * 24));
@@ -107,7 +111,7 @@ const Contracts: React.FC = () => {
         
         const end = new Date(endDate);
         const cancellationDeadline = new Date(end);
-        cancellationDeadline.setDate(end.getDate() - (noticePeriod || 30));
+        cancellationDeadline.setDate(end.getDate() - (noticePeriod ?? DEFAULT_NOTICE_PERIOD));
         const now = new Date();
 
         if (end < now) return "Vertrag ist abgelaufen";
@@ -137,7 +141,7 @@ const Contracts: React.FC = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
                 {contracts?.map((contract, index) => {
-                    const style = getStatusColor(contract.end_date, contract.notice_period || 30);
+                    const style = getStatusColor(contract.end_date, contract.notice_period ?? DEFAULT_NOTICE_PERIOD);
                     return (
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
@@ -147,13 +151,15 @@ const Contracts: React.FC = () => {
                             className={`relative backdrop-blur-md border rounded-2xl p-6 transition-all hover:shadow-2xl hover:-translate-y-1 group ${style.color}`}
                         >
                             <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                    onClick={() => setChatContract(contract)}
-                                    className="p-2 bg-purple-900/50 hover:bg-purple-900 text-purple-300 rounded-lg transition-colors"
-                                    title="Mit KI chatten"
-                                >
-                                    <FiMessageCircle />
-                                </button>
+                                {isPdfContract(contract) && (
+                                    <button
+                                        onClick={() => setChatContract(contract)}
+                                        className="p-2 bg-purple-900/50 hover:bg-purple-900 text-purple-300 rounded-lg transition-colors"
+                                        title="Mit KI chatten"
+                                    >
+                                        <FiMessageCircle />
+                                    </button>
+                                )}
                                 {contract.can_write && (
                                     <button
                                         onClick={() => { setEditingContract(contract); setIsUploadOpen(true); }}
@@ -189,7 +195,7 @@ const Contracts: React.FC = () => {
                             <div className="mb-6 p-3 bg-gray-800/40 rounded-lg border border-gray-700/50">
                                 <p className={`text-sm font-medium ${style.text} flex items-center gap-2`}>
                                     <FiAlertTriangle className="shrink-0" />
-                                    {getDeadlineText(contract.end_date, contract.notice_period || 30)}
+                                    {getDeadlineText(contract.end_date, contract.notice_period ?? DEFAULT_NOTICE_PERIOD)}
                                 </p>
                             </div>
 
@@ -208,7 +214,7 @@ const Contracts: React.FC = () => {
                                         <FiClock />
                                         <span>Kündigungsfrist</span>
                                     </div>
-                                    <span className="text-white font-medium">{contract.notice_period || 30} Tage</span>
+                                    <span className="text-white font-medium">{contract.notice_period ?? DEFAULT_NOTICE_PERIOD} Tage</span>
                                 </div>
                                 <div className="flex justify-between text-sm">
                                     <div className="flex items-center gap-2 text-gray-400">

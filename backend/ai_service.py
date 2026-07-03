@@ -10,8 +10,6 @@ Supports two modes (configurable via MISTRAL_USE_OCR env var):
 - Image mode: Uses Vision API with max 8 pages
 """
 
-from mistralai import Mistral
-from mistralai.models import SDKError
 import base64
 import json
 import os
@@ -20,6 +18,16 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Any
+
+try:
+    from mistralai import Mistral  # type: ignore[attr-defined]
+except ImportError:  # mistralai 2.x exposes the client below the generated namespace.
+    from mistralai.client import Mistral
+
+try:
+    from mistralai.models import SDKError
+except ImportError:
+    from mistralai.client.errors import SDKError
 
 # Initialize client (lazy - only when API key is available)
 _client = None

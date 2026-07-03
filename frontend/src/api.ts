@@ -1,8 +1,16 @@
 import axios from 'axios'
 import { buildContractQueryParams, type ContractFilterState } from './utils/filterParams'
 
+export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
+
+export const buildApiUrl = (path: string) => {
+    const normalizedBase = API_BASE_URL.replace(/\/$/, '')
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`
+    return `${normalizedBase}${normalizedPath}`
+}
+
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || '/api',
+    baseURL: API_BASE_URL,
     withCredentials: true, // Required for HttpOnly cookie authentication
 })
 

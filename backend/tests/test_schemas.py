@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from schemas import (
     UserCreate, 
+    UserUpdate,
     TagCreate, 
     TagUpdate,
     ContractCreate, 
@@ -52,6 +53,20 @@ class TestUserCreateSchema:
     def test_username_valid_characters(self):
         """Test username with valid special characters."""
         user = UserCreate(username="user_name-123", password="validpassword123")
+        assert user.username == "user_name-123"
+
+
+class TestUserUpdateSchema:
+    """Test UserUpdate schema validation."""
+
+    def test_username_invalid_characters(self):
+        """User updates should enforce the same username pattern as creation."""
+        with pytest.raises(ValidationError):
+            UserUpdate(username="user@name!")
+
+    def test_username_valid_characters(self):
+        """Test user update with valid special characters."""
+        user = UserUpdate(username="user_name-123")
         assert user.username == "user_name-123"
 
 
