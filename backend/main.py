@@ -213,7 +213,7 @@ async def login_for_access_token(
     
     client_host = request.client.host if request.client else "unknown"
     log_audit(session, user.id, "LOGIN", "User logged in", client_host, request.headers.get("user-agent"))
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"token_type": "bearer"}
 
 
 @app.post("/logout")
@@ -267,6 +267,74 @@ def verify_2fa(
 
 # --- Contract Endpoints ---
 
+CONTRACT_SORT_COLUMNS: dict[str, Any] = {
+    "title": col(Contract.title),
+    "value": col(Contract.value),
+    "start_date": col(Contract.start_date),
+    "end_date": col(Contract.end_date),
+    "uploaded_at": col(Contract.uploaded_at),
+}
+
+
+def build_contract_query(
+    current_user: User,
+    q: Optional[str] = None,
+    tags: Optional[str] = None,
+    list_id: Optional[int] = None,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
+    start_date_from: Optional[datetime] = None,
+    start_date_to: Optional[datetime] = None,
+    status_filter: Optional[str] = None,
+    sort_by: Optional[str] = "uploaded_at",
+    sort_order: Optional[str] = "desc",
+):
+    """Build the shared filtered contract query used by list and export endpoints."""
+    statement = select(Contract)
+
+    if q:
+        search_term = f"%{q}%"
+        statement = statement.where(
+            or_(
+                col(Contract.title).ilike(search_term),
+                col(Contract.description).ilike(search_term),
+            )
+        )
+
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        if tag_list:
+            statement = statement.join(ContractTagLink).join(Tag).where(col(Tag.name).in_(tag_list))
+
+    if list_id is not None:
+        statement = statement.join(ContractListLink).where(ContractListLink.list_id == list_id)
+
+    if min_value is not None:
+        statement = statement.where(Contract.value >= min_value)
+    if max_value is not None:
+        statement = statement.where(Contract.value <= max_value)
+
+    if start_date_from:
+        statement = statement.where(col(Contract.start_date).is_not(None), col(Contract.start_date) >= start_date_from)
+    if start_date_to:
+        statement = statement.where(col(Contract.start_date).is_not(None), col(Contract.start_date) <= start_date_to)
+
+    now = datetime.now(timezone.utc)
+    if status_filter == "active":
+        statement = statement.where(or_(col(Contract.end_date).is_(None), col(Contract.end_date) >= now))
+    elif status_filter == "expired":
+        statement = statement.where(col(Contract.end_date).is_not(None), col(Contract.end_date) < now)
+
+    statement = filter_contracts_for_user(statement, current_user, "read")
+
+    sort_column = CONTRACT_SORT_COLUMNS.get(sort_by or "uploaded_at", col(Contract.uploaded_at))
+    if sort_order == "asc":
+        statement = statement.order_by(sort_column.asc())
+    else:
+        statement = statement.order_by(sort_column.desc())
+
+    return statement.distinct().options(selectinload(Contract.tags), selectinload(Contract.lists))  # type: ignore[arg-type]
+
 @app.get("/contracts", response_model=List[ContractRead])
 def read_contracts(
     q: Optional[str] = None,                    # Full-text search
@@ -286,69 +354,19 @@ def read_contracts(
     Get contracts with optional search and filters.
     Non-admin users only see contracts they have explicit read access to.
     """
-    statement = select(Contract)
-    
-    # Full-text search on title and description
-    if q:
-        search_term = f"%{q}%"
-        statement = statement.where(
-            or_(
-                col(Contract.title).ilike(search_term),
-                col(Contract.description).ilike(search_term)
-            )
-        )
-    
-    # Filter by tags (comma-separated)
-    if tags:
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-        if tag_list:
-            statement = statement.join(ContractTagLink).join(Tag).where(col(Tag.name).in_(tag_list))
-    
-    # Filter by list
-    if list_id is not None:
-        statement = statement.join(ContractListLink).where(ContractListLink.list_id == list_id)
-    
-    # Value range
-    if min_value is not None:
-        statement = statement.where(Contract.value >= min_value)
-    if max_value is not None:
-        statement = statement.where(Contract.value <= max_value)
-    
-    # Date range (start_date filter)
-    if start_date_from:
-        statement = statement.where(col(Contract.start_date).is_not(None), col(Contract.start_date) >= start_date_from)
-    if start_date_to:
-        statement = statement.where(col(Contract.start_date).is_not(None), col(Contract.start_date) <= start_date_to)
-    
-    # Status filter
-    now = datetime.now(timezone.utc)
-    if status == "active":
-        statement = statement.where(or_(col(Contract.end_date).is_(None), col(Contract.end_date) >= now))
-    elif status == "expired":
-        statement = statement.where(col(Contract.end_date).is_not(None), col(Contract.end_date) < now)
-
-    statement = filter_contracts_for_user(statement, current_user, "read")
-    
-    # Sorting
-    sort_columns: dict[str, Any] = {
-        "title": col(Contract.title),
-        "value": col(Contract.value),
-        "start_date": col(Contract.start_date),
-        "end_date": col(Contract.end_date),
-        "uploaded_at": col(Contract.uploaded_at),
-    }
-    sort_column = sort_columns.get(sort_by or "uploaded_at", col(Contract.uploaded_at))
-    
-    if sort_order == "asc":
-        statement = statement.order_by(sort_column.asc())
-    else:
-        statement = statement.order_by(sort_column.desc())
-    
-    # Ensure unique results when joining
-    statement = statement.distinct()
-    
-    # Eager load relationships to prevent N+1 queries and DetachedInstanceError
-    statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))  # type: ignore[arg-type]
+    statement = build_contract_query(
+        current_user=current_user,
+        q=q,
+        tags=tags,
+        list_id=list_id,
+        min_value=min_value,
+        max_value=max_value,
+        start_date_from=start_date_from,
+        start_date_to=start_date_to,
+        status_filter=status,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
     contracts = session.exec(statement).all()
     return [contract_read_for_user(contract, current_user, session) for contract in contracts]
 
@@ -371,55 +389,19 @@ def export_contracts(
     """
     Export filtered contracts as CSV or Excel.
     """
-    statement = select(Contract)
-    
-    # --- Filter Logic (Duplicated from read_contracts for safety) ---
-    if q:
-        search_term = f"%{q}%"
-        statement = statement.where(
-            or_(
-                col(Contract.title).ilike(search_term),
-                col(Contract.description).ilike(search_term)
-            )
-        )
-    if tags:
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-        if tag_list:
-            statement = statement.join(ContractTagLink).join(Tag).where(col(Tag.name).in_(tag_list))
-    if list_id is not None:
-        statement = statement.join(ContractListLink).where(ContractListLink.list_id == list_id)
-    if min_value is not None:
-        statement = statement.where(Contract.value >= min_value)
-    if max_value is not None:
-        statement = statement.where(Contract.value <= max_value)
-    if start_date_from:
-        statement = statement.where(col(Contract.start_date).is_not(None), col(Contract.start_date) >= start_date_from)
-    if start_date_to:
-        statement = statement.where(col(Contract.start_date).is_not(None), col(Contract.start_date) <= start_date_to)
-    
-    now = datetime.now(timezone.utc)
-    if status == "active":
-        statement = statement.where(or_(col(Contract.end_date).is_(None), col(Contract.end_date) >= now))
-    elif status == "expired":
-        statement = statement.where(col(Contract.end_date).is_not(None), col(Contract.end_date) < now)
-
-    statement = filter_contracts_for_user(statement, current_user, "read")
-
-    sort_columns: dict[str, Any] = {
-        "title": col(Contract.title),
-        "value": col(Contract.value),
-        "start_date": col(Contract.start_date),
-        "end_date": col(Contract.end_date),
-        "uploaded_at": col(Contract.uploaded_at),
-    }
-    sort_column = sort_columns.get(sort_by or "uploaded_at", col(Contract.uploaded_at))
-    if sort_order == "asc":
-        statement = statement.order_by(sort_column.asc())
-    else:
-        statement = statement.order_by(sort_column.desc())
-
-    statement = statement.distinct()
-    statement = statement.options(selectinload(Contract.tags), selectinload(Contract.lists))  # type: ignore[arg-type]
+    statement = build_contract_query(
+        current_user=current_user,
+        q=q,
+        tags=tags,
+        list_id=list_id,
+        min_value=min_value,
+        max_value=max_value,
+        start_date_from=start_date_from,
+        start_date_to=start_date_to,
+        status_filter=status,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
     contracts = session.exec(statement).all()
     
     # --- Data Processing ---

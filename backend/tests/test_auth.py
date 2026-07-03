@@ -23,8 +23,9 @@ class TestAuthentication:
         )
         assert response.status_code == 200
         data = response.json()
-        assert "access_token" in data
         assert data["token_type"] == "bearer"
+        assert "access_token" not in data
+        assert "access_token" in response.cookies
     
     def test_login_wrong_password(self, client: TestClient, test_user):
         """Test login with wrong password."""

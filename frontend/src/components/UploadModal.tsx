@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useEffect } from 'react'
-import { useDropzone } from 'react-dropzone'
+import { useDropzone, type FileRejection } from 'react-dropzone'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiUploadCloud, FiX, FiZap } from 'react-icons/fi'
 import api from '../api'
@@ -11,6 +11,16 @@ interface UploadModalProps {
     onClose: () => void
     initialData?: any
 }
+
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+const ACCEPTED_UPLOAD_TYPES = {
+    'application/pdf': ['.pdf'],
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+    'application/msword': ['.doc'],
+    'text/plain': ['.txt'],
+}
+
+const formatUploadSize = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`
 
 const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData }) => {
     const [file, setFile] = useState<File | null>(null)
@@ -24,6 +34,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
     const [noticePeriod, setNoticePeriod] = useState('')
     const [uploading, setUploading] = useState(false)
     const [analyzing, setAnalyzing] = useState(false)
+    const [fileError, setFileError] = useState('')
 
     const queryClient = useQueryClient()
 
@@ -59,6 +70,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                 setEndDate('')
             }
             setFile(null)
+            setFileError('')
         } else if (isOpen && !initialData) {
             // Reset for new upload
             setTitle('')
@@ -70,16 +82,38 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
             setStartDate('')
             setEndDate('')
             setFile(null)
+            setFileError('')
         }
     }, [isOpen, initialData])
 
     const onDrop = useCallback((acceptedFiles: File[]) => {
         if (acceptedFiles.length > 0) {
+            setFileError('')
             setFile(acceptedFiles[0])
         }
     }, [])
 
-    const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, maxFiles: 1 })
+    const onDropRejected = useCallback((rejections: FileRejection[]) => {
+        const firstError = rejections[0]?.errors[0]
+        if (!firstError) return
+
+        if (firstError.code === 'file-too-large') {
+            setFileError(`Die Datei darf maximal ${formatUploadSize(MAX_UPLOAD_SIZE)} groß sein.`)
+        } else if (firstError.code === 'file-invalid-type') {
+            setFileError('Bitte laden Sie eine PDF-, Word- oder Textdatei hoch.')
+        } else {
+            setFileError(firstError.message)
+        }
+        setFile(null)
+    }, [])
+
+    const { getRootProps, getInputProps, isDragActive } = useDropzone({
+        onDrop,
+        onDropRejected,
+        accept: ACCEPTED_UPLOAD_TYPES,
+        maxFiles: 1,
+        maxSize: MAX_UPLOAD_SIZE,
+    })
 
     // AI Analysis Handler
     const handleAnalyze = async () => {
@@ -186,6 +220,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
             setNoticePeriod('')
             setStartDate('')
             setEndDate('')
+            setFileError('')
         } catch (error: any) {
             console.error('Operation failed', error)
             const msg = error.response?.data?.detail || error.message || "Unknown error";
@@ -232,6 +267,9 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                                         </p>
                                     )}
                                 </div>
+                                {fileError && (
+                                    <p className="text-sm text-red-400" role="alert">{fileError}</p>
+                                )}
 
                                 {/* AI Analyze Button - Only show for new contracts with PDF files */}
                                 {file && !initialData && file.name.toLowerCase().endsWith('.pdf') && (
