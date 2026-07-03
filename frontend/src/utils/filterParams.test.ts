@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildContractQueryParams } from './filterParams'
+import { buildContractQueryParams, getContractFilterValidationError } from './filterParams'
 import { formatGermanNumber, parseGermanNumber } from './formatUtils'
 
 describe('formatUtils', () => {
@@ -40,5 +40,38 @@ describe('buildContractQueryParams', () => {
             sort_by: 'value',
             sort_order: 'asc',
         })
+    })
+
+    it('rejects invalid numeric filters instead of dropping them silently', () => {
+        const filters = {
+            q: '',
+            tags: [],
+            listId: null,
+            minValue: 'abc',
+            maxValue: '',
+            startDateFrom: '',
+            startDateTo: '',
+            status: '',
+            sortBy: 'uploaded_at',
+            sortOrder: 'desc' as const,
+        }
+
+        expect(getContractFilterValidationError(filters)).toBe('Bitte geben Sie einen gültigen Mindestwert ein.')
+        expect(() => buildContractQueryParams(filters)).toThrow('Bitte geben Sie einen gültigen Mindestwert ein.')
+    })
+
+    it('rejects inverted value ranges', () => {
+        expect(getContractFilterValidationError({
+            q: '',
+            tags: [],
+            listId: null,
+            minValue: '2.000',
+            maxValue: '1.000',
+            startDateFrom: '',
+            startDateTo: '',
+            status: '',
+            sortBy: 'uploaded_at',
+            sortOrder: 'desc',
+        })).toBe('Der Mindestwert darf nicht größer als der Höchstwert sein.')
     })
 })

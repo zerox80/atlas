@@ -26,6 +26,7 @@ class TestAuthentication:
         assert data["token_type"] == "bearer"
         assert "access_token" not in data
         assert "access_token" in response.cookies
+        assert "csrf_token" in response.cookies
     
     def test_login_wrong_password(self, client: TestClient, test_user):
         """Test login with wrong password."""
@@ -55,6 +56,23 @@ class TestAuthentication:
         assert response.status_code == 200
         # Cookie is cleared by setting max_age=0
         assert "access_token" in response.cookies or response.status_code == 200
+
+    def test_cookie_authenticated_mutation_requires_csrf_token(self, client: TestClient):
+        """Cookie-authenticated mutations require a matching CSRF header."""
+        client.cookies.set("access_token", "jwt-present")
+
+        response = client.post("/logout")
+
+        assert response.status_code == 403
+
+    def test_cookie_authenticated_mutation_accepts_matching_csrf_token(self, client: TestClient):
+        """CSRF double-submit token allows cookie-authenticated mutations."""
+        client.cookies.set("access_token", "jwt-present")
+        client.cookies.set("csrf_token", "csrf-test-token")
+
+        response = client.post("/logout", headers={"X-CSRF-Token": "csrf-test-token"})
+
+        assert response.status_code == 200
     
     def test_protected_route_without_auth(self, client: TestClient):
         """Test that protected routes require authentication."""
