@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
 import { FiSearch, FiFileText } from 'react-icons/fi'
+import { useNavigate } from 'react-router-dom'
 import api from '../api'
+import type { Contract } from '../types'
 
-// Simple CMDK styling via standard CSS or inline
 const CommandPalette = () => {
+    const navigate = useNavigate()
     const [open, setOpen] = useState(false)
-    const [contracts, setContracts] = useState<any[]>([])
+    const [contracts, setContracts] = useState<Contract[]>([])
 
     useEffect(() => {
         const down = (e: KeyboardEvent) => {
@@ -17,8 +19,7 @@ const CommandPalette = () => {
         }
         document.addEventListener('keydown', down)
 
-        // Fetch contracts for search (in real app, use React Query cache or specialized search endpoint)
-        api.get('/contracts').then(res => setContracts(res.data)).catch(console.error)
+        api.get<Contract[]>('/contracts').then(res => setContracts(res.data)).catch(() => setContracts([]))
 
         return () => document.removeEventListener('keydown', down)
     }, [])
@@ -40,15 +41,16 @@ const CommandPalette = () => {
                                 key={contract.id}
                                 value={`${contract.title} ${contract.description}`}
                                 onSelect={() => {
-                                    // Navigate or perform action
-                                    console.log('Selected', contract.title)
+                                    navigate('/contracts')
                                     setOpen(false)
                                 }}
                                 className="flex items-center px-2 py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-800 hover:text-white cursor-pointer transition-colors"
                             >
                                 <FiFileText className="mr-2" />
                                 <span>{contract.title}</span>
-                                <span className="ml-auto text-xs opacity-50">{new Date(contract.end_date).toLocaleDateString()}</span>
+                                <span className="ml-auto text-xs opacity-50">
+                                    {contract.end_date ? new Date(contract.end_date).toLocaleDateString('de-DE') : 'Unbefristet'}
+                                </span>
                             </Command.Item>
                         ))}
                     </Command.Group>
