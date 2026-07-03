@@ -15,6 +15,28 @@ export interface ContractFilterState {
 
 export type ContractQueryParams = Record<string, string | number>
 
+export const getContractFilterValidationError = (
+    filters: ContractFilterState | null | undefined
+) => {
+    if (!filters) return null
+
+    if (filters.minValue && parseGermanNumber(filters.minValue) === null) {
+        return 'Bitte geben Sie einen gültigen Mindestwert ein.'
+    }
+
+    if (filters.maxValue && parseGermanNumber(filters.maxValue) === null) {
+        return 'Bitte geben Sie einen gültigen Höchstwert ein.'
+    }
+
+    const minValue = filters.minValue ? parseGermanNumber(filters.minValue) : null
+    const maxValue = filters.maxValue ? parseGermanNumber(filters.maxValue) : null
+    if (minValue !== null && maxValue !== null && minValue > maxValue) {
+        return 'Der Mindestwert darf nicht größer als der Höchstwert sein.'
+    }
+
+    return null
+}
+
 const addNumberParam = (
     params: ContractQueryParams,
     key: string,
@@ -23,7 +45,9 @@ const addNumberParam = (
     if (!value) return
 
     const parsed = parseGermanNumber(value)
-    if (parsed === null) return
+    if (parsed === null) {
+        throw new Error(`Invalid number for ${key}`)
+    }
 
     params[key] = parsed
 }
@@ -33,6 +57,11 @@ export const buildContractQueryParams = (
 ): ContractQueryParams => {
     const params: ContractQueryParams = {}
     if (!filters) return params
+
+    const validationError = getContractFilterValidationError(filters)
+    if (validationError) {
+        throw new Error(validationError)
+    }
 
     if (filters.q) params.q = filters.q
     if (filters.tags.length > 0) params.tags = filters.tags.join(',')

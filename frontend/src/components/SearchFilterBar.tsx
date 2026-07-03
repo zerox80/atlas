@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { FiSearch, FiFilter, FiX, FiChevronDown, FiArrowUp, FiArrowDown, FiDownload } from 'react-icons/fi'
 import api, { exportContracts } from '../api'
-import type { ContractFilterState } from '../utils/filterParams'
+import { getContractFilterValidationError, type ContractFilterState } from '../utils/filterParams'
 
 interface Tag {
     id: number
@@ -72,10 +72,13 @@ const SearchFilterBar: React.FC<SearchFilterBarProps> = ({ onFiltersChange }) =>
         sortOrder
     }), [debouncedQuery, selectedTags, selectedListId, minValue, maxValue, startDateFrom, startDateTo, status, sortBy, sortOrder])
 
+    const filterError = useMemo(() => getContractFilterValidationError(filters), [filters])
+
     // Notify parent of filter changes
     useEffect(() => {
+        if (filterError) return
         onFiltersChange(filters)
-    }, [filters, onFiltersChange])
+    }, [filterError, filters, onFiltersChange])
 
     const handleTagToggle = (tagName: string) => {
         setSelectedTags(prev =>
@@ -100,6 +103,10 @@ const SearchFilterBar: React.FC<SearchFilterBarProps> = ({ onFiltersChange }) =>
 
     const handleExport = async (format: 'csv' | 'excel') => {
         setIsExportMenuOpen(false);
+        if (filterError) {
+            alert(filterError)
+            return
+        }
         try {
             const response = await exportContracts(filters, format);
             const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -282,6 +289,9 @@ const SearchFilterBar: React.FC<SearchFilterBarProps> = ({ onFiltersChange }) =>
                             />
                         </div>
                     </div>
+                    {filterError && (
+                        <p className="text-sm text-red-400" role="alert">{filterError}</p>
+                    )}
 
                     {/* Date Range */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

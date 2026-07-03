@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiX, FiSend, FiMessageCircle } from 'react-icons/fi'
 import ReactMarkdown from 'react-markdown'
+import { ensureCsrfToken } from '../api'
 
 interface ContractChatProps {
     isOpen: boolean
@@ -39,11 +40,13 @@ const ContractChat: React.FC<ContractChatProps> = ({ isOpen, onClose, contractId
         setMessages(prev => [...prev, { role: 'assistant', content: '', isStreaming: true }])
 
         try {
+            const csrfToken = await ensureCsrfToken()
             // Use streaming endpoint with fetch
             const response = await fetch(`/api/contracts/${contractId}/chat/stream`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
                 },
                 body: JSON.stringify({ question: userMessage }),
                 credentials: 'include'

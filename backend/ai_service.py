@@ -24,8 +24,10 @@ from typing import Callable, Any
 # Initialize client (lazy - only when API key is available)
 _client = None
 
-MODEL = "mistral-large-latest"  # Mistral Large 3
-OCR_MODEL = "mistral-ocr-latest"  # Mistral OCR model
+MODEL = os.getenv("MISTRAL_CHAT_MODEL", "mistral-large-latest")
+OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-4-0")
+OCR_TABLE_FORMAT = os.getenv("MISTRAL_OCR_TABLE_FORMAT", "markdown").lower()
+OCR_CONFIDENCE_GRANULARITY = os.getenv("MISTRAL_OCR_CONFIDENCE_GRANULARITY", "page").lower()
 
 # Retry configuration for rate limits
 MAX_RETRIES = 5
@@ -41,6 +43,96 @@ _executor = ThreadPoolExecutor(max_workers=3)
 def use_ocr_mode() -> bool:
     """Check if OCR mode is enabled (default: True)."""
     return os.getenv("MISTRAL_USE_OCR", "true").lower() == "true"
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Parse feature flags from env vars."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_attr_or_key(value: Any, name: str, default: Any = None) -> Any:
+    """Read SDK model attributes and dict values through one small helper."""
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _build_ocr_options() -> dict[str, Any]:
+    """Build Mistral OCR options. OCR 4 enables blocks and confidence scores."""
+    options: dict[str, Any] = {
+        "model": OCR_MODEL,
+        "include_blocks": _env_bool("MISTRAL_OCR_INCLUDE_BLOCKS", True),
+    }
+
+    if OCR_TABLE_FORMAT in {"markdown", "html"}:
+        options["table_format"] = OCR_TABLE_FORMAT
+
+    if OCR_CONFIDENCE_GRANULARITY in {"page", "word"}:
+        options["confidence_scores_granularity"] = OCR_CONFIDENCE_GRANULARITY
+
+    return options
+
+
+def _format_confidence_scores(confidence_scores: Any) -> str:
+    if not confidence_scores:
+        return ""
+
+    average = _get_attr_or_key(confidence_scores, "average_page_confidence_score")
+    minimum = _get_attr_or_key(confidence_scores, "minimum_page_confidence_score")
+    parts = []
+    if average is not None:
+        parts.append(f"average={average}")
+    if minimum is not None:
+        parts.append(f"minimum={minimum}")
+    return ", ".join(parts)
+
+
+def _format_structural_blocks(blocks: list[Any]) -> str:
+    if not blocks:
+        return ""
+
+    formatted_blocks = []
+    for block in blocks:
+        block_type = _get_attr_or_key(block, "type", "unknown")
+        content = str(_get_attr_or_key(block, "content", "") or "").strip()
+        if not content and block_type not in {"signature", "table", "image"}:
+            continue
+        content = re.sub(r"\s+", " ", content)
+        if len(content) > 500:
+            content = f"{content[:500]}..."
+        formatted_blocks.append(f"- {block_type}: {content}")
+
+    return "\n".join(formatted_blocks)
+
+
+def _format_ocr_text(ocr_response: Any) -> str:
+    """Convert Mistral OCR pages into stable text for downstream chat prompts."""
+    pages = _get_attr_or_key(ocr_response, "pages", []) or []
+    formatted_pages = []
+
+    for index, page in enumerate(pages, start=1):
+        page_index = _get_attr_or_key(page, "index", index - 1)
+        page_number = page_index + 1 if isinstance(page_index, int) else index
+        markdown = str(_get_attr_or_key(page, "markdown", "") or "").strip()
+        if not markdown:
+            continue
+
+        page_parts = [f"## Seite {page_number}", markdown]
+
+        confidence = _format_confidence_scores(_get_attr_or_key(page, "confidence_scores"))
+        if confidence:
+            page_parts.append(f"OCR-Konfidenz: {confidence}")
+
+        blocks = _format_structural_blocks(_get_attr_or_key(page, "blocks", []) or [])
+        if blocks:
+            page_parts.append(f"Strukturierte OCR-4-Blöcke:\n{blocks}")
+
+        formatted_pages.append("\n\n".join(page_parts))
+
+    return "\n\n---\n\n".join(formatted_pages)
 
 
 async def _retry_on_rate_limit(func: Callable, *args, **kwargs) -> Any:
@@ -117,8 +209,7 @@ def _process_pdf_to_images(pdf_bytes: bytes, max_pages: int = 8) -> list[str]:
 
 async def _process_pdf_with_ocr(pdf_bytes: bytes) -> str:
     """
-    Process PDF using Mistral OCR API. Returns extracted text as markdown.
-    Supports unlimited pages (no 8 image limit).
+    Process PDF using Mistral OCR 4. Returns extracted markdown plus OCR metadata.
     """
     client = get_client()
     
@@ -126,23 +217,17 @@ async def _process_pdf_with_ocr(pdf_bytes: bytes) -> str:
     pdf_base64 = base64.b64encode(pdf_bytes).decode()
     
     # Call OCR API
+    ocr_options = _build_ocr_options()
     ocr_response = await _retry_on_rate_limit(
         client.ocr.process_async,
-        model=OCR_MODEL,
+        **ocr_options,
         document={
             "type": "document_url",
             "document_url": f"data:application/pdf;base64,{pdf_base64}"
         }
     )
     
-    # Extract text from all pages
-    all_text = []
-    if hasattr(ocr_response, 'pages') and ocr_response.pages:
-        for page in ocr_response.pages:
-            if hasattr(page, 'markdown') and page.markdown:
-                all_text.append(page.markdown)
-    
-    return "\n\n---\n\n".join(all_text) if all_text else ""
+    return _format_ocr_text(ocr_response)
 
 
 async def analyze_contract_pdf(pdf_bytes: bytes) -> dict:
