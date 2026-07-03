@@ -8,6 +8,25 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_MIMES = ["application/pdf", "image/png", "image/jpeg", "text/plain"]
 UPLOAD_DIR = "uploads"
 
+
+def detect_mime_from_header(header: bytes) -> str | None:
+    """Detect supported file types from signatures without trusting request headers."""
+    if header.startswith(b"%PDF-"):
+        return "application/pdf"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+
+    if b"\x00" in header:
+        return None
+    try:
+        header.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return "text/plain"
+
+
 async def validate_file(file: UploadFile) -> str:
     """
     Validates file size and type.
@@ -33,20 +52,24 @@ async def validate_file(file: UploadFile) -> str:
         # Check first 2048 bytes
         header = await file.read(2048)
         await file.seek(0)
-        
+
+        mime_type = None
         try:
             import magic
             # magic.from_buffer returns string like "PDF document, version 1.4"
             # magic.Magic(mime=True) returns "application/pdf"
-            mime_type = magic.from_buffer(header, mime=True)
-        except ImportError:
-            # magic not installed or DLL missing
-            mime_type = file.content_type or "application/octet-stream"
+            detected_mime = magic.from_buffer(header, mime=True)
+            if detected_mime in ALLOWED_MIMES:
+                mime_type = detected_mime
+        except Exception as e:
+            print(f"Magic detection unavailable: {e}")
+
+        if mime_type is None:
+            mime_type = detect_mime_from_header(header)
             
     except Exception as e:
         print(f"Magic validation warning: {e}")
-        # Fallback to content-type header
-        mime_type = file.content_type or "application/octet-stream"
+        raise HTTPException(status_code=400, detail="Could not determine file type")
 
     mime_to_exts = {
         "application/pdf": [".pdf"],
@@ -56,7 +79,7 @@ async def validate_file(file: UploadFile) -> str:
     }
 
     if mime_type not in ALLOWED_MIMES:
-        raise HTTPException(status_code=400, detail=f"Unsupported file type: {mime_type}")
+        raise HTTPException(status_code=400, detail="Unsupported or undetectable file type")
 
     filename = file.filename or ""
     ext = os.path.splitext(filename)[1].lower()

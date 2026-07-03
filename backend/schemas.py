@@ -3,6 +3,15 @@ from datetime import datetime
 from typing import Optional, List
 import re
 
+USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+
+def validate_username_pattern(v: str) -> str:
+    if not USERNAME_PATTERN.match(v):
+        raise ValueError('Username must contain only letters, numbers, underscores, and hyphens')
+    return v
+
+
 class Token(BaseModel):
     token_type: str
 
@@ -16,9 +25,7 @@ class UserCreate(BaseModel):
     @field_validator('username')
     @classmethod
     def username_pattern(cls, v: str) -> str:
-        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
-            raise ValueError('Username must contain only letters, numbers, underscores, and hyphens')
-        return v
+        return validate_username_pattern(v)
 
 class TagRead(BaseModel):
     id: int
@@ -154,6 +161,13 @@ class UserUpdate(BaseModel):
     password: Optional[str] = Field(None, min_length=8, max_length=128)
     role: Optional[str] = Field(None, pattern="^(admin|user)$")
     is_active: Optional[bool] = None
+
+    @field_validator('username')
+    @classmethod
+    def username_pattern(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return validate_username_pattern(v)
 
 
 class PermissionCreate(BaseModel):

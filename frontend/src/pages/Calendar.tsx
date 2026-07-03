@@ -83,8 +83,8 @@ const Calendar: React.FC = () => {
             }
 
             // Notice Deadline (Yellow)
-            if (contract.end_date && contract.notice_period) {
-                const deadline = subDays(parseISO(contract.end_date), contract.notice_period)
+            if (contract.end_date) {
+                const deadline = subDays(parseISO(contract.end_date), contract.notice_period ?? 30)
                 if (isSameDay(deadline, day)) {
                     events.push({
                         type: 'notice',
