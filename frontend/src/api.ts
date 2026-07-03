@@ -6,6 +6,36 @@ const api = axios.create({
     withCredentials: true, // Required for HttpOnly cookie authentication
 })
 
+export const getCookieValue = (name: string) => {
+    const match = document.cookie
+        .split('; ')
+        .find(row => row.startsWith(`${name}=`))
+    return match ? decodeURIComponent(match.split('=').slice(1).join('=')) : null
+}
+
+const isMutatingMethod = (method?: string) => {
+    return ['post', 'put', 'patch', 'delete'].includes((method || 'get').toLowerCase())
+}
+
+export const ensureCsrfToken = async () => {
+    const existingToken = getCookieValue('csrf_token')
+    if (existingToken) return existingToken
+
+    await api.get('/csrf-token')
+    return getCookieValue('csrf_token')
+}
+
+api.interceptors.request.use(async (config) => {
+    if (isMutatingMethod(config.method) && config.url !== '/token') {
+        const csrfToken = await ensureCsrfToken()
+        if (csrfToken) {
+            config.headers = config.headers || {}
+            config.headers['X-CSRF-Token'] = csrfToken
+        }
+    }
+    return config
+})
+
 api.interceptors.response.use(
     (response) => response,
     (error) => {

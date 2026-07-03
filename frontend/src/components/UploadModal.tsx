@@ -15,8 +15,8 @@ interface UploadModalProps {
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 const ACCEPTED_UPLOAD_TYPES = {
     'application/pdf': ['.pdf'],
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-    'application/msword': ['.doc'],
+    'image/png': ['.png'],
+    'image/jpeg': ['.jpg', '.jpeg'],
     'text/plain': ['.txt'],
 }
 
@@ -100,7 +100,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
         if (firstError.code === 'file-too-large') {
             setFileError(`Die Datei darf maximal ${formatUploadSize(MAX_UPLOAD_SIZE)} groß sein.`)
         } else if (firstError.code === 'file-invalid-type') {
-            setFileError('Bitte laden Sie eine PDF-, Word- oder Textdatei hoch.')
+            setFileError('Bitte laden Sie eine PDF-, Bild- oder Textdatei hoch.')
         } else {
             setFileError(firstError.message)
         }
