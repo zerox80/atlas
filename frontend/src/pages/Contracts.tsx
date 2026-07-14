@@ -10,6 +10,7 @@ import UploadModal from '../components/UploadModal'
 import ContractChat from '../components/ContractChat'
 import AddToListModal from '../components/AddToListModal'
 import AuditModal from '../components/AuditModal'
+import ContractDetailsModal from '../components/ContractDetailsModal'
 import { EmptyState, LoadingState, PageHeader } from '../components/ui'
 import type { Contract } from '../types'
 import { formatGermanNumber } from '../utils/formatUtils'
@@ -39,6 +40,7 @@ const Contracts: React.FC = () => {
     const [chatContract, setChatContract] = useState<Contract | null>(null)
     const [listContract, setListContract] = useState<Contract | null>(null)
     const [auditContract, setAuditContract] = useState<Contract | null>(null)
+    const [detailsContract, setDetailsContract] = useState<Contract | null>(null)
     const [filter, setFilter] = useState<ViewFilter>('all')
     const [search, setSearch] = useState('')
     const [openMenu, setOpenMenu] = useState<number | null>(null)
@@ -115,7 +117,7 @@ const Contracts: React.FC = () => {
                     return <article key={contract.id} className="surface surface-interactive relative overflow-visible p-5 sm:p-6">
                         <div className="mb-5 flex items-start gap-4">
                             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#77a7ff]/15 bg-[#77a7ff]/10 text-[#77a7ff]"><FiFileText size={21} /></span>
-                            <div className="min-w-0 flex-1"><div className="mb-1.5 flex flex-wrap items-center gap-2"><span className={`chip border ${status.tone}`}><StatusIcon />{status.label}</span>{contract.is_protected && <span className="chip border-[#b28cff]/15 bg-[#b28cff]/10 text-[#c9adff]">Geschützt</span>}</div><h2 className="truncate text-lg font-semibold tracking-[-.02em] text-white">{contract.title}</h2><p className="mt-1 line-clamp-2 text-sm leading-5 muted">{contract.description || 'Keine Beschreibung hinterlegt.'}</p></div>
+                            <div className="min-w-0 flex-1"><div className="mb-1.5 flex flex-wrap items-center gap-2"><span className={`chip border ${status.tone}`}><StatusIcon />{status.label}</span>{contract.is_protected && <span className="chip border-[#b28cff]/15 bg-[#b28cff]/10 text-[#c9adff]">Geschützt</span>}</div><h2 className="truncate text-lg font-semibold tracking-[-.02em]"><button onClick={() => setDetailsContract(contract)} className="max-w-full truncate text-left text-white transition-colors hover:text-[#b8f15a] hover:underline focus:outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-[#b8f15a]">{contract.title}</button></h2><p className="mt-1 line-clamp-2 text-sm leading-5 muted">{contract.description || 'Keine Beschreibung hinterlegt.'}</p></div>
                             <div className="relative"><button onClick={() => setOpenMenu(openMenu === contract.id ? null : contract.id)} className="icon-btn" aria-label="Weitere Aktionen"><FiMoreHorizontal /></button>{openMenu === contract.id && <div className="surface-raised absolute right-0 top-11 z-20 w-56 p-1.5">
                                 <button onClick={() => { setEditingContract(contract); setIsUploadOpen(true); setOpenMenu(null) }} disabled={!contract.can_write} className="btn-ghost w-full justify-start disabled:hidden">Bearbeiten</button>
                                 <button onClick={() => { setListContract(contract); setOpenMenu(null) }} className="btn-ghost w-full justify-start"><FiFolder /> Sammlung zuweisen</button>
@@ -143,6 +145,7 @@ const Contracts: React.FC = () => {
             <ContractChat isOpen={!!chatContract} onClose={() => setChatContract(null)} contractId={chatContract?.id || 0} contractTitle={chatContract?.title || ''} />
             <AddToListModal isOpen={!!listContract} onClose={() => setListContract(null)} contractId={listContract?.id || null} contractTitle={listContract?.title || ''} />
             <AuditModal isOpen={!!auditContract} onClose={() => setAuditContract(null)} contractId={auditContract?.id || null} contractTitle={auditContract?.title || ''} />
+            <ContractDetailsModal contract={detailsContract} onClose={() => setDetailsContract(null)} onDownload={handleDownload} onEdit={(contract) => { setDetailsContract(null); setEditingContract(contract); setIsUploadOpen(true) }} />
         </div>
     )
 }
