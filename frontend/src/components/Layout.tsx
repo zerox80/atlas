@@ -1,137 +1,127 @@
 import React from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { FiLogOut, FiFileText, FiPieChart, FiMenu, FiX, FiShield, FiFolder, FiCalendar, FiDollarSign } from 'react-icons/fi'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import {
+    FiBarChart2, FiCalendar, FiChevronDown, FiCommand, FiFileText,
+    FiFolder, FiLogOut, FiMenu, FiPlus, FiSearch, FiShield, FiX,
+} from 'react-icons/fi'
 import { useUser } from '../App'
 import api from '../api'
+import CommandPalette from './CommandPalette'
+import UploadModal from './UploadModal'
 
-interface LayoutProps {
-    children: React.ReactNode
+interface LayoutProps { children: React.ReactNode }
+
+const primaryNav = [
+    { to: '/', label: 'Dashboard', icon: FiBarChart2, end: true },
+    { to: '/contracts', label: 'Verträge', icon: FiFileText },
+    { to: '/invoices', label: 'Rechnungen', icon: FiFileText },
+    { to: '/calendar', label: 'Kalender', icon: FiCalendar },
+]
+
+const workspaceNav = [
+    { to: '/lists', label: 'Sammlungen', icon: FiFolder },
+    { to: '/protected', label: 'Geschützt', icon: FiShield },
+]
+
+const pageMeta: Record<string, { eyebrow: string; title: string }> = {
+    '/': { eyebrow: 'Übersicht', title: 'Command Center' },
+    '/contracts': { eyebrow: 'Dokumente', title: 'Verträge' },
+    '/invoices': { eyebrow: 'Dokumente', title: 'Rechnungen' },
+    '/calendar': { eyebrow: 'Planung', title: 'Kalender' },
+    '/lists': { eyebrow: 'Workspace', title: 'Sammlungen' },
+    '/protected': { eyebrow: 'Sicherheit', title: 'Geschützte Dokumente' },
+    '/admin': { eyebrow: 'System', title: 'Administration' },
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
     const navigate = useNavigate()
-    const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
-    const { isAdmin } = useUser()
+    const location = useLocation()
+    const [mobileOpen, setMobileOpen] = React.useState(false)
+    const [createOpen, setCreateOpen] = React.useState(false)
+    const [createType, setCreateType] = React.useState<'contract' | 'invoice' | null>(null)
+    const { user, isAdmin } = useUser()
+    const meta = pageMeta[location.pathname] || pageMeta['/']
+
+    React.useEffect(() => {
+        setMobileOpen(false)
+        setCreateOpen(false)
+    }, [location.pathname])
 
     const handleLogout = async () => {
-        try {
-            await api.post('/logout')
-        } catch {
-            // Ignore errors
-        }
+        try { await api.post('/logout') } catch { /* local logout still proceeds */ }
         navigate('/login')
         window.location.reload()
     }
 
-    return (
-        <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
-            {/* Mobile Header */}
-            <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-gray-800 border-b border-gray-700 flex items-center px-4 z-40">
-                <button
-                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                    className="p-2 rounded hover:bg-gray-700 text-gray-300"
-                >
-                    {isMobileMenuOpen ? <FiX size={24} /> : <FiMenu size={24} />}
+    const openCommand = () => window.dispatchEvent(new CustomEvent('ze:command'))
+
+    const renderLink = ({ to, label, icon: Icon, end }: typeof primaryNav[number]) => (
+        <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) => `group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${isActive ? 'bg-white/[0.09] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,.06)]' : 'text-[#8f99a9] hover:bg-white/[0.05] hover:text-white'}`}
+        >
+            {({ isActive }) => <><span className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${isActive ? 'bg-[#b8f15a] text-[#111700]' : 'bg-white/[0.04] text-[#7c8798] group-hover:text-white'}`}><Icon size={16} /></span><span>{label}</span>{isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#b8f15a]" />}</>}
+        </NavLink>
+    )
+
+    const sidebar = (
+        <aside className="flex h-full w-[280px] flex-col border-r border-white/[0.07] bg-[#0b0e13]/95 px-4 py-5 backdrop-blur-xl">
+            <div className="mb-7 flex items-center justify-between px-2">
+                <button onClick={() => navigate('/')} className="flex items-center gap-3 text-left">
+                    <span className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-[14px] bg-[#b8f15a] font-black tracking-[-0.08em] text-[#111700]">ZE<span className="absolute -bottom-3 -right-2 h-7 w-7 rounded-full border-[5px] border-[#111700]/10" /></span>
+                    <span><strong className="block text-sm font-bold tracking-wide text-white">ZE Workspace</strong><span className="block text-[11px] text-[#687282]">Document operations</span></span>
                 </button>
-                <span className="ml-4 text-xl font-bold text-blue-500">ZE Dashboard</span>
+                <button onClick={() => setMobileOpen(false)} className="icon-btn lg:hidden" aria-label="Menü schließen"><FiX /></button>
             </div>
 
-            {/* Mobile Overlay */}
-            {isMobileMenuOpen && (
-                <div
-                    className="fixed inset-0 bg-black/50 z-30 md:hidden"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                />
-            )}
+            <button onClick={openCommand} className="mb-6 flex h-11 items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 text-sm text-[#758091] transition hover:border-white/[0.14] hover:bg-white/[0.06] hover:text-white">
+                <FiSearch /><span className="flex-1 text-left">Suchen & öffnen</span><kbd className="rounded-md border border-white/[0.09] bg-black/20 px-1.5 py-0.5 text-[10px] text-[#626c7c]">⌘ K</kbd>
+            </button>
 
-            {/* Sidebar */}
-            <div className={`
-                fixed inset-y-0 left-0 z-50 w-64 bg-gray-800 border-r border-gray-700 p-4 flex flex-col transition-transform duration-300 ease-in-out
-                md:relative md:translate-x-0
-                ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
-            `}>
-                <div className="text-2xl font-bold mb-8 text-blue-500 hidden md:block">ZE Dashboard</div>
+            <nav className="flex-1 overflow-y-auto">
+                <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#4e5867]">Arbeitsbereich</p>
+                <div className="space-y-1">{primaryNav.map(renderLink)}</div>
+                <p className="mb-2 mt-7 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#4e5867]">Organisation</p>
+                <div className="space-y-1">{workspaceNav.map(renderLink)}</div>
+                {isAdmin && <div className="mt-7 border-t border-white/[0.06] pt-4">{renderLink({ to: '/admin', label: 'Administration', icon: FiShield })}</div>}
+            </nav>
 
-                {/* Mobile Close Button (Optional, nicely integrated in header but good to have inside too if header is separate) */}
-                <div className="md:hidden flex justify-between items-center mb-8">
-                    <span className="text-xl font-bold text-blue-500">Menu</span>
-                    <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 hover:bg-gray-700 rounded"><FiX size={20} /></button>
+            <div className="mt-4 rounded-2xl border border-white/[0.07] bg-white/[0.035] p-3">
+                <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#77a7ff] to-[#b28cff] text-sm font-bold text-white">{user?.username?.slice(0, 2).toUpperCase() || 'ZE'}</span>
+                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-white">{user?.username || 'Benutzer'}</p><p className="text-[11px] capitalize text-[#697384]">{user?.role || 'Workspace'}</p></div>
+                    <button onClick={handleLogout} className="icon-btn h-9 w-9 border-0 bg-transparent" title="Abmelden" aria-label="Abmelden"><FiLogOut /></button>
                 </div>
-
-                <nav className="flex-1 space-y-2">
-                    <Link
-                        to="/"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className="flex items-center space-x-2 p-3 rounded hover:bg-gray-700 transition-colors text-gray-300 hover:text-white"
-                    >
-                        <FiPieChart />
-                        <span>Dashboard</span>
-                    </Link>
-                    <Link
-                        to="/calendar"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className="flex items-center space-x-2 p-3 rounded hover:bg-gray-700 transition-colors text-gray-300 hover:text-white"
-                    >
-                        <FiCalendar />
-                        <span>Kalender</span>
-                    </Link>
-                    <Link
-                        to="/contracts"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className="flex items-center space-x-2 p-3 rounded hover:bg-gray-700 transition-colors text-gray-300 hover:text-white"
-                    >
-                        <FiFileText />
-                        <span>Verträge</span>
-                    </Link>
-                    <Link
-                        to="/invoices"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className="flex items-center space-x-2 p-3 rounded hover:bg-gray-700 transition-colors text-gray-300 hover:text-white"
-                    >
-                        <FiDollarSign />
-                        <span>Rechnungen</span>
-                    </Link>
-                    <Link
-                        to="/lists"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className="flex items-center space-x-2 p-3 rounded hover:bg-gray-700 transition-colors text-gray-300 hover:text-white"
-                    >
-                        <FiFolder />
-                        <span>Listen</span>
-                    </Link>
-                    <Link
-                        to="/protected"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className="flex items-center space-x-2 p-3 rounded hover:bg-gray-700 transition-colors text-gray-300 hover:text-white"
-                    >
-                        <FiShield />
-                        <span>Geschützt</span>
-                    </Link>
-                    {/* Admin Link - only visible for admins */}
-                    {isAdmin && (
-                        <Link
-                            to="/admin"
-                            onClick={() => setIsMobileMenuOpen(false)}
-                            className="flex items-center space-x-2 p-3 rounded hover:bg-purple-900/50 transition-colors text-purple-400 hover:text-purple-300"
-                        >
-                            <FiShield />
-                            <span>Admin</span>
-                        </Link>
-                    )}
-                </nav>
-                <button onClick={handleLogout} className="flex items-center space-x-2 p-3 rounded hover:bg-red-900/50 text-red-400 hover:text-red-300 transition-colors mt-auto">
-                    <FiLogOut />
-                    <span>Logout</span>
-                </button>
             </div>
+        </aside>
+    )
 
-            {/* Main Content */}
-            <div className="flex-1 overflow-auto p-4 md:p-8 pt-20 md:pt-8">
-                {children}
+    return (
+        <div className="min-h-screen bg-transparent text-white">
+            <CommandPalette />
+            <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">{sidebar}</div>
+            {mobileOpen && <><button className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Menü schließen" /><div className="fixed inset-y-0 left-0 z-50 lg:hidden">{sidebar}</div></>}
+
+            <div className="min-h-screen lg:pl-[280px]">
+                <header className="sticky top-0 z-30 flex h-[72px] items-center gap-3 border-b border-white/[0.06] bg-[#090c11]/80 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
+                    <button onClick={() => setMobileOpen(true)} className="icon-btn lg:hidden" aria-label="Menü öffnen"><FiMenu /></button>
+                    <div className="min-w-0 flex-1"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#687282]">{meta.eyebrow}</p><p className="truncate text-sm font-semibold text-[#e9edf3]">{meta.title}</p></div>
+                    <button onClick={openCommand} className="btn-ghost hidden sm:inline-flex"><FiCommand /><span>Command</span><kbd className="ml-1 rounded-md border border-white/[0.09] px-1.5 py-0.5 text-[10px] text-[#697384]">Ctrl K</kbd></button>
+                    <div className="relative">
+                        <button onClick={() => setCreateOpen(!createOpen)} className="btn-primary"><FiPlus /><span className="hidden sm:inline">Neu anlegen</span><FiChevronDown className={`transition ${createOpen ? 'rotate-180' : ''}`} /></button>
+                        {createOpen && <div className="surface-raised absolute right-0 top-12 w-56 p-2">
+                            <button onClick={() => { setCreateType('contract'); setCreateOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-[#cbd2dc] hover:bg-white/[0.06] hover:text-white"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#b8f15a]/10 text-[#b8f15a]"><FiFileText /></span><span><strong className="block text-sm">Vertrag</strong><small className="text-[#657080]">mit Fristen & KI</small></span></button>
+                            <button onClick={() => { setCreateType('invoice'); setCreateOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-[#cbd2dc] hover:bg-white/[0.06] hover:text-white"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7397ff]/10 text-[#7397ff]"><FiFileText /></span><span><strong className="block text-sm">Rechnung</strong><small className="text-[#657080]">schnell erfassen</small></span></button>
+                        </div>}
+                    </div>
+                </header>
+                <main>{children}</main>
             </div>
+            <UploadModal isOpen={createType !== null} onClose={() => setCreateType(null)} documentType={createType || 'contract'} />
         </div>
     )
 }
 
 export default Layout
-

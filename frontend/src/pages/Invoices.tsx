@@ -1,111 +1,84 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FiDownload, FiFileText, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { useSearchParams } from 'react-router-dom'
+import { FiDownload, FiEdit3, FiFileText, FiPlus, FiSearch, FiTrash2, FiTrendingUp } from 'react-icons/fi'
 import api from '../api'
 import UploadModal from '../components/UploadModal'
+import { EmptyState, LoadingState, PageHeader } from '../components/ui'
 import { formatGermanNumber } from '../utils/formatUtils'
 import type { Contract } from '../types'
 
 const Invoices: React.FC = () => {
+    const queryClient = useQueryClient()
+    const [searchParams] = useSearchParams()
+    const listIdParam = searchParams.get('list_id')
+    const listId = listIdParam && /^\d+$/.test(listIdParam) ? Number(listIdParam) : null
     const [isUploadOpen, setIsUploadOpen] = useState(false)
     const [editingInvoice, setEditingInvoice] = useState<Contract | null>(null)
-    const queryClient = useQueryClient()
+    const [search, setSearch] = useState('')
 
-    const { data: invoices, isLoading } = useQuery<Contract[]>(['invoices'], async () => {
-        const response = await api.get('/contracts', { params: { document_type: 'invoice' } })
+    const { data: invoices = [], isLoading } = useQuery<Contract[]>(['invoices', listId], async () => {
+        const response = await api.get('/contracts', { params: { document_type: 'invoice', sort_by: 'uploaded_at', sort_order: 'desc', ...(listId ? { list_id: listId } : {}) } })
         return response.data
     })
 
+    const filtered = useMemo(() => invoices.filter((invoice) => `${invoice.title} ${invoice.description || ''} ${invoice.tags.map((tag) => tag.name).join(' ')}`.toLowerCase().includes(search.toLowerCase())), [invoices, search])
+    const total = invoices.reduce((sum, invoice) => sum + (invoice.value || 0), 0)
+    const currentMonthTotal = invoices.filter((invoice) => {
+        const value = new Date(invoice.start_date || invoice.uploaded_at); const now = new Date()
+        return value.getMonth() === now.getMonth() && value.getFullYear() === now.getFullYear()
+    }).reduce((sum, invoice) => sum + (invoice.value || 0), 0)
+
     const handleDelete = async (invoice: Contract) => {
-        if (invoice.is_protected) {
-            alert('Diese Rechnung ist geschützt. Bitte heben Sie zuerst den Schutz auf.')
-            return
-        }
-        if (!window.confirm(`Möchten Sie die Rechnung "${invoice.title}" wirklich löschen?`)) return
+        if (invoice.is_protected) return alert('Diese Rechnung ist geschützt. Bitte heben Sie zuerst den Schutz auf.')
+        if (!window.confirm(`Möchten Sie die Rechnung „${invoice.title}“ wirklich löschen?`)) return
         try {
             await api.delete(`/contracts/${invoice.id}`)
-            queryClient.invalidateQueries(['invoices'])
-            queryClient.invalidateQueries(['contracts'])
-        } catch {
-            alert('Fehler beim Löschen der Rechnung.')
+            await Promise.all([
+                queryClient.invalidateQueries(['invoices']),
+                queryClient.invalidateQueries(['contracts']),
+                queryClient.invalidateQueries(['workspace-documents']),
+            ])
         }
+        catch { alert('Die Rechnung konnte nicht gelöscht werden.') }
     }
 
     const handleDownload = async (invoice: Contract) => {
         try {
             const response = await api.get(`/contracts/${invoice.id}/download`, { responseType: 'blob' })
             const extension = invoice.file_extension?.startsWith('.') ? invoice.file_extension : `.${invoice.file_extension || 'pdf'}`
-            const url = window.URL.createObjectURL(new Blob([response.data]))
-            const link = document.createElement('a')
-            link.href = url
-            link.download = invoice.title.endsWith(extension) ? invoice.title : `${invoice.title}${extension}`
-            document.body.appendChild(link)
-            link.click()
-            link.remove()
-            window.URL.revokeObjectURL(url)
-        } catch {
-            alert('Fehler beim Herunterladen der Rechnung.')
-        }
+            const url = URL.createObjectURL(new Blob([response.data])); const link = document.createElement('a')
+            link.href = url; link.download = invoice.title.endsWith(extension) ? invoice.title : `${invoice.title}${extension}`; link.click(); URL.revokeObjectURL(url)
+        } catch { alert('Die Rechnung konnte nicht heruntergeladen werden.') }
     }
 
-    if (isLoading) return <div className="p-8 text-center text-gray-400">Lade Rechnungen...</div>
+    if (isLoading) return <LoadingState label="Rechnungen werden geladen" />
 
     return (
-        <div>
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-10">
-                <div>
-                    <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-500 mb-2">Rechnungen</h1>
-                    <p className="text-gray-400 text-lg">Rechnungen unabhängig von Verträgen hochladen und verwalten.</p>
-                </div>
-                <button
-                    onClick={() => setIsUploadOpen(true)}
-                    className="flex w-full md:w-auto justify-center items-center gap-2 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg"
-                >
-                    <FiPlus size={20} />
-                    <span>Neue Rechnung</span>
-                </button>
-            </div>
+        <div className="app-page">
+            <PageHeader eyebrow="Invoice Desk" title="Rechnungen" description="Ein schneller, eigenständiger Ablageprozess für Rechnungen – auch wenn kein Vertrag existiert." actions={<button onClick={() => setIsUploadOpen(true)} className="btn-primary"><FiPlus /> Rechnung hochladen</button>} />
 
-            {invoices?.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-800/40 p-12 text-center text-gray-400">
-                    Noch keine Rechnungen hochgeladen.
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {invoices?.map((invoice) => (
-                        <article key={invoice.id} className="rounded-2xl border border-gray-700 bg-gray-800/60 p-6">
-                            <div className="flex items-start justify-between gap-4 mb-4">
-                                <div className="flex items-center gap-3 min-w-0">
-                                    <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-400"><FiFileText size={22} /></div>
-                                    <div className="min-w-0">
-                                        <p className="text-xs font-bold uppercase tracking-wide text-emerald-400">Rechnung</p>
-                                        <h2 className="truncate text-lg font-semibold text-white">{invoice.title}</h2>
-                                    </div>
-                                </div>
-                                <div className="flex gap-2">
-                                    {invoice.can_write && <button onClick={() => { setEditingInvoice(invoice); setIsUploadOpen(true) }} className="text-sm text-gray-300 hover:text-white">Bearbeiten</button>}
-                                    {invoice.can_delete && <button onClick={() => handleDelete(invoice)} disabled={invoice.is_protected} className="text-red-400 hover:text-red-300 disabled:text-gray-600"><FiTrash2 /></button>}
-                                </div>
-                            </div>
-                            <p className="h-10 text-sm text-gray-400 line-clamp-2">{invoice.description || 'Keine Beschreibung vorhanden.'}</p>
-                            <div className="my-5 flex justify-between border-y border-gray-700 py-3 text-sm">
-                                <span className="text-gray-400">Rechnungsdatum</span>
-                                <span className="font-medium text-white">{invoice.start_date ? new Date(invoice.start_date).toLocaleDateString('de-DE') : '-'}</span>
-                            </div>
-                            <p className="mb-5 text-2xl font-bold text-emerald-400">{invoice.value != null ? `${formatGermanNumber(invoice.value)} €` : '-'}</p>
-                            <div className="flex flex-wrap gap-2 mb-5">{invoice.tags.map((tag) => <span key={tag.name} className="rounded-full border border-gray-600 bg-gray-700 px-2 py-0.5 text-xs text-gray-300">#{tag.name}</span>)}</div>
-                            <button onClick={() => handleDownload(invoice)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-700 py-2.5 text-sm text-white hover:bg-gray-600"><FiDownload /> Rechnung herunterladen</button>
-                        </article>
-                    ))}
-                </div>
-            )}
+            <section className="mb-5 grid gap-4 sm:grid-cols-3">
+                <article className="surface p-5"><p className="eyebrow">Gesamtes Archiv</p><p className="metric-value mt-3">{formatGermanNumber(total)} €</p><p className="mt-2 text-xs muted">aus {invoices.length} Rechnungen</p></article>
+                <article className="surface p-5"><p className="eyebrow">Dieser Monat</p><p className="metric-value mt-3 text-[#b8f15a]">{formatGermanNumber(currentMonthTotal)} €</p><p className="mt-2 text-xs muted">nach Rechnungsdatum</p></article>
+                <article className="surface p-5"><p className="eyebrow">Ø Rechnungswert</p><p className="metric-value mt-3">{formatGermanNumber(invoices.length ? total / invoices.length : 0)} €</p><p className="mt-2 flex items-center gap-1.5 text-xs muted"><FiTrendingUp className="text-[#77a7ff]" /> automatisch berechnet</p></article>
+            </section>
 
-            <UploadModal
-                isOpen={isUploadOpen}
-                onClose={() => { setIsUploadOpen(false); setEditingInvoice(null) }}
-                initialData={editingInvoice}
-                documentType="invoice"
-            />
+            <section className="surface overflow-hidden">
+                <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:px-6"><div><p className="eyebrow">Rechnungsarchiv</p><h2 className="section-title mt-1">Alle Belege</h2></div><label className="relative block sm:w-72"><FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#657080]" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="field py-2.5 pl-10" placeholder="Lieferant oder Tag…" /></label></div>
+                {filtered.length ? <>
+                    <div className="hidden grid-cols-[minmax(240px,1.5fr)_140px_140px_minmax(120px,.7fr)_108px] gap-4 border-y border-white/[0.06] bg-white/[0.02] px-6 py-2.5 text-[10px] font-bold uppercase tracking-[.14em] text-[#5e6878] md:grid"><span>Rechnung</span><span>Datum</span><span>Status</span><span className="text-right">Betrag</span><span /></div>
+                    {filtered.map((invoice) => <article key={invoice.id} className="data-row md:grid-cols-[minmax(240px,1.5fr)_140px_140px_minmax(120px,.7fr)_108px]">
+                        <div className="flex min-w-0 items-center gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#b8f15a]/15 bg-[#b8f15a]/10 text-[#b8f15a]"><FiFileText /></span><span className="min-w-0"><strong className="block truncate text-sm font-semibold text-white">{invoice.title}</strong><span className="mt-1 flex gap-1.5 overflow-hidden">{invoice.tags.slice(0, 2).map((tag) => <small key={tag.name} className="truncate text-[11px] muted">#{tag.name}</small>)}</span></span></div>
+                        <p className="text-sm muted"><span className="mr-2 text-[10px] font-bold uppercase tracking-wider md:hidden">Datum</span>{invoice.start_date ? new Date(invoice.start_date).toLocaleDateString('de-DE') : '–'}</p>
+                        <span className={`chip w-fit ${invoice.is_protected ? 'border-[#b28cff]/15 bg-[#b28cff]/10 text-[#c9adff]' : 'border-[#b8f15a]/15 bg-[#b8f15a]/10 text-[#b8f15a]'}`}>{invoice.is_protected ? 'Geschützt' : 'Erfasst'}</span>
+                        <p className="text-left text-base font-bold text-white md:text-right">{invoice.value != null ? `${formatGermanNumber(invoice.value)} €` : '–'}</p>
+                        <div className="flex justify-end gap-1"><button onClick={() => handleDownload(invoice)} className="icon-btn" title="Herunterladen"><FiDownload /></button>{invoice.can_write && <button onClick={() => { setEditingInvoice(invoice); setIsUploadOpen(true) }} className="icon-btn" title="Bearbeiten"><FiEdit3 /></button>}{invoice.can_delete && <button onClick={() => handleDelete(invoice)} disabled={invoice.is_protected} className="icon-btn hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-30" title="Löschen"><FiTrash2 /></button>}</div>
+                    </article>)}
+                </> : <div className="p-5"><EmptyState icon={FiFileText} title={search ? 'Keine passenden Rechnungen' : 'Noch keine Rechnungen'} description={search ? 'Versuche einen anderen Suchbegriff.' : 'Lade eine Rechnung direkt hoch – ein zugehöriger Vertrag ist nicht nötig.'} action={!search ? <button onClick={() => setIsUploadOpen(true)} className="btn-primary"><FiPlus /> Erste Rechnung hochladen</button> : undefined} /></div>}
+            </section>
+
+            <UploadModal isOpen={isUploadOpen} onClose={() => { setIsUploadOpen(false); setEditingInvoice(null) }} initialData={editingInvoice} documentType="invoice" />
         </div>
     )
 }

@@ -66,8 +66,11 @@ const AddToListModal: React.FC<AddToListModalProps> = ({ isOpen, onClose, contra
                 setContractLists(prev => [...prev, listId])
             }
             // Invalidate queries to refresh data
-            queryClient.invalidateQueries(['lists'])
-            queryClient.invalidateQueries(['contracts'])
+            await Promise.all([
+                queryClient.invalidateQueries(['lists']),
+                queryClient.invalidateQueries(['contracts']),
+                queryClient.invalidateQueries(['workspace-documents']),
+            ])
         } catch (e: any) {
             console.error('Failed to update list assignment', e)
             alert(e.response?.data?.detail || 'Fehler beim Aktualisieren der Listenzuweisung')
@@ -84,7 +87,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({ isOpen, onClose, contra
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40"
+                        className="fixed inset-0 z-40 bg-[#05070b]/80 backdrop-blur-md"
                         onClick={onClose}
                     />
                     <motion.div
@@ -93,18 +96,19 @@ const AddToListModal: React.FC<AddToListModalProps> = ({ isOpen, onClose, contra
                         exit={{ opacity: 0, scale: 0.95, y: 20 }}
                         className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
                     >
-                        <div className="bg-gray-900 border border-gray-700 w-full max-w-md rounded-2xl shadow-2xl pointer-events-auto">
-                            <div className="flex justify-between items-center p-6 border-b border-gray-800">
+                        <div className="surface-raised pointer-events-auto w-full max-w-lg overflow-hidden">
+                            <div className="flex items-start justify-between border-b border-white/[0.07] p-6">
                                 <div>
-                                    <h3 className="text-xl font-semibold text-white">Zu Liste hinzufügen</h3>
-                                    <p className="text-sm text-gray-400 mt-1 truncate max-w-[250px]">{contractTitle}</p>
+                                    <p className="eyebrow">Organisation</p>
+                                    <h3 className="mt-2 text-xl font-semibold text-white">Sammlungen zuweisen</h3>
+                                    <p className="mt-1 max-w-[320px] truncate text-sm muted">{contractTitle}</p>
                                 </div>
-                                <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
-                                    <FiX size={24} />
+                                <button onClick={onClose} className="icon-btn" aria-label="Dialog schließen">
+                                    <FiX size={19} />
                                 </button>
                             </div>
 
-                            <div className="p-6 max-h-[400px] overflow-y-auto">
+                            <div className="max-h-[430px] overflow-y-auto p-4 sm:p-6">
                                 {lists && lists.length > 0 ? (
                                     <div className="space-y-2">
                                         {lists.map((list) => {
@@ -114,9 +118,9 @@ const AddToListModal: React.FC<AddToListModalProps> = ({ isOpen, onClose, contra
                                                     key={list.id}
                                                     onClick={() => handleToggleList(list.id)}
                                                     disabled={isLoading}
-                                                    className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all ${isAssigned
-                                                        ? 'border-green-500/50 bg-green-900/20'
-                                                        : 'border-gray-700 hover:border-gray-600 bg-gray-800/50'
+                                            className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border text-left transition-all ${isAssigned
+                                                        ? 'border-[#b8f15a]/25 bg-[#b8f15a]/[0.08]'
+                                                        : 'border-white/[0.07] bg-white/[0.025] hover:border-white/[0.14] hover:bg-white/[0.045]'
                                                         } disabled:opacity-50`}
                                                 >
                                                     <div
@@ -126,16 +130,16 @@ const AddToListModal: React.FC<AddToListModalProps> = ({ isOpen, onClose, contra
                                                         <FiFolder size={18} style={{ color: list.color }} />
                                                     </div>
                                                     <div className="flex-1 text-left">
-                                                        <p className="font-medium text-white">{list.name}</p>
+                                                    <p className="font-semibold text-white">{list.name}</p>
                                                         {list.description && (
-                                                            <p className="text-sm text-gray-400 truncate">{list.description}</p>
+                                                            <p className="truncate text-sm muted">{list.description}</p>
                                                         )}
                                                     </div>
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-xs text-gray-500">{list.contract_count} Verträge</span>
+                                                        <span className="text-xs muted">{list.contract_count} Verträge</span>
                                                         {isAssigned && (
-                                                            <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                                                                <FiCheck size={14} className="text-white" />
+                                                            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#b8f15a]">
+                                                                <FiCheck size={14} className="text-[#111700]" />
                                                             </div>
                                                         )}
                                                     </div>
@@ -144,18 +148,18 @@ const AddToListModal: React.FC<AddToListModalProps> = ({ isOpen, onClose, contra
                                         })}
                                     </div>
                                 ) : (
-                                    <div className="text-center py-8">
-                                        <FiFolder size={48} className="mx-auto text-gray-600 mb-3" />
-                                        <p className="text-gray-400">Keine Listen vorhanden</p>
-                                        <p className="text-sm text-gray-500 mt-1">Erstellen Sie zuerst eine Liste im Listen-Bereich</p>
+                                    <div className="py-10 text-center">
+                                        <FiFolder size={42} className="mx-auto mb-3 text-[#596474]" />
+                                        <p className="font-semibold text-white">Noch keine Sammlungen</p>
+                                        <p className="mt-1 text-sm muted">Erstelle zuerst eine Sammlung im Bereich „Sammlungen“.</p>
                                     </div>
                                 )}
                             </div>
 
-                            <div className="p-4 border-t border-gray-800">
+                            <div className="border-t border-white/[0.07] p-4">
                                 <button
                                     onClick={onClose}
-                                    className="w-full bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 rounded-lg transition-colors"
+                                    className="btn-secondary w-full"
                                 >
                                     Schließen
                                 </button>
