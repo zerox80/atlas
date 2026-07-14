@@ -32,6 +32,9 @@ class TagRead(BaseModel):
     name: str
     color: str
 
+    class Config:
+        from_attributes = True
+
 
 class TagCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
