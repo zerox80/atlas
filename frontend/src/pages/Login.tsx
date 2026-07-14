@@ -55,7 +55,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                             <FiFileText size={20} />
                         </div>
                         <div>
-                            <p className="text-sm font-bold tracking-[0.16em]">ZE WORKSPACE</p>
+                            <p className="text-sm font-bold tracking-[0.16em]">ATLAS</p>
                             <p className="text-xs text-white/40">Document Intelligence</p>
                         </div>
                     </div>
@@ -91,7 +91,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }} className="w-full max-w-md">
                         <div className="mb-10 flex items-center gap-3 lg:hidden">
                             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#b8f15a] text-[#10130c]"><FiFileText /></div>
-                            <span className="font-bold tracking-[0.14em]">ZE WORKSPACE</span>
+                            <span className="font-bold tracking-[0.14em]">ATLAS</span>
                         </div>
 
                         <p className="eyebrow">Secure access</p>

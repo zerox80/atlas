@@ -286,7 +286,7 @@ def setup_2fa(current_user: User = Depends(get_current_user), session: Session =
     
     # Generate QR Code
     totp = pyotp.TOTP(secret)
-    uri = totp.provisioning_uri(name=current_user.username, issuer_name="ZE-Dashboard")
+    uri = totp.provisioning_uri(name=current_user.username, issuer_name="Atlas")
     
     # Create QR image
     img = qrcode.make(uri)
