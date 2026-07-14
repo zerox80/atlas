@@ -58,7 +58,7 @@ const CommandPalette = () => {
                     ].map(({ label, path, icon: Icon }) => <Command.Item key={path} value={label} onSelect={() => go(path)} className={itemClass}><Icon className="text-[#7f8a9a]" /><span className="flex-1">{label}</span><FiArrowRight className="opacity-40" /></Command.Item>)}
                 </Command.Group>
                 {contracts.length > 0 && <Command.Group heading="Dokumente" className={`mt-2 border-t border-white/[0.06] pt-2 ${groupClass}`}>
-                    {contracts.slice(0, 12).map((contract) => <Command.Item key={contract.id} value={`${contract.title} ${contract.description || ''}`} onSelect={() => go(contract.document_type === 'invoice' ? '/invoices' : '/contracts')} className={itemClass}>
+                    {contracts.map((contract) => <Command.Item key={contract.id} value={`${contract.title} ${contract.description || ''}`} onSelect={() => go(contract.document_type === 'invoice' ? '/invoices' : '/contracts')} className={itemClass}>
                         <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${contract.document_type === 'invoice' ? 'bg-[#7397ff]/10 text-[#7397ff]' : 'bg-[#b8f15a]/10 text-[#b8f15a]'}`}><FiFileText /></span>
                         <span className="min-w-0 flex-1 truncate">{contract.title}</span>
                         <span className="text-[10px] uppercase tracking-wider text-[#596475]">{contract.document_type === 'invoice' ? 'Rechnung' : 'Vertrag'}</span>

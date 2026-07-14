@@ -66,8 +66,11 @@ const AddToListModal: React.FC<AddToListModalProps> = ({ isOpen, onClose, contra
                 setContractLists(prev => [...prev, listId])
             }
             // Invalidate queries to refresh data
-            queryClient.invalidateQueries(['lists'])
-            queryClient.invalidateQueries(['contracts'])
+            await Promise.all([
+                queryClient.invalidateQueries(['lists']),
+                queryClient.invalidateQueries(['contracts']),
+                queryClient.invalidateQueries(['workspace-documents']),
+            ])
         } catch (e: any) {
             console.error('Failed to update list assignment', e)
             alert(e.response?.data?.detail || 'Fehler beim Aktualisieren der Listenzuweisung')

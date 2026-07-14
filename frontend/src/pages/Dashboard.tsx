@@ -19,10 +19,11 @@ const Dashboard: React.FC = () => {
     const navigate = useNavigate()
     const [searchParams] = useSearchParams()
     const [uploadType, setUploadType] = useState<'contract' | 'invoice' | null>(null)
-    const listId = searchParams.get('list_id')
+    const listIdParam = searchParams.get('list_id')
+    const listId = listIdParam && /^\d+$/.test(listIdParam) ? Number(listIdParam) : null
 
     const { data = [], isLoading } = useQuery<Contract[]>(['workspace-documents', listId], async () => {
-        const response = await api.get('/contracts', { params: listId ? { list_id: Number(listId), sort_by: 'uploaded_at', sort_order: 'desc' } : { sort_by: 'uploaded_at', sort_order: 'desc' } })
+        const response = await api.get('/contracts', { params: listId ? { list_id: listId, sort_by: 'uploaded_at', sort_order: 'desc' } : { sort_by: 'uploaded_at', sort_order: 'desc' } })
         return Array.isArray(response.data) ? response.data : []
     })
 
@@ -57,6 +58,11 @@ const Dashboard: React.FC = () => {
 
     const upcoming = [...stats.deadlines].sort((a, b) => new Date(a.end_date!).getTime() - new Date(b.end_date!).getTime()).slice(0, 5)
     const recent = data.slice(0, 6)
+    const displayedDocuments = listId ? data : recent
+    const documentRoute = (document: Contract) => {
+        const path = document.document_type === 'invoice' ? '/invoices' : '/contracts'
+        return listId ? `${path}?list_id=${listId}` : path
+    }
 
     if (isLoading) return <LoadingState label="Dashboard wird geladen" />
 
@@ -101,7 +107,7 @@ const Dashboard: React.FC = () => {
                     {upcoming.length ? <div className="border-t border-white/[0.06]">
                         {upcoming.map((contract) => {
                             const days = Math.max(0, Math.ceil((new Date(contract.end_date!).getTime() - Date.now()) / 86400000))
-                            return <button key={contract.id} onClick={() => navigate('/contracts')} className="flex w-full items-center gap-3 border-b border-white/[0.055] px-5 py-4 text-left transition last:border-0 hover:bg-white/[0.035]">
+                            return <button key={contract.id} onClick={() => navigate(listId ? `/contracts?list_id=${listId}` : '/contracts')} className="flex w-full items-center gap-3 border-b border-white/[0.055] px-5 py-4 text-left transition last:border-0 hover:bg-white/[0.035]">
                                 <span className={`flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl border text-xs font-bold ${days <= 14 ? 'border-red-400/20 bg-red-400/10 text-red-300' : 'border-amber-300/20 bg-amber-300/10 text-amber-200'}`}><strong className="leading-none">{days}</strong><small className="mt-0.5 text-[8px] font-semibold uppercase">Tage</small></span>
                                 <span className="min-w-0 flex-1"><strong className="block truncate text-sm font-semibold text-white">{contract.title}</strong><small className="mt-1 block text-xs muted">Endet am {dateLabel(contract.end_date)}</small></span><FiArrowRight className="text-[#505a69]" />
                             </button>
@@ -111,9 +117,9 @@ const Dashboard: React.FC = () => {
             </section>
 
             <section className="surface mt-4 overflow-hidden animate-enter-delay">
-                <div className="flex items-center justify-between px-5 py-5 sm:px-6"><div><p className="eyebrow">Zuletzt bearbeitet</p><h2 className="section-title mt-1">Dokumentenstrom</h2></div><button onClick={() => navigate('/contracts')} className="btn-ghost">Alle Dokumente <FiArrowRight /></button></div>
+                <div className="flex items-center justify-between px-5 py-5 sm:px-6"><div><p className="eyebrow">{listId ? 'Sammlung' : 'Zuletzt bearbeitet'}</p><h2 className="section-title mt-1">{listId ? `Alle ${data.length} Dokumente` : 'Dokumentenstrom'}</h2></div>{listId ? <button onClick={() => navigate('/lists')} className="btn-ghost">Sammlungen <FiArrowRight /></button> : <div className="flex items-center gap-2"><button onClick={() => navigate('/contracts')} className="btn-ghost">Verträge <FiArrowRight /></button><button onClick={() => navigate('/invoices')} className="btn-ghost">Rechnungen <FiArrowRight /></button></div>}</div>
                 <div className="hidden grid-cols-[minmax(220px,1.5fr)_130px_150px_130px_32px] gap-3 border-y border-white/[0.06] bg-white/[0.02] px-5 py-2.5 text-[10px] font-bold uppercase tracking-[.14em] text-[#5f6978] sm:grid"><span>Dokument</span><span>Typ</span><span>Datum</span><span>Wert</span><span /></div>
-                {recent.length ? recent.map((item) => <button key={item.id} onClick={() => navigate(item.document_type === 'invoice' ? '/invoices' : '/contracts')} className="data-row w-full text-left sm:grid-cols-[minmax(220px,1.5fr)_130px_150px_130px_32px]">
+                {displayedDocuments.length ? displayedDocuments.map((item) => <button key={item.id} onClick={() => navigate(documentRoute(item))} className="data-row w-full text-left sm:grid-cols-[minmax(220px,1.5fr)_130px_150px_130px_32px]">
                     <span className="flex min-w-0 items-center gap-3"><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${item.document_type === 'invoice' ? 'bg-[#b8f15a]/10 text-[#b8f15a]' : 'bg-[#77a7ff]/10 text-[#77a7ff]'}`}><FiFileText /></span><span className="min-w-0"><strong className="block truncate text-sm font-semibold text-white">{item.title}</strong><small className="block truncate text-xs muted">{item.description || 'Ohne Beschreibung'}</small></span></span>
                     <span className="chip w-fit">{item.document_type === 'invoice' ? 'Rechnung' : 'Vertrag'}</span><span className="text-sm muted"><FiClock className="mr-1.5 inline" />{dateLabel(item.start_date || item.uploaded_at)}</span><span className="text-sm font-semibold text-[#dbe2eb]">{item.value != null ? `${formatGermanNumber(item.value)} €` : '–'}</span><FiArrowRight className="text-[#505a69]" />
                 </button>) : <div className="px-6 py-12 text-center muted">Noch keine Dokumente vorhanden.</div>}
