@@ -121,8 +121,18 @@ def migration_001_legacy_columns(cursor: sqlite3.Cursor) -> None:
     ensure_unique_permission_index(cursor)
 
 
+def migration_002_document_type(cursor: sqlite3.Cursor) -> None:
+    """Mark existing records as contracts and allow invoices to be stored separately."""
+    add_missing_columns(
+        cursor,
+        "contract",
+        (("document_type", "document_type VARCHAR NOT NULL DEFAULT 'contract'"),),
+    )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     ("001_legacy_columns_and_permission_index", migration_001_legacy_columns),
+    ("002_contract_document_type", migration_002_document_type),
 )
 
 

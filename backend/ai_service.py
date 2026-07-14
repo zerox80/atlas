@@ -22,17 +22,20 @@ from typing import Callable, Any
 try:
     from mistralai import Mistral  # type: ignore[attr-defined]
 except ImportError:  # mistralai 2.x exposes the client below the generated namespace.
-    from mistralai.client import Mistral
+    # Import the concrete module instead of the namespace re-export.  Some
+    # 2.x builds expose ``mistralai`` as a namespace package, where
+    # ``from mistralai.client import Mistral`` is not guaranteed to resolve.
+    from mistralai.client.sdk import Mistral
 
 try:
     from mistralai.models import SDKError
 except ImportError:
-    from mistralai.client.errors import SDKError
+    from mistralai.client.errors.sdkerror import SDKError
 
 # Initialize client (lazy - only when API key is available)
 _client = None
 
-MODEL = os.getenv("MISTRAL_CHAT_MODEL", "mistral-large-latest")
+MODEL = os.getenv("MISTRAL_CHAT_MODEL", "mistral-medium-3-5")
 OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-4-0")
 OCR_TABLE_FORMAT = os.getenv("MISTRAL_OCR_TABLE_FORMAT", "markdown").lower()
 OCR_CONFIDENCE_GRANULARITY = os.getenv("MISTRAL_OCR_CONFIDENCE_GRANULARITY", "page").lower()
@@ -238,7 +241,7 @@ async def _process_pdf_with_ocr(pdf_bytes: bytes) -> str:
     return _format_ocr_text(ocr_response)
 
 
-async def analyze_contract_pdf(pdf_bytes: bytes) -> dict:
+async def analyze_contract_pdf(pdf_bytes: bytes, document_type: str = "contract") -> dict:
     """
     Analyze a PDF contract and extract structured data.
     Uses OCR or image mode based on MISTRAL_USE_OCR env var.
@@ -246,6 +249,9 @@ async def analyze_contract_pdf(pdf_bytes: bytes) -> dict:
     Returns:
         dict with keys: title, description, value, start_date, end_date, notice_period, tags
     """
+    if document_type not in {"contract", "invoice"}:
+        raise ValueError("Ungültiger Dokumenttyp.")
+
     client = get_client()
     
     if use_ocr_mode():
@@ -324,6 +330,12 @@ Regeln:
 - WICHTIG: Wenn ein Wert nicht explizit im Text steht, gib null zurück. Erfinde KEINE Daten. Insbesondere bei Kündigungsfristen und Start-/Enddaten: Wenn unklar, nimm null!"""
         })
     
+    if document_type == "invoice":
+        content.append({
+            "type": "text",
+            "text": """Dieses Dokument ist eine Rechnung, kein Vertrag. Extrahiere den Lieferanten oder Rechnungstitel, den Rechnungsbetrag inklusive Umsatzsteuer (value) und das Rechnungsdatum (start_date). Setze annual_value, end_date und notice_period auf null, sofern sie nicht ausdrücklich auf der Rechnung stehen. Erfinde keine Rechnungsnummern, Daten oder Beträge."""
+        })
+
     response = await _retry_on_rate_limit(
         client.chat.complete_async,
         model=MODEL,

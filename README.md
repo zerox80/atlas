@@ -6,7 +6,8 @@ Dieses Projekt ist eine KI gestützte Plattform zur Verwaltung und Analyse von V
 
 Das System bietet umfassende Werkzeuge für das Vertragsmanagement:
 
-* Automatisierte Vertragsanalyse: Mithilfe von Mistral Large 3 werden wichtige Daten wie Laufzeiten, Beträge und Kündigungsfristen automatisch aus PDF Dokumenten extrahiert.
+* Automatisierte Vertragsanalyse: Mithilfe von Mistral Medium 3.5 werden wichtige Daten wie Laufzeiten, Beträge und Kündigungsfristen automatisch aus PDF Dokumenten extrahiert.
+* Rechnungsverwaltung: Rechnungen können unabhängig von Verträgen hochgeladen, mit OCR/KI ausgelesen und separat verwaltet werden.
 * Interaktiver Chat: Nutzer können spezifische Fragen zu Vertragsinhalten stellen und erhalten präzise Antworten basierend auf dem Dokument.
 * Benutzer und Rollenmanagement: Eine integrierte Administration ermöglicht die Steuerung von Zugriffsrechten und Rollen.
 * Sicherheit: Das System implementiert eine Zwei Faktor Authentifizierung (TOTP) sowie detaillierte Audit Logs zur Nachverfolgbarkeit aller Aktionen.
@@ -30,7 +31,7 @@ Für den Betrieb ist die Konfiguration der Umgebungsvariablen in einer .env Date
 Die KI Analyse nutzt standardmäßig Mistral OCR 4 über das Modell `mistral-ocr-4-0`. Der OCR Aufruf extrahiert Markdown, Tabellen im Markdown Format, strukturierte OCR 4 Blöcke sowie Seiten Konfidenzwerte. Diese Defaults können per `.env` angepasst werden:
 
 ```env
-MISTRAL_CHAT_MODEL=mistral-large-latest
+MISTRAL_CHAT_MODEL=mistral-medium-3-5
 MISTRAL_OCR_MODEL=mistral-ocr-4-0
 MISTRAL_OCR_TABLE_FORMAT=markdown
 MISTRAL_OCR_INCLUDE_BLOCKS=true

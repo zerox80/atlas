@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'r
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Contracts from './pages/Contracts'
+import Invoices from './pages/Invoices'
 import AdminPanel from './pages/AdminPanel'
 import Lists from './pages/Lists'
 import Calendar from './pages/Calendar'
@@ -81,6 +82,9 @@ export function AppRoutes() {
                 } />
                 <Route path="/contracts" element={
                     isAuthenticated ? <Layout><Contracts /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/invoices" element={
+                    isAuthenticated ? <Layout><Invoices /></Layout> : <Navigate to="/login" />
                 } />
                 <Route path="/lists" element={
                     isAuthenticated ? <Layout><Lists /></Layout> : <Navigate to="/login" />

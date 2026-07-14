@@ -15,6 +15,16 @@ def test_ocr_4_is_default_model(monkeypatch):
     assert service.OCR_MODEL == "mistral-ocr-4-0"
 
 
+def test_medium_3_5_is_default_chat_model(monkeypatch):
+    monkeypatch.delenv("MISTRAL_CHAT_MODEL", raising=False)
+
+    import ai_service
+
+    service = importlib.reload(ai_service)
+
+    assert service.MODEL == "mistral-medium-3-5"
+
+
 def test_imports_current_mistral_client():
     import ai_service
 

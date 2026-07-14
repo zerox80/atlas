@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { FiLogOut, FiFileText, FiPieChart, FiMenu, FiX, FiShield, FiFolder, FiCalendar } from 'react-icons/fi'
+import { FiLogOut, FiFileText, FiPieChart, FiMenu, FiX, FiShield, FiFolder, FiCalendar, FiDollarSign } from 'react-icons/fi'
 import { useUser } from '../App'
 import api from '../api'
 
@@ -82,6 +82,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     >
                         <FiFileText />
                         <span>Verträge</span>
+                    </Link>
+                    <Link
+                        to="/invoices"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="flex items-center space-x-2 p-3 rounded hover:bg-gray-700 transition-colors text-gray-300 hover:text-white"
+                    >
+                        <FiDollarSign />
+                        <span>Rechnungen</span>
                     </Link>
                     <Link
                         to="/lists"

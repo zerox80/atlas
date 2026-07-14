@@ -10,6 +10,7 @@ interface UploadModalProps {
     isOpen: boolean
     onClose: () => void
     initialData?: any
+    documentType?: 'contract' | 'invoice'
 }
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024
@@ -22,7 +23,7 @@ const ACCEPTED_UPLOAD_TYPES = {
 
 const formatUploadSize = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`
 
-const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData }) => {
+const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData, documentType = 'contract' }) => {
     const [file, setFile] = useState<File | null>(null)
     const [title, setTitle] = useState('')
     const [description, setDescription] = useState('')
@@ -37,6 +38,8 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
     const [fileError, setFileError] = useState('')
 
     const queryClient = useQueryClient()
+    const isInvoice = (initialData?.document_type ?? documentType) === 'invoice'
+    const documentLabel = isInvoice ? 'Rechnung' : 'Vertrag'
 
     useEffect(() => {
         if (isOpen && initialData) {
@@ -129,6 +132,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
         try {
             const formData = new FormData()
             formData.append('file', file)
+            formData.append('document_type', isInvoice ? 'invoice' : 'contract')
 
             const response = await api.post('/contracts/analyze', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
@@ -195,6 +199,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
             formData.append('tags', tags || '')
             formData.append('start_date', startDate ? new Date(startDate).toISOString() : '')
             formData.append('end_date', endDate ? new Date(endDate).toISOString() : '')
+            if (!initialData) formData.append('document_type', isInvoice ? 'invoice' : 'contract')
 
             if (initialData) {
                 // Edit Mode: PUT request (FormData)
@@ -209,6 +214,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
             }
 
             queryClient.invalidateQueries(['contracts'])
+            queryClient.invalidateQueries(['invoices'])
             onClose()
             // Reset form
             setFile(null)
@@ -249,7 +255,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                     >
                         <div className="bg-gray-900 border border-gray-700 w-full max-w-xl rounded-2xl shadow-2xl pointer-events-auto flex flex-col max-h-[90vh] overflow-y-auto">
                             <div className="flex justify-between items-center p-6 border-b border-gray-800">
-                                <h3 className="text-xl font-semibold text-white">{initialData ? 'Vertrag bearbeiten' : 'Vertrag hochladen'}</h3>
+                                <h3 className="text-xl font-semibold text-white">{initialData ? `${documentLabel} bearbeiten` : `${documentLabel} hochladen`}</h3>
                                 <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
                                     <FiX size={24} />
                                 </button>
@@ -263,7 +269,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                                         <p className="text-blue-400 font-medium">{file.name}</p>
                                     ) : (
                                         <p className="text-gray-400">
-                                            {initialData ? 'Neue Datei hier ablegen zum Ersetzen (Optional)' : 'Datei hier ablegen oder klicken'}
+                                            {initialData ? 'Neue Datei hier ablegen zum Ersetzen (Optional)' : `${documentLabel} hier ablegen oder klicken`}
                                         </p>
                                     )}
                                 </div>
@@ -282,7 +288,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                                         {analyzing ? (
                                             <>
                                                 <span className="animate-spin"><FiZap /></span>
-                                                <span>KI analysiert Vertrag...</span>
+                                                <span>KI analysiert {documentLabel}...</span>
                                             </>
                                         ) : (
                                             <>
@@ -294,12 +300,12 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                                 )}
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-1">Titel</label>
+                                    <label className="block text-sm font-medium text-gray-400 mb-1">{isInvoice ? 'Lieferant / Rechnungstitel' : 'Titel'}</label>
                                     <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" required />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Gesamtwert (€)</label>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">{isInvoice ? 'Rechnungsbetrag (€)' : 'Gesamtwert (€)'}</label>
                                         <input
                                             type="text"
                                             value={value}
@@ -308,7 +314,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                                             className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                                         />
                                     </div>
-                                    <div>
+                                    {!isInvoice && <div>
                                         <label className="block text-sm font-medium text-gray-400 mb-1">Jährlicher Preis (€)</label>
                                         <input
                                             type="text"
@@ -317,7 +323,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
                                             placeholder="z.B. 2.500"
                                             className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                                         />
-                                    </div>
+                                    </div>}
                                 </div>
 
                                 <div>
@@ -332,23 +338,23 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData 
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Startdatum</label>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">{isInvoice ? 'Rechnungsdatum' : 'Startdatum'}</label>
                                         <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
                                     </div>
-                                    <div>
+                                    {!isInvoice && <div>
                                         <label className="block text-sm font-medium text-gray-400 mb-1">Enddatum</label>
                                         <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
-                                    </div>
+                                    </div>}
                                 </div>
 
-                                <div>
+                                {!isInvoice && <div>
                                     <label className="block text-sm font-medium text-gray-400 mb-1">Kündigungsfrist (Tage)</label>
                                     <input type="number" value={noticePeriod} onChange={e => setNoticePeriod(e.target.value)} placeholder="30" className="w-full bg-gray-800 border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
-                                </div>
+                                </div>}
 
                                 <div className="pt-4">
                                     <button type="submit" disabled={uploading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50">
-                                        {uploading ? (initialData ? 'Speichern...' : 'Hochladen...') : (initialData ? 'Änderungen speichern' : 'Vertrag hochladen')}
+                                        {uploading ? (initialData ? 'Speichern...' : 'Hochladen...') : (initialData ? 'Änderungen speichern' : `${documentLabel} hochladen`)}
                                     </button>
                                 </div>
                             </form>

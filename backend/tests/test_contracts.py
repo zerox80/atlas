@@ -21,6 +21,30 @@ class TestContractList:
         response = client.get("/contracts")
         assert response.status_code == 401
 
+    def test_filter_by_document_type(self, auth_client: TestClient, session, test_user):
+        contract = Contract(title="Service Agreement", file_path="uploads/service.txt")
+        invoice = Contract(
+            title="April Invoice",
+            file_path="uploads/invoice.txt",
+            document_type="invoice",
+        )
+        session.add(contract)
+        session.add(invoice)
+        session.commit()
+        session.refresh(contract)
+        session.refresh(invoice)
+
+        session.add(ContractPermission(user_id=test_user.id, contract_id=contract.id, permission_level="read"))
+        session.add(ContractPermission(user_id=test_user.id, contract_id=invoice.id, permission_level="read"))
+        session.commit()
+
+        response = auth_client.get("/contracts?document_type=invoice")
+
+        assert response.status_code == 200
+        assert [(item["title"], item["document_type"]) for item in response.json()] == [
+            ("April Invoice", "invoice")
+        ]
+
 
 class TestContractSearch:
     """Test contract search and filtering."""

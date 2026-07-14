@@ -19,6 +19,7 @@ interface Contract {
     version?: number
     notice_period?: number | null
     file_extension: string
+    document_type: 'contract' | 'invoice'
     is_protected: boolean
     can_read: boolean
     can_write: boolean
@@ -37,7 +38,7 @@ const Contracts: React.FC = () => {
     const queryClient = useQueryClient()
 
     const { data: contracts, isLoading } = useQuery<Contract[]>(['contracts'], async () => {
-        const res = await api.get('/contracts')
+        const res = await api.get('/contracts', { params: { document_type: 'contract' } })
         return res.data
     })
 

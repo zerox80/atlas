@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Literal
 import re
 
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
@@ -63,6 +63,7 @@ class ContractCreate(BaseModel):
     annual_value: Optional[float] = Field(default=None, ge=0)
     tags: List[str] = Field(default_factory=list)
     notice_period: Optional[int] = Field(default=30, ge=0, description="Notice period in days")
+    document_type: Literal["contract", "invoice"] = "contract"
 
     @field_validator('title')
     @classmethod
@@ -120,6 +121,7 @@ class ContractRead(BaseModel):
     notice_period: Optional[int] = None
     is_protected: bool
     file_extension: str
+    document_type: Literal["contract", "invoice"] = "contract"
     can_read: bool = True
     can_write: bool = False
     can_delete: bool = False

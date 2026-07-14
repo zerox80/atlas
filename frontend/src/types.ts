@@ -18,6 +18,7 @@ export interface Contract {
     version?: number
     notice_period?: number | null
     file_extension: string
+    document_type: 'contract' | 'invoice'
     is_protected: boolean
     can_read: boolean
     can_write: boolean

@@ -61,6 +61,9 @@ class Contract(SQLModel, table=True):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     file_path: str
+    # Kept in the existing document table so permissions, tags and downloads work
+    # consistently for both contracts and uploaded invoices.
+    document_type: str = Field(default="contract", index=True)
     uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Cancellation Logic

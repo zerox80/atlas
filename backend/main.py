@@ -339,11 +339,15 @@ def build_contract_query(
     start_date_from: Optional[datetime] = None,
     start_date_to: Optional[datetime] = None,
     status_filter: Optional[str] = None,
+    document_type: Optional[str] = None,
     sort_by: Optional[str] = "uploaded_at",
     sort_order: Optional[str] = "desc",
 ):
     """Build the shared filtered contract query used by list and export endpoints."""
     statement = select(Contract)
+
+    if document_type in {"contract", "invoice"}:
+        statement = statement.where(col(Contract.document_type) == document_type)
 
     if q:
         search_term = f"%{q}%"
@@ -398,6 +402,7 @@ def read_contracts(
     start_date_from: Optional[datetime] = None,
     start_date_to: Optional[datetime] = None,
     status: Optional[str] = None,               # "active" or "expired"
+    document_type: Optional[str] = None,        # "contract" or "invoice"
     sort_by: Optional[str] = "uploaded_at",     # title, value, start_date, end_date
     sort_order: Optional[str] = "desc",         # asc or desc
     current_user: User = Depends(get_current_user), 
@@ -417,6 +422,7 @@ def read_contracts(
         start_date_from=start_date_from,
         start_date_to=start_date_to,
         status_filter=status,
+        document_type=document_type,
         sort_by=sort_by,
         sort_order=sort_order,
     )
@@ -564,6 +570,7 @@ async def create_contract(
     notice_period: Annotated[Optional[str], Form()] = "30",
     description: Annotated[Optional[str], Form()] = None,
     tags: Annotated[Optional[str], Form()] = "",
+    document_type: Annotated[str, Form()] = "contract",
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
@@ -578,6 +585,7 @@ async def create_contract(
         annual_value=parse_float_form(annual_value),
         notice_period=parsed_notice_period if parsed_notice_period is not None else 30,
         tags=parse_tags_form(tags),
+        document_type=document_type,
     )
 
     # 1. Validate File
@@ -601,6 +609,7 @@ async def create_contract(
         start_date=contract_data.start_date,
         end_date=contract_data.end_date,
         file_path=file_path,
+        document_type=contract_data.document_type,
         value=contract_data.value if contract_data.value is not None else 0.0,
         annual_value=contract_data.annual_value,
         notice_period=contract_data.notice_period
@@ -657,7 +666,7 @@ async def create_contract(
         session.refresh(contract)
     
     client_host = request.client.host if request.client else "unknown"
-    log_audit(session, current_user.id, "UPLOAD", f"[CID:{contract.id}] Uploaded contract {contract.title}", client_host, request.headers.get("user-agent"))
+    log_audit(session, current_user.id, "UPLOAD", f"[CID:{contract.id}] Uploaded {contract.document_type} {contract.title}", client_host, request.headers.get("user-agent"))
     return contract_read_for_user(contract, current_user, session)
 
 # Removed unused StreamingResponse import
@@ -1722,12 +1731,16 @@ def get_list_contracts(
 async def analyze_contract_pdf(
     request: Request,
     file: UploadFile = File(...),
+    document_type: Annotated[str, Form()] = "contract",
     current_user: User = Depends(get_current_user)
 ):
     """
     Analyze a PDF contract using Mistral AI and extract structured data.
     Returns auto-fill suggestions for contract form fields.
     """
+    if document_type not in {"contract", "invoice"}:
+        raise HTTPException(status_code=422, detail="Ungültiger Dokumenttyp.")
+
     if not os.getenv("MISTRAL_API_KEY"):
         raise HTTPException(
             status_code=503, 
@@ -1756,7 +1769,7 @@ async def analyze_contract_pdf(
     
     try:
         from ai_service import analyze_contract_pdf as analyze_pdf
-        result = await analyze_pdf(pdf_bytes)
+        result = await analyze_pdf(pdf_bytes, document_type=document_type)
         return ContractAnalysisResult(**result)
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -1904,7 +1917,7 @@ def get_ai_status(current_user: User = Depends(get_current_user)):
     document_processing_enabled = MISTRAL_DOCUMENT_PROCESSING_ENABLED
     return {
         "available": has_key and document_processing_enabled,
-        "model": os.getenv("MISTRAL_CHAT_MODEL", "mistral-large-latest") if has_key else None,
+        "model": os.getenv("MISTRAL_CHAT_MODEL", "mistral-medium-3-5") if has_key else None,
         "ocr_model": os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-4-0") if has_key else None,
         "external_document_processing": document_processing_enabled,
         "provider": "Mistral AI" if has_key else None,
