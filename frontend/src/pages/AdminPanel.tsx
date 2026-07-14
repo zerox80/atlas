@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiUsers, FiPlus, FiEdit2, FiTrash2, FiShield, FiCheck, FiX, FiLock, FiTag } from 'react-icons/fi'
 import api from '../api'
+import { LoadingState, PageHeader } from '../components/ui'
 
 interface User {
     id: number
@@ -236,56 +237,49 @@ const AdminPanel: React.FC = () => {
     }
 
     if (isLoading) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-            </div>
-        )
+        return <LoadingState label="Administration wird geladen" />
     }
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-                        <FiShield className="text-blue-500" />
-                        Admin Panel
-                    </h1>
-                    <p className="text-gray-400 mt-1">Benutzer und Berechtigungen verwalten</p>
-                </div>
+        <div className="app-page">
+            <PageHeader eyebrow="System / Control Center" title="Administration" description="Benutzer, Dokumentrechte und Taxonomie an einem zentralen Kontrollpunkt verwalten." actions={<span className="chip border-[#b8f15a]/20 bg-[#b8f15a]/[0.07] text-[#b8f15a]"><FiShield /> Admin access</span>} />
+
+            <div className="mb-5 grid gap-3 sm:grid-cols-3">
+                <div className="surface p-5"><p className="eyebrow">Benutzer</p><p className="metric-value mt-3">{users.length}</p><p className="mt-2 text-xs text-white/34">{users.filter((user) => user.is_active).length} aktiv</p></div>
+                <div className="surface p-5"><p className="eyebrow">Freigaben</p><p className="metric-value mt-3">{permissions.length}</p><p className="mt-2 text-xs text-white/34">Dokumentbezogene Rechte</p></div>
+                <div className="surface p-5"><p className="eyebrow">Taxonomie</p><p className="metric-value mt-3">{tags.length}</p><p className="mt-2 text-xs text-white/34">Verfügbare Tags</p></div>
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-2 border-b border-gray-700 pb-2">
+            <div className="surface mb-6 flex flex-wrap gap-1 p-1.5">
                 <button
                     onClick={() => setActiveTab('users')}
-                    className={`px-4 py-2 rounded-t-lg font-medium transition-colors ${activeTab === 'users'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${activeTab === 'users'
+                        ? 'bg-white/[0.09] text-white'
+                        : 'text-white/38 hover:bg-white/[0.04] hover:text-white'
                         }`}
                 >
-                    <FiUsers className="inline mr-2" />
+                    <FiUsers />
                     Benutzer ({users.length})
                 </button>
                 <button
                     onClick={() => setActiveTab('permissions')}
-                    className={`px-4 py-2 rounded-t-lg font-medium transition-colors ${activeTab === 'permissions'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${activeTab === 'permissions'
+                        ? 'bg-white/[0.09] text-white'
+                        : 'text-white/38 hover:bg-white/[0.04] hover:text-white'
                         }`}
                 >
-                    <FiLock className="inline mr-2" />
+                    <FiLock />
                     Berechtigungen ({permissions.length})
                 </button>
                 <button
                     onClick={() => setActiveTab('tags')}
-                    className={`px-4 py-2 rounded-t-lg font-medium transition-colors ${activeTab === 'tags'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${activeTab === 'tags'
+                        ? 'bg-white/[0.09] text-white'
+                        : 'text-white/38 hover:bg-white/[0.04] hover:text-white'
                         }`}
                 >
-                    <FiTag className="inline mr-2" />
+                    <FiTag />
                     Tags ({tags.length})
                 </button>
             </div>
@@ -300,13 +294,13 @@ const AdminPanel: React.FC = () => {
                     <div className="flex justify-end">
                         <button
                             onClick={() => setIsAddUserModalOpen(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-lg transition-all"
+                            className="btn-primary"
                         >
                             <FiPlus /> Neuer Benutzer
                         </button>
                     </div>
 
-                    <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+                    <div className="surface overflow-x-auto">
                         <table className="w-full">
                             <thead className="bg-gray-900/50">
                                 <tr>
@@ -383,13 +377,13 @@ const AdminPanel: React.FC = () => {
                     <div className="flex justify-end">
                         <button
                             onClick={() => setIsPermissionModalOpen(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-lg transition-all"
+                            className="btn-primary"
                         >
                             <FiPlus /> Berechtigung hinzufügen
                         </button>
                     </div>
 
-                    <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+                    <div className="surface overflow-x-auto">
                         <table className="w-full">
                             <thead className="bg-gray-900/50">
                                 <tr>
@@ -444,13 +438,13 @@ const AdminPanel: React.FC = () => {
                     <div className="flex justify-end">
                         <button
                             onClick={() => setIsAddTagModalOpen(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-lg transition-all"
+                            className="btn-primary"
                         >
                             <FiPlus /> Neuer Tag
                         </button>
                     </div>
 
-                    <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+                    <div className="surface overflow-x-auto">
                         <table className="w-full">
                             <thead className="bg-gray-900/50">
                                 <tr>

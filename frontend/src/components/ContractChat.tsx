@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { FiX, FiSend, FiMessageCircle } from 'react-icons/fi'
+import React, { useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { FiCpu, FiMessageCircle, FiSend, FiX, FiZap } from 'react-icons/fi'
 import ReactMarkdown from 'react-markdown'
 import { buildApiUrl, ensureCsrfToken } from '../api'
 
@@ -17,89 +17,60 @@ interface Message {
     isStreaming?: boolean
 }
 
+const suggestions = [
+    'Was sind die wichtigsten Kündigungsbedingungen?',
+    'Fasse den Vertrag kurz zusammen.',
+    'Welche Kosten und Verpflichtungen entstehen?',
+]
+
 const ContractChat: React.FC<ContractChatProps> = ({ isOpen, onClose, contractId, contractTitle }) => {
     const [messages, setMessages] = useState<Message[]>([])
     const [input, setInput] = useState('')
     const [loading, setLoading] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
 
-    // Auto-scroll to bottom when messages change
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, [messages])
+    useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+    const updateAssistant = (content: string, isStreaming = true) => {
+        setMessages((current) => {
+            const next = [...current]
+            const index = next.length - 1
+            if (index >= 0 && next[index].role === 'assistant') next[index] = { ...next[index], content, isStreaming }
+            return next
+        })
+    }
 
     const handleSend = async () => {
         if (!input.trim() || loading) return
-
-        const userMessage = input.trim()
+        const question = input.trim()
         setInput('')
-        setMessages(prev => [...prev, { role: 'user', content: userMessage }])
+        setMessages((current) => [...current, { role: 'user', content: question }, { role: 'assistant', content: '', isStreaming: true }])
         setLoading(true)
-
-        // Add empty assistant message that will be filled by stream
-        setMessages(prev => [...prev, { role: 'assistant', content: '', isStreaming: true }])
 
         try {
             const csrfToken = await ensureCsrfToken()
-            // Use streaming endpoint with fetch
             const response = await fetch(buildApiUrl(`/contracts/${contractId}/chat/stream`), {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-                },
-                body: JSON.stringify({ question: userMessage }),
-                credentials: 'include'
+                headers: { 'Content-Type': 'application/json', ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}) },
+                body: JSON.stringify({ question }),
+                credentials: 'include',
             })
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-            }
-
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
             const reader = response.body?.getReader()
+            if (!reader) throw new Error('Keine Antwort vom Server')
+
             const decoder = new TextDecoder()
-
-            if (!reader) {
-                throw new Error('No response body')
-            }
-
             let fullContent = ''
             let pending = ''
-
-            const applyAssistantContent = () => {
-                setMessages(prev => {
-                    const newMessages = [...prev]
-                    const lastIdx = newMessages.length - 1
-                    if (lastIdx >= 0 && newMessages[lastIdx].role === 'assistant') {
-                        newMessages[lastIdx] = {
-                            ...newMessages[lastIdx],
-                            content: fullContent
-                        }
-                    }
-                    return newMessages
-                })
-            }
-
-            const handleSseEvent = (event: string) => {
-                const dataLines = event
-                    .split('\n')
-                    .filter(line => line.startsWith('data: '))
-                    .map(line => line.slice(6))
-
+            const processEvent = (event: string) => {
+                const dataLines = event.split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6))
                 for (const jsonData of dataLines) {
                     const data = JSON.parse(jsonData)
-
-                    if (data === '[DONE]') {
-                        continue
-                    }
-
-                    if (typeof data === 'string' && data.startsWith('[ERROR]')) {
-                        throw new Error(data.slice(8))
-                    }
-
+                    if (data === '[DONE]') continue
+                    if (typeof data === 'string' && data.startsWith('[ERROR]')) throw new Error(data.slice(8))
                     if (typeof data === 'string') {
                         fullContent += data
-                        applyAssistantContent()
+                        updateAssistant(fullContent)
                     }
                 }
             }
@@ -107,200 +78,60 @@ const ContractChat: React.FC<ContractChatProps> = ({ isOpen, onClose, contractId
             while (true) {
                 const { done, value } = await reader.read()
                 if (done) break
-
                 pending += decoder.decode(value, { stream: true })
                 const events = pending.split('\n\n')
                 pending = events.pop() ?? ''
-
-                for (const event of events) {
-                    if (event.trim()) {
-                        handleSseEvent(event)
-                    }
-                }
+                events.filter(Boolean).forEach(processEvent)
             }
-
             pending += decoder.decode()
-            if (pending.trim()) {
-                handleSseEvent(pending)
-            }
-
-            // Mark streaming as complete
-            setMessages(prev => {
-                const newMessages = [...prev]
-                const lastIdx = newMessages.length - 1
-                if (lastIdx >= 0 && newMessages[lastIdx].role === 'assistant') {
-                    newMessages[lastIdx] = {
-                        ...newMessages[lastIdx],
-                        isStreaming: false
-                    }
-                }
-                return newMessages
-            })
-
+            if (pending.trim()) processEvent(pending)
+            updateAssistant(fullContent, false)
         } catch (error: any) {
-            console.error('Chat failed', error)
-            const detail = error.message || 'Unbekannter Fehler'
-
-            // Update the last message with error
-            setMessages(prev => {
-                const newMessages = [...prev]
-                const lastIdx = newMessages.length - 1
-                if (lastIdx >= 0 && newMessages[lastIdx].role === 'assistant') {
-                    newMessages[lastIdx] = {
-                        role: 'assistant',
-                        content: `Fehler: ${detail}`,
-                        isStreaming: false
-                    }
-                }
-                return newMessages
-            })
+            updateAssistant(`Die Anfrage konnte nicht beantwortet werden: ${error.message || 'Unbekannter Fehler'}`, false)
         } finally {
             setLoading(false)
         }
     }
 
-    const handleKeyPress = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            handleSend()
-        }
-    }
+    return <AnimatePresence>
+        {isOpen && <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm" />
+            <motion.aside initial={{ opacity: 0, x: 80 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 80 }} transition={{ duration: 0.24 }} className="fixed bottom-0 right-0 top-0 z-[90] flex w-full max-w-lg flex-col border-l border-white/[0.09] bg-[#0b0e0c] shadow-[-30px_0_100px_rgba(0,0,0,.5)]">
+                <header className="border-b border-white/[0.07] p-5">
+                    <div className="flex items-center justify-between">
+                        <div className="flex min-w-0 items-center gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#977dff]/20 bg-[#977dff]/[0.08] text-[#c5b8ff]"><FiCpu size={20} /></div><div className="min-w-0"><p className="eyebrow">Document copilot</p><h2 className="mt-1 truncate text-base font-semibold">{contractTitle}</h2></div></div>
+                        <button onClick={onClose} className="icon-btn shrink-0"><FiX /></button>
+                    </div>
+                    <div className="mt-4 flex items-center gap-2 text-xs text-white/34"><span className="h-1.5 w-1.5 rounded-full bg-[#b8f15a] shadow-[0_0_10px_#b8f15a]" /> Kontext ist auf dieses Dokument begrenzt</div>
+                </header>
 
-    return (
-        <AnimatePresence>
-            {isOpen && (
-                <>
-                    {/* Backdrop */}
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40"
-                        onClick={onClose}
-                    />
+                <div className="flex-1 space-y-5 overflow-y-auto p-5">
+                    {!messages.length && <div className="flex min-h-full flex-col justify-center py-8">
+                        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-3xl border border-white/[0.08] bg-white/[0.025] text-white/50"><FiMessageCircle size={24} /></div>
+                        <h3 className="mt-5 text-center text-xl font-semibold tracking-[-0.025em]">Frag dein Dokument</h3>
+                        <p className="mx-auto mt-2 max-w-xs text-center text-sm leading-6 text-white/38">Der Copilot liest den Vertragsinhalt und antwortet ausschließlich auf Basis der vorhandenen Informationen.</p>
+                        <div className="mt-7 space-y-2">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => setInput(suggestion)} className="surface-interactive flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-white/64"><FiZap className="shrink-0 text-[#b8f15a]" /> {suggestion}</button>)}</div>
+                    </div>}
 
-                    {/* Chat Modal */}
-                    <motion.div
-                        initial={{ opacity: 0, x: 100 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 100 }}
-                        className="fixed right-0 top-0 bottom-0 w-full max-w-md z-50 flex flex-col bg-gray-900 border-l border-gray-700 shadow-2xl"
-                    >
-                        {/* Header */}
-                        <div className="flex items-center justify-between p-4 border-b border-gray-800">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-purple-600/20 rounded-lg">
-                                    <FiMessageCircle className="text-purple-400" size={20} />
-                                </div>
-                                <div>
-                                    <h3 className="text-white font-semibold">Vertrags-Chat</h3>
-                                    <p className="text-gray-400 text-sm truncate max-w-[200px]">{contractTitle}</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={onClose}
-                                className="text-gray-400 hover:text-white transition-colors p-2"
-                            >
-                                <FiX size={24} />
-                            </button>
+                    {messages.map((message, index) => <div key={index} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'rounded-br-md bg-[#b8f15a] text-[#10130c]' : 'rounded-bl-md border border-white/[0.08] bg-white/[0.035] text-white/74'}`}>
+                            {message.role === 'user' ? <p className="whitespace-pre-wrap">{message.content}</p> : <div className="prose prose-sm prose-invert max-w-none prose-headings:my-2 prose-p:my-1 prose-li:my-0 prose-ol:my-1 prose-ul:my-1 prose-pre:border prose-pre:border-white/10 prose-pre:bg-black/30"><ReactMarkdown>{message.content}</ReactMarkdown>{message.isStreaming && message.content && <span className="ml-1 inline-block h-4 w-1.5 animate-pulse bg-[#b8f15a]" />}</div>}
                         </div>
+                    </div>)}
+                    {loading && !messages[messages.length - 1]?.content && <div className="flex justify-start"><div className="flex gap-1 rounded-2xl rounded-bl-md border border-white/[0.08] bg-white/[0.035] px-4 py-4">{[0, 1, 2].map((delay) => <span key={delay} className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#b8f15a]" style={{ animationDelay: `${delay * 140}ms` }} />)}</div></div>}
+                    <div ref={messagesEndRef} />
+                </div>
 
-                        {/* Messages Area */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                            {messages.length === 0 && (
-                                <div className="text-center text-gray-500 py-8">
-                                    <FiMessageCircle className="mx-auto text-4xl mb-3 opacity-50" />
-                                    <p>Stelle eine Frage zum Vertrag</p>
-                                    <div className="mt-4 space-y-2">
-                                        <button
-                                            onClick={() => setInput('Was sind die wichtigsten Kündigungsbedingungen?')}
-                                            className="block w-full text-left px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 transition-colors"
-                                        >
-                                            💡 Was sind die wichtigsten Kündigungsbedingungen?
-                                        </button>
-                                        <button
-                                            onClick={() => setInput('Fasse den Vertrag kurz zusammen')}
-                                            className="block w-full text-left px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 transition-colors"
-                                        >
-                                            💡 Fasse den Vertrag kurz zusammen
-                                        </button>
-                                        <button
-                                            onClick={() => setInput('Welche Kosten entstehen?')}
-                                            className="block w-full text-left px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 transition-colors"
-                                        >
-                                            💡 Welche Kosten entstehen?
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {messages.map((message, index) => (
-                                <div
-                                    key={index}
-                                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                                >
-                                    <div
-                                        className={`max-w-[85%] rounded-2xl px-4 py-3 ${message.role === 'user'
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-gray-800 text-gray-100 border border-gray-700'
-                                            }`}
-                                    >
-                                        {message.role === 'user' ? (
-                                            <p className="whitespace-pre-wrap text-sm">{message.content}</p>
-                                        ) : (
-                                            <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2 prose-pre:bg-gray-900 prose-pre:border prose-pre:border-gray-600">
-                                                <ReactMarkdown>{message.content}</ReactMarkdown>
-                                                {message.isStreaming && (
-                                                    <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1" />
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-
-                            {loading && messages[messages.length - 1]?.content === '' && (
-                                <div className="flex justify-start">
-                                    <div className="bg-gray-800 border border-gray-700 rounded-2xl px-4 py-3">
-                                        <div className="flex gap-1">
-                                            <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                                            <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                                            <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Scroll anchor */}
-                            <div ref={messagesEndRef} />
-                        </div>
-
-                        {/* Input Area */}
-                        <div className="p-4 border-t border-gray-800">
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    onKeyPress={handleKeyPress}
-                                    placeholder="Frage zum Vertrag stellen..."
-                                    className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
-                                    disabled={loading}
-                                />
-                                <button
-                                    onClick={handleSend}
-                                    disabled={!input.trim() || loading}
-                                    className="px-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    <FiSend size={20} />
-                                </button>
-                            </div>
-                        </div>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
-    )
+                <footer className="border-t border-white/[0.07] bg-black/10 p-4">
+                    <div className="flex items-end gap-2 rounded-2xl border border-white/[0.1] bg-white/[0.025] p-2 focus-within:border-[#b8f15a]/35">
+                        <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSend() } }} placeholder="Frage zum Vertrag stellen …" disabled={loading} rows={1} className="max-h-32 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none" />
+                        <button onClick={handleSend} disabled={!input.trim() || loading} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#b8f15a] text-[#10130c] transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-35"><FiSend /></button>
+                    </div>
+                    <p className="mt-2 text-center text-[10px] text-white/24">Antworten können Fehler enthalten. Wichtige Angaben im Original prüfen.</p>
+                </footer>
+            </motion.aside>
+        </>}
+    </AnimatePresence>
 }
 
 export default ContractChat
