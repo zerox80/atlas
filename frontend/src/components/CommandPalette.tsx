@@ -19,10 +19,10 @@ const CommandPalette = () => {
         }
         const externalOpen = () => setOpen(true)
         document.addEventListener('keydown', handleKey)
-        window.addEventListener('ze:command', externalOpen)
+        window.addEventListener('atlas:command', externalOpen)
         return () => {
             document.removeEventListener('keydown', handleKey)
-            window.removeEventListener('ze:command', externalOpen)
+            window.removeEventListener('atlas:command', externalOpen)
         }
     }, [])
 

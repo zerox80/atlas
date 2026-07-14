@@ -53,7 +53,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         window.location.reload()
     }
 
-    const openCommand = () => window.dispatchEvent(new CustomEvent('ze:command'))
+    const openCommand = () => window.dispatchEvent(new CustomEvent('atlas:command'))
 
     const renderLink = ({ to, label, icon: Icon, end }: typeof primaryNav[number]) => (
         <NavLink
@@ -70,8 +70,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <aside className="flex h-full w-[280px] flex-col border-r border-white/[0.07] bg-[#0b0e13]/95 px-4 py-5 backdrop-blur-xl">
             <div className="mb-7 flex items-center justify-between px-2">
                 <button onClick={() => navigate('/')} className="flex items-center gap-3 text-left">
-                    <span className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-[14px] bg-[#b8f15a] font-black tracking-[-0.08em] text-[#111700]">ZE<span className="absolute -bottom-3 -right-2 h-7 w-7 rounded-full border-[5px] border-[#111700]/10" /></span>
-                    <span><strong className="block text-sm font-bold tracking-wide text-white">ZE Workspace</strong><span className="block text-[11px] text-[#687282]">Document operations</span></span>
+                    <span className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-[14px] bg-[#b8f15a] font-black tracking-[-0.08em] text-[#111700]">AT<span className="absolute -bottom-3 -right-2 h-7 w-7 rounded-full border-[5px] border-[#111700]/10" /></span>
+                    <span><strong className="block text-sm font-bold tracking-wide text-white">Atlas</strong><span className="block text-[11px] text-[#687282]">Document operations</span></span>
                 </button>
                 <button onClick={() => setMobileOpen(false)} className="icon-btn lg:hidden" aria-label="Menü schließen"><FiX /></button>
             </div>
@@ -90,7 +90,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
             <div className="mt-4 rounded-2xl border border-white/[0.07] bg-white/[0.035] p-3">
                 <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#77a7ff] to-[#b28cff] text-sm font-bold text-white">{user?.username?.slice(0, 2).toUpperCase() || 'ZE'}</span>
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#77a7ff] to-[#b28cff] text-sm font-bold text-white">{user?.username?.slice(0, 2).toUpperCase() || 'AT'}</span>
                     <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-white">{user?.username || 'Benutzer'}</p><p className="text-[11px] capitalize text-[#697384]">{user?.role || 'Workspace'}</p></div>
                     <button onClick={handleLogout} className="icon-btn h-9 w-9 border-0 bg-transparent" title="Abmelden" aria-label="Abmelden"><FiLogOut /></button>
                 </div>

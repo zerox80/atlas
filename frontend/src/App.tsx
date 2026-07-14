@@ -76,7 +76,7 @@ export function AppRoutes() {
     }
 
     if (isLoading) {
-        return <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#070907] text-white"><div className="ambient-grid absolute inset-0 opacity-40" /><div className="relative flex flex-col items-center"><div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-[#b8f15a] text-lg font-black tracking-[-0.08em] text-[#111700] shadow-[0_0_50px_rgba(184,241,90,.18)]">ZE</div><div className="mt-5 h-1 w-24 overflow-hidden rounded-full bg-white/[0.07]"><div className="h-full w-1/2 animate-pulse rounded-full bg-[#b8f15a]" /></div><p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-white/30">Workspace lädt</p></div></div>
+        return <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#070907] text-white"><div className="ambient-grid absolute inset-0 opacity-40" /><div className="relative flex flex-col items-center"><div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-[#b8f15a] text-lg font-black tracking-[-0.08em] text-[#111700] shadow-[0_0_50px_rgba(184,241,90,.18)]">AT</div><div className="mt-5 h-1 w-24 overflow-hidden rounded-full bg-white/[0.07]"><div className="h-full w-1/2 animate-pulse rounded-full bg-[#b8f15a]" /></div><p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-white/30">Atlas lädt</p></div></div>
     }
 
     return (

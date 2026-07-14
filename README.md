@@ -1,4 +1,4 @@
-# ZE Dashboard
+# Atlas
 
 Dieses Projekt ist eine KI gestützte Plattform zur Verwaltung und Analyse von Verträgen. Es kombiniert ein modernes Web Interface mit leistungsstarken KI Funktionen zur automatischen Datenextraktion und Dokumenteninteraktion.
 
@@ -45,4 +45,4 @@ Starten Sie die Anwendung mit folgendem Befehl im Hauptverzeichnis:
 
 docker-compose up -d
 
-Nach dem Start ist das Dashboard über den konfigurierten Nginx Proxy erreichbar. Die Datenbank wird beim ersten Start automatisch initialisiert.
+Nach dem Start ist Atlas über den konfigurierten Nginx Proxy erreichbar. Die Datenbank wird beim ersten Start automatisch initialisiert.
