@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { FiDownload, FiEdit3, FiFileText, FiPlus, FiSearch, FiTrash2, FiTrendingUp } from 'react-icons/fi'
 import api from '../api'
 import UploadModal from '../components/UploadModal'
@@ -9,12 +10,15 @@ import type { Contract } from '../types'
 
 const Invoices: React.FC = () => {
     const queryClient = useQueryClient()
+    const [searchParams] = useSearchParams()
+    const listIdParam = searchParams.get('list_id')
+    const listId = listIdParam && /^\d+$/.test(listIdParam) ? Number(listIdParam) : null
     const [isUploadOpen, setIsUploadOpen] = useState(false)
     const [editingInvoice, setEditingInvoice] = useState<Contract | null>(null)
     const [search, setSearch] = useState('')
 
-    const { data: invoices = [], isLoading } = useQuery<Contract[]>(['invoices'], async () => {
-        const response = await api.get('/contracts', { params: { document_type: 'invoice', sort_by: 'uploaded_at', sort_order: 'desc' } })
+    const { data: invoices = [], isLoading } = useQuery<Contract[]>(['invoices', listId], async () => {
+        const response = await api.get('/contracts', { params: { document_type: 'invoice', sort_by: 'uploaded_at', sort_order: 'desc', ...(listId ? { list_id: listId } : {}) } })
         return response.data
     })
 
@@ -28,7 +32,14 @@ const Invoices: React.FC = () => {
     const handleDelete = async (invoice: Contract) => {
         if (invoice.is_protected) return alert('Diese Rechnung ist geschützt. Bitte heben Sie zuerst den Schutz auf.')
         if (!window.confirm(`Möchten Sie die Rechnung „${invoice.title}“ wirklich löschen?`)) return
-        try { await api.delete(`/contracts/${invoice.id}`); queryClient.invalidateQueries(['invoices']); queryClient.invalidateQueries(['contracts']) }
+        try {
+            await api.delete(`/contracts/${invoice.id}`)
+            await Promise.all([
+                queryClient.invalidateQueries(['invoices']),
+                queryClient.invalidateQueries(['contracts']),
+                queryClient.invalidateQueries(['workspace-documents']),
+            ])
+        }
         catch { alert('Die Rechnung konnte nicht gelöscht werden.') }
     }
 

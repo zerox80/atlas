@@ -159,8 +159,11 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, initialData,
             if (initialData) await api.put(`/contracts/${initialData.id}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
             else await api.post('/contracts', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
 
-            queryClient.invalidateQueries(['contracts'])
-            queryClient.invalidateQueries(['invoices'])
+            await Promise.all([
+                queryClient.invalidateQueries(['contracts']),
+                queryClient.invalidateQueries(['invoices']),
+                queryClient.invalidateQueries(['workspace-documents']),
+            ])
             resetAndClose()
         } catch (error: any) {
             const message = error.response?.data?.detail || error.message || 'Unbekannter Fehler'

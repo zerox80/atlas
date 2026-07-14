@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import {
     FiActivity, FiAlertTriangle, FiCheckCircle, FiClock, FiDownload, FiFileText,
     FiFolder, FiMessageCircle, FiMoreHorizontal, FiPlus, FiSearch, FiShield, FiTrash2,
@@ -30,6 +31,9 @@ const contractState = (contract: Contract) => {
 
 const Contracts: React.FC = () => {
     const queryClient = useQueryClient()
+    const [searchParams] = useSearchParams()
+    const listIdParam = searchParams.get('list_id')
+    const listId = listIdParam && /^\d+$/.test(listIdParam) ? Number(listIdParam) : null
     const [isUploadOpen, setIsUploadOpen] = useState(false)
     const [editingContract, setEditingContract] = useState<Contract | null>(null)
     const [chatContract, setChatContract] = useState<Contract | null>(null)
@@ -39,8 +43,8 @@ const Contracts: React.FC = () => {
     const [search, setSearch] = useState('')
     const [openMenu, setOpenMenu] = useState<number | null>(null)
 
-    const { data = [], isLoading } = useQuery<Contract[]>(['contracts'], async () => {
-        const response = await api.get('/contracts', { params: { document_type: 'contract', sort_by: 'uploaded_at', sort_order: 'desc' } })
+    const { data = [], isLoading } = useQuery<Contract[]>(['contracts', listId], async () => {
+        const response = await api.get('/contracts', { params: { document_type: 'contract', sort_by: 'uploaded_at', sort_order: 'desc', ...(listId ? { list_id: listId } : {}) } })
         return response.data
     })
 
@@ -60,7 +64,13 @@ const Contracts: React.FC = () => {
         setOpenMenu(null)
         if (contract.is_protected) return alert('Dieser Vertrag ist geschützt. Bitte heben Sie zuerst den Schutz auf.')
         if (!window.confirm(`Möchten Sie den Vertrag „${contract.title}“ wirklich löschen?`)) return
-        try { await api.delete(`/contracts/${contract.id}`); queryClient.invalidateQueries(['contracts']) }
+        try {
+            await api.delete(`/contracts/${contract.id}`)
+            await Promise.all([
+                queryClient.invalidateQueries(['contracts']),
+                queryClient.invalidateQueries(['workspace-documents']),
+            ])
+        }
         catch { alert('Der Vertrag konnte nicht gelöscht werden.') }
     }
 
@@ -77,7 +87,10 @@ const Contracts: React.FC = () => {
         setOpenMenu(null)
         try {
             await toggleContractProtection(contract.id)
-            await queryClient.invalidateQueries(['contracts'])
+            await Promise.all([
+                queryClient.invalidateQueries(['contracts']),
+                queryClient.invalidateQueries(['workspace-documents']),
+            ])
         } catch { alert('Der Schutzstatus konnte nicht geändert werden.') }
     }
 
