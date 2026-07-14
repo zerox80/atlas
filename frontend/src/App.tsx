@@ -19,6 +19,12 @@ interface UserInfo {
     has_2fa: boolean
 }
 
+const isUserInfo = (value: unknown): value is UserInfo => {
+    if (!value || typeof value !== 'object') return false
+    const candidate = value as Partial<UserInfo>
+    return typeof candidate.id === 'number' && typeof candidate.username === 'string' && typeof candidate.role === 'string'
+}
+
 interface UserContextType {
     user: UserInfo | null
     setUser: (user: UserInfo | null) => void
@@ -44,6 +50,7 @@ export function AppRoutes() {
             try {
                 // First check if authenticated by calling /me
                 const meRes = await api.get('/me')
+                if (!isUserInfo(meRes.data)) throw new Error('Invalid user response')
                 setUser(meRes.data)
                 setIsAuthenticated(true)
             } catch {
@@ -59,6 +66,7 @@ export function AppRoutes() {
     const handleLoginSuccess = async () => {
         try {
             const meRes = await api.get('/me')
+            if (!isUserInfo(meRes.data)) throw new Error('Invalid user response')
             setUser(meRes.data)
             setIsAuthenticated(true)
             navigate('/')

@@ -23,7 +23,7 @@ const Dashboard: React.FC = () => {
 
     const { data = [], isLoading } = useQuery<Contract[]>(['workspace-documents', listId], async () => {
         const response = await api.get('/contracts', { params: listId ? { list_id: Number(listId), sort_by: 'uploaded_at', sort_order: 'desc' } : { sort_by: 'uploaded_at', sort_order: 'desc' } })
-        return response.data
+        return Array.isArray(response.data) ? response.data : []
     })
 
     const stats = useMemo(() => {
