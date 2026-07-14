@@ -1,25 +1,15 @@
-
-import React, { useState, useEffect } from 'react'
-import api, { toggleContractProtection } from '../api'
-import { FiShield, FiUnlock, FiAlertCircle } from 'react-icons/fi'
+import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { FiAlertCircle, FiArrowUpRight, FiLock, FiShield, FiUnlock } from 'react-icons/fi'
+import api, { toggleContractProtection } from '../api'
+import { Contract } from '../types'
+import { EmptyState, LoadingState, PageHeader } from '../components/ui'
 
-interface Contract {
-    id: number
-    title: string
-    description?: string
-    start_date?: string
-    end_date?: string
-    value?: number
-    annual_value?: number
-    file_extension: string
-    is_protected: boolean
-    can_manage_protection: boolean
-}
+const money = (value?: number | null) => value == null ? '–' : value.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })
 
 const ProtectedContracts: React.FC = () => {
     const [contracts, setContracts] = useState<Contract[]>([])
-    const [isLoading, setIsLoading] = useState<boolean>(true)
+    const [isLoading, setIsLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const navigate = useNavigate()
 
@@ -27,127 +17,61 @@ const ProtectedContracts: React.FC = () => {
         setIsLoading(true)
         try {
             const response = await api.get<Contract[]>('/contracts')
-            // Filter client-side for now as we didn't implement a specific 'protected=true' filter in backend
-            // or we can just filter all contracts. 
-            // Optimally backend should filter, but client side is fine for reasonable amounts.
-            const protectedOnly = response.data.filter(c => c.is_protected)
-            setContracts(protectedOnly)
+            setContracts(response.data.filter((contract) => contract.is_protected))
             setError(null)
-        } catch (err) {
-            console.error('Failed to fetch contracts', err)
-            setError('Konnte geschützte Verträge nicht laden.')
+        } catch {
+            setError('Geschützte Dokumente konnten nicht geladen werden.')
         } finally {
             setIsLoading(false)
         }
     }
 
-    useEffect(() => {
-        fetchProtectedContracts()
-    }, [])
+    useEffect(() => { fetchProtectedContracts() }, [])
 
-    const handleUnprotect = async (id: number, title: string) => {
-        if (!window.confirm(`Möchten Sie den Schutz für "${title}" wirklich aufheben?`)) {
-            return
-        }
-
+    const handleUnprotect = async (contract: Contract) => {
+        if (!window.confirm(`Schutz für „${contract.title}“ wirklich aufheben?`)) return
         try {
-            await toggleContractProtection(id)
-            // Refresh list
+            await toggleContractProtection(contract.id)
             fetchProtectedContracts()
-        } catch (err) {
-            console.error('Failed to toggle protection', err)
-            alert('Fehler beim Ändern des Status.')
+        } catch {
+            alert('Der Schutzstatus konnte nicht geändert werden.')
         }
     }
 
-    if (isLoading) {
-        return <div className="text-white p-8">Lade geschützte Verträge...</div>
-    }
+    if (isLoading) return <LoadingState label="Geschützte Dokumente werden geladen" />
 
-    return (
-        <div className="p-6 max-w-7xl mx-auto text-white">
-            <h1 className="text-3xl font-bold mb-6 flex items-center gap-3">
-                <FiShield className="text-green-500" />
-                Geschützte Verträge
-            </h1>
+    return <div className="app-page">
+        <PageHeader
+            eyebrow="Security / Vault"
+            title="Protected Vault"
+            description="Ein kontrollierter Bereich für Dokumente mit Löschschutz und erhöhten Zugriffsanforderungen."
+            actions={<span className="chip border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-200"><FiShield /> {contracts.length} geschützt</span>}
+        />
 
-            <div className="bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-700 mb-8">
-                <div className="flex items-start gap-3 text-gray-300">
-                    <FiAlertCircle className="mt-1 text-blue-400 flex-shrink-0" size={20} />
-                    <p>
-                        Diese Verträge sind vor dem Löschen geschützt. Selbst Administratoren können diese Verträge nicht direkt löschen.
-                        Um einen Vertrag zu löschen, müssen Sie hier zuerst den Schutz aufheben.
-                    </p>
+        <section className="mb-5 flex gap-4 rounded-3xl border border-[#7397ff]/15 bg-[#7397ff]/[0.045] p-5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#7397ff]/10 text-[#9ab1ff]"><FiAlertCircle /></div>
+            <div><h2 className="text-sm font-semibold">Löschschutz ist aktiv</h2><p className="mt-1 max-w-3xl text-sm leading-6 text-white/43">Geschützte Dokumente können nicht gelöscht werden. Berechtigte Nutzer müssen den Schutz hier bewusst aufheben, bevor eine Löschung möglich wird.</p></div>
+        </section>
+
+        {error && <div className="mb-5 rounded-2xl border border-rose-400/20 bg-rose-400/[0.07] px-4 py-3 text-sm text-rose-200">{error}</div>}
+
+        {contracts.length ? <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {contracts.map((contract) => <article key={contract.id} className="surface-interactive group relative overflow-hidden p-6">
+                <div className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-2xl border border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-200"><FiLock /></div>
+                <p className="eyebrow">{contract.document_type === 'invoice' ? 'Protected invoice' : 'Protected contract'}</p>
+                <h2 className="mt-3 max-w-[82%] truncate text-xl font-semibold tracking-[-0.025em]">{contract.title}</h2>
+                <p className="mt-2 min-h-10 line-clamp-2 text-sm leading-5 text-white/40">{contract.description || 'Keine Beschreibung hinterlegt.'}</p>
+                <div className="my-5 h-px bg-white/[0.07]" />
+                <dl className="grid grid-cols-2 gap-4">
+                    <div><dt className="eyebrow">Wert</dt><dd className="mt-2 text-sm font-semibold">{money(contract.value)}</dd></div>
+                    <div><dt className="eyebrow">Laufzeitende</dt><dd className="mt-2 text-sm font-semibold">{contract.end_date ? new Date(contract.end_date).toLocaleDateString('de-DE') : 'Unbefristet'}</dd></div>
+                </dl>
+                <div className="mt-6">
+                    {contract.can_manage_protection ? <button onClick={() => handleUnprotect(contract)} className="btn-secondary w-full hover:border-rose-300/25 hover:text-rose-200"><FiUnlock /> Schutz aufheben</button> : <div className="rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2 text-center text-xs text-white/32">Vollzugriff zum Entsperren erforderlich</div>}
                 </div>
-            </div>
-
-            {error && (
-                <div className="bg-red-900/50 border border-red-700 text-red-200 p-4 rounded-lg mb-6">
-                    {error}
-                </div>
-            )}
-
-            {contracts.length === 0 ? (
-                <div className="text-center py-12 bg-gray-800 rounded-lg border border-gray-700 border-dashed">
-                    <FiShield className="mx-auto h-12 w-12 text-gray-600 mb-3" />
-                    <h3 className="text-lg font-medium text-gray-400">Keine geschützten Verträge</h3>
-                    <p className="text-gray-500 mt-1">Sie können Verträge im Dashboard schützen.</p>
-                    <button
-                        onClick={() => navigate('/')}
-                        className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
-                    >
-                        Zum Dashboard
-                    </button>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {contracts.map(contract => (
-                        <div key={contract.id} className="bg-gray-800 rounded-lg border border-green-900/50 shadow-lg overflow-hidden relative group hover:border-green-500/50 transition-colors">
-                            <div className="absolute top-0 right-0 p-2 bg-green-900/80 text-green-200 text-xs font-bold rounded-bl-lg">
-                                GESCHÜTZT
-                            </div>
-
-                            <div className="p-5">
-                                <h3 className="font-bold text-lg mb-2 truncate" title={contract.title}>{contract.title}</h3>
-                                <p className="text-sm text-gray-400 mb-4 line-clamp-2">{contract.description || "Keine Beschreibung"}</p>
-
-                                <div className="space-y-2 text-sm text-gray-300 mb-6">
-                                    <div className="flex justify-between">
-                                        <span>Wert:</span>
-                                        <span className="font-mono">{contract.value != null ? contract.value.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) : 'N/A'}</span>
-                                    </div>
-                                    {contract.annual_value != null && (
-                                        <div className="flex justify-between">
-                                            <span>Jährlicher Preis:</span>
-                                            <span className="font-mono">{contract.annual_value.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex justify-between">
-                                        <span>Ende:</span>
-                                        <span>{contract.end_date ? new Date(contract.end_date).toLocaleDateString('de-DE') : 'Unbefristet'}</span>
-                                    </div>
-                                </div>
-
-                                {contract.can_manage_protection ? (
-                                    <button
-                                        onClick={() => handleUnprotect(contract.id, contract.title)}
-                                        className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-gray-700 hover:bg-red-900/50 text-gray-300 hover:text-red-300 rounded transition-all border border-gray-600 hover:border-red-800"
-                                    >
-                                        <FiUnlock />
-                                        <span>Schutz aufheben</span>
-                                    </button>
-                                ) : (
-                                    <div className="w-full py-2 px-4 bg-gray-900/50 text-center text-sm text-gray-500 rounded border border-gray-700">
-                                        Nur Vollzugriff kann den Schutz aendern.
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    )
+            </article>)}
+        </section> : <EmptyState icon={FiShield} title="Der Vault ist leer" description="Aktuell ist kein Dokument mit Löschschutz versehen." action={<button onClick={() => navigate('/contracts')} className="btn-secondary">Zu den Verträgen <FiArrowUpRight /></button>} />}
+    </div>
 }
 
 export default ProtectedContracts
