@@ -33,7 +33,7 @@ def table_info(cursor: sqlite3.Cursor, table_name: str) -> list[tuple]:
 
 
 def quote_identifier(identifier: str) -> str:
-    return f'"{identifier.replace("\"", "\"\"")}"'
+    return '"' + identifier.replace('"', '""') + '"'
 
 
 def add_missing_columns(
