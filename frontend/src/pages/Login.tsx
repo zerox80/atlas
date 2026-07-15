@@ -84,7 +84,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                         </div>
                     </motion.div>
 
-                    <p className="text-xs text-white/28">Private Infrastruktur · Ende-zu-Ende geschützt</p>
+                    <p className="text-xs text-white/28">Private Infrastruktur · Geschützter Zugriff</p>
                 </section>
 
                 <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
