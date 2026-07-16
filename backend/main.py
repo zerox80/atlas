@@ -3,7 +3,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, col, select, delete
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from typing import List, Annotated, Optional, Any
@@ -1346,23 +1346,35 @@ def delete_user(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session)
 ):
-    """Deactivate a user (Admin only) - We don't actually delete to preserve audit trail"""
+    """Permanently delete a user while preserving anonymized audit history."""
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     if user.id == admin.id:
-        raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
 
     ensure_active_admin_remains(session, user, proposed_is_active=False)
-    
-    # Deactivate instead of delete
-    if hasattr(user, 'is_active'):
-        user.is_active = False
-        session.add(user)
-        session.commit()
-    
-    log_audit(session, admin.id, "DEACTIVATE_USER", f"Deactivated user '{user.username}'", request.client.host if request.client else "unknown", request.headers.get("user-agent"))
+
+    username = user.username
+    session.exec(
+        delete(ContractPermission).where(col(ContractPermission.user_id) == user_id)
+    )
+    session.exec(
+        update(AuditLog)
+        .where(AuditLog.user_id == user_id)
+        .values(user_id=None)
+    )
+    session.delete(user)
+
+    log_audit(
+        session,
+        admin.id,
+        "DELETE_USER",
+        f"Deleted user '{username}'",
+        request.client.host if request.client else "unknown",
+        request.headers.get("user-agent"),
+    )
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

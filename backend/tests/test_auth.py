@@ -3,10 +3,11 @@ Tests for authentication endpoints.
 """
 from fastapi.testclient import TestClient
 import pyotp
+from sqlmodel import select
 
 from auth import get_password_hash, verify_password
 from main import bootstrap_admin_user
-from models import User
+from models import AuditLog, Contract, ContractPermission, User
 
 
 class TestAuthentication:
@@ -184,3 +185,109 @@ class TestAdminSafety:
         )
 
         assert response.status_code == 400
+
+    def test_cannot_delete_self(
+        self,
+        admin_client: TestClient,
+        admin_user: User,
+    ):
+        response = admin_client.delete(f"/admin/users/{admin_user.id}")
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Cannot delete yourself"
+
+    def test_cannot_delete_last_active_admin(
+        self,
+        admin_client: TestClient,
+        admin_user: User,
+        session,
+    ):
+        admin_user.is_active = False
+        last_active_admin = User(
+            username="last-admin",
+            hashed_password=get_password_hash("last-admin-password"),
+            role="admin",
+            is_active=True,
+        )
+        session.add(admin_user)
+        session.add(last_active_admin)
+        session.commit()
+        session.refresh(last_active_admin)
+
+        response = admin_client.delete(f"/admin/users/{last_active_admin.id}")
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "At least one active admin must remain"
+        assert session.get(User, last_active_admin.id) is not None
+
+
+class TestUserDeletion:
+    """Test permanent deletion through the admin endpoint."""
+
+    def test_delete_user_removes_permissions_and_preserves_audit_history(
+        self,
+        admin_client: TestClient,
+        admin_user: User,
+        session,
+    ):
+        user = User(
+            username="delete-me",
+            hashed_password=get_password_hash("delete-me-password"),
+            role="user",
+            is_active=True,
+        )
+        contract = Contract(title="Deletion test", file_path="deletion-test.pdf")
+        session.add(user)
+        session.add(contract)
+        session.commit()
+        session.refresh(user)
+        session.refresh(contract)
+        user_id = user.id
+
+        permission = ContractPermission(
+            user_id=user_id,
+            contract_id=contract.id,
+            permission_level="read",
+        )
+        historical_log = AuditLog(
+            user_id=user_id,
+            action="LOGIN",
+            details="User logged in",
+        )
+        session.add(permission)
+        session.add(historical_log)
+        session.commit()
+        session.refresh(historical_log)
+
+        response = admin_client.delete(f"/admin/users/{user_id}")
+
+        assert response.status_code == 204
+        assert session.exec(
+            select(User).where(User.username == "delete-me")
+        ).first() is None
+        assert session.exec(
+            select(ContractPermission).where(ContractPermission.user_id == user_id)
+        ).all() == []
+
+        session.refresh(historical_log)
+        assert historical_log.user_id is None
+        assert historical_log.details == "User logged in"
+
+        deletion_log = session.exec(
+            select(AuditLog).where(AuditLog.action == "DELETE_USER")
+        ).one()
+        assert deletion_log.user_id == admin_user.id
+        assert deletion_log.details == "Deleted user 'delete-me'"
+
+        users_response = admin_client.get("/admin/users")
+        assert users_response.status_code == 200
+        assert all(item["username"] != "delete-me" for item in users_response.json())
+
+        recreate_response = admin_client.post(
+            "/admin/users",
+            json={
+                "username": "delete-me",
+                "password": "new-password-123",
+            },
+        )
+        assert recreate_response.status_code == 200

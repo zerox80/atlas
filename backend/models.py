@@ -22,7 +22,7 @@ class User(SQLModel, table=True):
     role: str = Field(default="user") # 'admin' or 'user'
     totp_secret: Optional[str] = None # Active 2FA secret
     pending_totp_secret: Optional[str] = None # Secret waiting for first OTP verification
-    is_active: bool = Field(default=True)  # Deactivate users instead of deleting
+    is_active: bool = Field(default=True)  # Account status managed through user editing
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

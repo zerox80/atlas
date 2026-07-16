@@ -123,13 +123,13 @@ const AdminPanel: React.FC = () => {
         }
     }
 
-    const handleDeleteUser = async (userId: number) => {
-        if (!confirm('Benutzer wirklich deaktivieren?')) return
+    const handleDeleteUser = async (user: User) => {
+        if (!confirm(`Benutzer „${user.username}“ wirklich dauerhaft löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.`)) return
         try {
-            await api.delete(`/admin/users/${userId}`)
+            await api.delete(`/admin/users/${user.id}`)
             loadData()
         } catch (error: any) {
-            alert(error.response?.data?.detail || 'Fehler beim Deaktivieren')
+            alert(error.response?.data?.detail || 'Fehler beim Löschen')
         }
     }
 
@@ -352,9 +352,9 @@ const AdminPanel: React.FC = () => {
                                                 <FiEdit2 />
                                             </button>
                                             <button
-                                                onClick={() => handleDeleteUser(user.id)}
+                                                onClick={() => handleDeleteUser(user)}
                                                 className="p-2 text-red-400 hover:bg-red-500/20 rounded transition-colors"
-                                                title="Deaktivieren"
+                                                title="Dauerhaft löschen"
                                             >
                                                 <FiTrash2 />
                                             </button>
