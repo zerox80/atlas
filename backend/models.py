@@ -1,7 +1,11 @@
-from typing import Optional, List
-from sqlmodel import Field, SQLModel, Relationship
+"""Database models for users, contracts, lists, permissions, and audit logs."""
+
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, Optional
+
 from sqlalchemy import UniqueConstraint
+from sqlmodel import Field, Relationship, SQLModel
 
 # Join table for Contracts and Tags
 class ContractTagLink(SQLModel, table=True):
@@ -89,13 +93,8 @@ class Contract(SQLModel, table=True):
 
     @property
     def file_extension(self) -> str:
-        import os
-        if not self.file_path:
-            return ".pdf"
-        try:
-            return os.path.splitext(self.file_path)[1]
-        except Exception:
-            return ".pdf"
+        suffix = Path(self.file_path).suffix.lower() if self.file_path else ""
+        return suffix or ".pdf"
 
 class AuditLog(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

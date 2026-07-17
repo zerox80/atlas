@@ -1,12 +1,19 @@
-import axios from "axios";
+import axios, { type AxiosRequestConfig } from "axios";
 import {
   buildContractQueryParams,
   type ContractFilterState,
 } from "./utils/filterParams";
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
+const CSRF_COOKIE_NAME = "csrf_token";
+const CSRF_HEADER_NAME = "X-CSRF-Token";
+const CSRF_TOKEN_PATH = "/csrf-token";
+const LOGIN_PATH = "/token";
+const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
 
-export const buildApiUrl = (path: string) => {
+let csrfTokenRequest: Promise<string | null> | null = null;
+
+export const buildApiUrl = (path: string): string => {
   const normalizedBase = API_BASE_URL.replace(/\/$/, "");
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${normalizedBase}${normalizedPath}`;
@@ -17,33 +24,40 @@ const api = axios.create({
   withCredentials: true, // Required for HttpOnly cookie authentication
 });
 
-export const getCookieValue = (name: string) => {
+export const getCookieValue = (name: string): string | null => {
   const match = document.cookie
     .split("; ")
     .find((row) => row.startsWith(`${name}=`));
   return match ? decodeURIComponent(match.split("=").slice(1).join("=")) : null;
 };
 
-const isMutatingMethod = (method?: string) => {
-  return ["post", "put", "patch", "delete"].includes(
-    (method || "get").toLowerCase(),
-  );
-};
+const isMutatingMethod = (method?: string): boolean =>
+  MUTATING_METHODS.has((method ?? "get").toLowerCase());
 
-export const ensureCsrfToken = async () => {
-  const existingToken = getCookieValue("csrf_token");
+const isLoginRequest = (config: AxiosRequestConfig): boolean =>
+  config.url === LOGIN_PATH;
+
+export const ensureCsrfToken = async (): Promise<string | null> => {
+  const existingToken = getCookieValue(CSRF_COOKIE_NAME);
   if (existingToken) return existingToken;
 
-  await api.get("/csrf-token");
-  return getCookieValue("csrf_token");
+  if (!csrfTokenRequest) {
+    csrfTokenRequest = api
+      .get(CSRF_TOKEN_PATH)
+      .then(() => getCookieValue(CSRF_COOKIE_NAME))
+      .finally(() => {
+        csrfTokenRequest = null;
+      });
+  }
+
+  return csrfTokenRequest;
 };
 
 api.interceptors.request.use(async (config) => {
-  if (isMutatingMethod(config.method) && config.url !== "/token") {
+  if (isMutatingMethod(config.method) && !isLoginRequest(config)) {
     const csrfToken = await ensureCsrfToken();
     if (csrfToken) {
-      config.headers = config.headers || {};
-      config.headers["X-CSRF-Token"] = csrfToken;
+      config.headers.set(CSRF_HEADER_NAME, csrfToken);
     }
   }
   return config;
@@ -51,9 +65,8 @@ api.interceptors.request.use(async (config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response && error.response.status === 401) {
-      // Check if we are not already on the login page to avoid loops
+  (error: unknown) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
       }
@@ -62,18 +75,16 @@ api.interceptors.response.use(
   },
 );
 
-export const toggleContractProtection = async (id: number) => {
-  return api.put(`/contracts/${id}/toggle-protection`);
-};
+export const toggleContractProtection = (id: number) =>
+  api.put(`/contracts/${id}/toggle-protection`);
 
-export const exportContracts = async (
+export const exportContracts = (
   filters: ContractFilterState,
   format: "csv" | "excel",
-) => {
-  return api.get<Blob>("/contracts/export", {
+) =>
+  api.get<Blob>("/contracts/export", {
     params: { ...buildContractQueryParams(filters), format },
     responseType: "blob",
   });
-};
 
 export default api;

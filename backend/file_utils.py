@@ -1,11 +1,26 @@
+"""Validation and lifecycle helpers for uploaded document files."""
 
+import logging
 import os
 import uuid
-import aiofiles
-from fastapi import UploadFile, HTTPException
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-ALLOWED_MIMES = ["application/pdf", "image/png", "image/jpeg", "text/plain"]
+import aiofiles
+from fastapi import HTTPException, UploadFile
+
+logger = logging.getLogger(__name__)
+
+MAX_FILE_SIZE = 10 * 1024 * 1024
+READ_CHUNK_SIZE = 1024 * 1024
+MIME_HEADER_SIZE = 2048
+ALLOWED_MIMES = frozenset(
+    {"application/pdf", "image/png", "image/jpeg", "text/plain"}
+)
+MIME_EXTENSIONS = {
+    "application/pdf": frozenset({".pdf"}),
+    "text/plain": frozenset({".txt"}),
+    "image/png": frozenset({".png"}),
+    "image/jpeg": frozenset({".jpg", ".jpeg"}),
+}
 UPLOAD_DIR = "uploads"
 
 
@@ -27,64 +42,61 @@ def detect_mime_from_header(header: bytes) -> str | None:
     return "text/plain"
 
 
+def detect_mime_with_libmagic(header: bytes) -> str | None:
+    """Use libmagic when available, falling back cleanly when it is not."""
+    try:
+        import magic
+    except ImportError:
+        logger.info("python-magic is unavailable; using signature-based detection")
+        return None
+
+    try:
+        detected_mime = magic.from_buffer(header, mime=True)
+    except Exception as error:
+        logger.warning("libmagic could not inspect an upload: %s", error)
+        return None
+
+    return detected_mime if detected_mime in ALLOWED_MIMES else None
+
+
 async def validate_file(file: UploadFile) -> str:
-    """
-    Validates file size and type.
-    Returns the detected file type if valid, raises HTTPException otherwise.
-    """
-    # 1. Validate File Size
-    # We need to read the file to check size properly if content-length is forged,
-    # but for typical fast checks, we can try to rely on stream or read chunks.
-    # However, to be safe and simple given the constraints, we read it.
-    # CAUTION: This consumes memory. For very large files, stream processing is better.
-    # Given MAX_FILE_SIZE is 10MB, reading into memory is acceptable.
-    
-    # Check size by seeking (blocking but fast for SpooledTempFile) or reading
-    file.file.seek(0, 2)
-    file_size = file.file.tell()
-    await file.seek(0)
-    
+    """Validate upload size, content signature, and filename extension."""
+    try:
+        file.file.seek(0, os.SEEK_END)
+        file_size = file.file.tell()
+        await file.seek(0)
+    except (OSError, ValueError) as error:
+        logger.warning("Could not determine upload size: %s", error)
+        raise HTTPException(
+            status_code=400,
+            detail="Could not inspect uploaded file",
+        ) from error
+
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (Max 10MB)")
 
-    # 2. Validate File Type (Magic Numbers)
     try:
-        # Check first 2048 bytes
-        header = await file.read(2048)
+        header = await file.read(MIME_HEADER_SIZE)
         await file.seek(0)
+    except (OSError, ValueError) as error:
+        logger.warning("Could not read upload header: %s", error)
+        raise HTTPException(
+            status_code=400,
+            detail="Could not determine file type",
+        ) from error
 
-        mime_type = None
-        try:
-            import magic
-            # magic.from_buffer returns string like "PDF document, version 1.4"
-            # magic.Magic(mime=True) returns "application/pdf"
-            detected_mime = magic.from_buffer(header, mime=True)
-            if detected_mime in ALLOWED_MIMES:
-                mime_type = detected_mime
-        except Exception as e:
-            print(f"Magic detection unavailable: {e}")
+    mime_type = detect_mime_with_libmagic(header) or detect_mime_from_header(header)
 
-        if mime_type is None:
-            mime_type = detect_mime_from_header(header)
-            
-    except Exception as e:
-        print(f"Magic validation warning: {e}")
-        raise HTTPException(status_code=400, detail="Could not determine file type")
-
-    mime_to_exts = {
-        "application/pdf": [".pdf"],
-        "text/plain": [".txt"],
-        "image/png": [".png"],
-        "image/jpeg": [".jpg", ".jpeg"]
-    }
-
-    if mime_type not in ALLOWED_MIMES:
-        raise HTTPException(status_code=400, detail="Unsupported or undetectable file type")
+    if mime_type is None or mime_type not in ALLOWED_MIMES:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported or undetectable file type",
+        )
 
     filename = file.filename or ""
     ext = os.path.splitext(filename)[1].lower()
-    expected_exts = mime_to_exts.get(mime_type, [])
-    
+    expected_exts = MIME_EXTENSIONS[mime_type]
+
     if ext not in expected_exts:
         raise HTTPException(
             status_code=400,
@@ -93,72 +105,86 @@ async def validate_file(file: UploadFile) -> str:
 
     return mime_type
 
+
 async def save_upload_file(file: UploadFile, directory: str = UPLOAD_DIR) -> str:
-    """
-    Saves an uploaded file to the specified directory with a unique name.
-    Async version to prevent blocking code in route handlers.
-    """
-    os.makedirs(directory, exist_ok=True)
-    
+    """Persist an upload atomically under a unique name."""
     filename = file.filename or "unknown"
-    file_extension = os.path.splitext(filename)[1]
-    if not file_extension:
-        file_extension = ".bin" # Fallback
-        
+    file_extension = os.path.splitext(filename)[1].lower() or ".bin"
     unique_filename = f"{uuid.uuid4()}{file_extension}"
     file_path = os.path.join(directory, unique_filename)
-    
+    temporary_path = f"{file_path}.part"
+
     try:
-        async with aiofiles.open(file_path, "wb") as buffer:
-            while content := await file.read(1024 * 1024):  # Read in 1MB chunks
+        os.makedirs(directory, exist_ok=True)
+        async with aiofiles.open(temporary_path, "wb") as buffer:
+            while content := await file.read(READ_CHUNK_SIZE):
                 await buffer.write(content)
-        # Reset cursor for potential future reads (e.g. valid chains, though usually not needed after save)
         await file.seek(0)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"File save failed: {str(e)}")
-        
+        os.replace(temporary_path, file_path)
+    except Exception as error:
+        logger.exception("Could not save uploaded file")
+        raise HTTPException(
+            status_code=500,
+            detail="File save failed",
+        ) from error
+    finally:
+        try:
+            os.remove(temporary_path)
+        except FileNotFoundError:
+            pass
+        except OSError as cleanup_error:
+            logger.warning(
+                "Could not remove incomplete upload %s: %s",
+                temporary_path,
+                cleanup_error,
+            )
+
     return file_path
 
+
 def resolve_file_path(file_path: str) -> str:
-    """
-    Resolves a file path to an absolute path and verifies it exists.
-    Handles relative paths within UPLOAD_DIR.
-    """
+    """Resolve an existing path and ensure it remains inside ``UPLOAD_DIR``."""
     if not file_path:
         raise FileNotFoundError("Empty file path")
-        
+
     if os.path.isabs(file_path):
         candidate_path = file_path
     else:
         normalized_path = os.path.normpath(file_path)
         normalized_upload_dir = os.path.normpath(UPLOAD_DIR)
-        if normalized_path == normalized_upload_dir or normalized_path.startswith(normalized_upload_dir + os.sep):
+        already_prefixed = (
+            normalized_path == normalized_upload_dir
+            or normalized_path.startswith(normalized_upload_dir + os.sep)
+        )
+        if already_prefixed:
             candidate_path = normalized_path
         else:
             candidate_path = os.path.join(UPLOAD_DIR, normalized_path)
-    abs_path = os.path.abspath(candidate_path)
-    
-    # Secure resolution to prevent path traversal
-    abs_path = os.path.realpath(abs_path)
+    abs_path = os.path.realpath(os.path.abspath(candidate_path))
     base_dir = os.path.realpath(os.path.abspath(UPLOAD_DIR))
-    
-    if os.path.commonpath([base_dir, abs_path]) != base_dir:
+
+    try:
+        is_inside_upload_dir = os.path.commonpath([base_dir, abs_path]) == base_dir
+    except ValueError:
+        is_inside_upload_dir = False
+
+    if not is_inside_upload_dir:
         raise PermissionError("Access denied: Path is outside the uploads directory")
-        
-    if not os.path.exists(abs_path):
+
+    if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {abs_path}")
-        
+
     return abs_path
 
 
 def delete_upload_file(file_path: str) -> None:
-    """
-    Deletes a stored upload only after resolving it inside UPLOAD_DIR.
-    Missing files are ignored so database cleanup can still complete.
-    """
+    """Delete a stored upload; ignore files that are already absent."""
     try:
         abs_path = resolve_file_path(file_path)
     except FileNotFoundError:
         return
 
-    os.remove(abs_path)
+    try:
+        os.remove(abs_path)
+    except FileNotFoundError:
+        pass

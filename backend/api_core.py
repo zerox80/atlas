@@ -2,21 +2,39 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
-from typing import Annotated, List, Optional
+from typing import Annotated, Literal, TypeAlias
 
 from fastapi import Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import func
 from sqlmodel import Session, col, select
 
-from auth import ACCESS_TOKEN_EXPIRE_MINUTES, get_password_hash
+from auth import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY, get_password_hash
 from database import get_session
-from models import AuditLog, Contract, ContractList, ContractListLink, ContractPermission, User
+from models import (
+    AuditLog,
+    Contract,
+    ContractList,
+    ContractListLink,
+    ContractPermission,
+    User,
+)
 from schemas import ContractRead
+
+logger = logging.getLogger(__name__)
+
+PermissionLevel: TypeAlias = Literal["read", "write", "full"]
+PERMISSION_LEVEL_RANK: dict[str, int] = {
+    "read": 1,
+    "write": 2,
+    "full": 3,
+}
 
 PRODUCTION_MODE = os.getenv("PRODUCTION", "false").lower() == "true"
 RATE_LIMIT_LOGIN = os.getenv("RATE_LIMIT_LOGIN", "5/minute")
@@ -52,18 +70,22 @@ def set_csrf_cookie(response: Response, request: Request) -> str:
     return csrf_token
 
 
-
 def bootstrap_admin_user(session: Session) -> None:
     """Create the initial admin account without resetting existing credentials."""
     user = session.exec(select(User).where(User.username == "admin")).first()
     if user:
         if os.getenv("ADMIN_PASSWORD"):
-            print("Existing admin user found. ADMIN_PASSWORD is ignored after bootstrap.")
+            logger.warning(
+                "Existing admin user found; ADMIN_PASSWORD is ignored after bootstrap."
+            )
         return
 
     admin_pw = os.getenv("ADMIN_PASSWORD") or secrets.token_urlsafe(16)
     if not os.getenv("ADMIN_PASSWORD"):
-        print(f"\n[SECURITY ALERT] ADMIN_PASSWORD not set. Generated temporary password: {admin_pw}\n")
+        logger.warning(
+            "ADMIN_PASSWORD is not set; generated temporary admin password: %s",
+            admin_pw,
+        )
 
     admin_user = User(
         username="admin",
@@ -74,39 +96,52 @@ def bootstrap_admin_user(session: Session) -> None:
     session.add(admin_user)
     session.commit()
 
-async def get_current_user(
-    token: Annotated[Optional[str], Depends(oauth2_scheme)] = None, 
-    access_token: Annotated[Optional[str], Cookie()] = None,
-    session: Session = Depends(get_session)
-):
-    # Prioritize Cookie, fall back to Header (for API testing tools if needed, but we can enforce Cookie)
-    final_token = access_token if access_token else token
-    
+
+def get_current_user(
+    token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+    access_token: Annotated[str | None, Cookie()] = None,
+    session: Session = Depends(get_session),
+) -> User:
+    """Resolve and validate the authenticated user from cookie or bearer token."""
+    final_token = access_token or token
+
     if not final_token:
-         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    from jose import JWTError, jwt
-    from auth import SECRET_KEY, ALGORITHM
-    from schemas import TokenData
-    
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
     try:
         payload = jwt.decode(final_token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: Optional[str] = payload.get("sub")
-        if username is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
-        token_data = TokenData(username=username)
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
-        
-    user = session.exec(select(User).where(User.username == token_data.username)).first()
+    except JWTError as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        ) from error
+
+    username = payload.get("sub")
+    if not isinstance(username, str) or not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        )
+
+    user = session.exec(select(User).where(User.username == username)).first()
     if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is deactivated")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is deactivated",
+        )
     return user
 
 
-# Helper dependency for admin-only endpoints
-def require_admin(current_user: User = Depends(get_current_user)):
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Require an active administrator for an endpoint."""
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
@@ -124,8 +159,8 @@ def active_admin_count(session: Session) -> int:
 def ensure_active_admin_remains(
     session: Session,
     user: User,
-    proposed_role: Optional[str] = None,
-    proposed_is_active: Optional[bool] = None,
+    proposed_role: str | None = None,
+    proposed_is_active: bool | None = None,
 ) -> None:
     current_is_active = bool(getattr(user, "is_active", True))
     next_role = proposed_role if proposed_role is not None else user.role
@@ -140,42 +175,62 @@ def ensure_active_admin_remains(
         raise HTTPException(status_code=400, detail="At least one active admin must remain")
 
 
+def permission_grants(
+    assigned_level: str | None,
+    required_level: PermissionLevel,
+) -> bool:
+    """Return whether an assigned permission satisfies a required level."""
+    assigned_rank = PERMISSION_LEVEL_RANK.get(assigned_level or "", 0)
+    return assigned_rank >= PERMISSION_LEVEL_RANK[required_level]
 
-# Helper to check contract permission
-def check_contract_permission(user: User, contract_id: int, required_level: str, session: Session) -> bool:
-    """Check if user has the required explicit permission level for a contract."""
+
+def contract_permission_level(
+    user: User,
+    contract_id: int,
+    session: Session,
+) -> str | None:
+    """Load the caller's effective permission level for a contract."""
     if user.role == "admin":
-        return True
-    
+        return "full"
+    if user.id is None:
+        return None
+
     permission = session.exec(
         select(ContractPermission)
         .where(ContractPermission.user_id == user.id)
         .where(ContractPermission.contract_id == contract_id)
     ).first()
-    
-    if not permission:
-        return False
-    
-    level_hierarchy = {"read": 1, "write": 2, "full": 3}
-    return level_hierarchy.get(permission.permission_level, 0) >= level_hierarchy.get(required_level, 0)
+    return permission.permission_level if permission else None
 
 
-def contract_read_for_user(contract: Contract, user: User, session: Session) -> dict:
+def check_contract_permission(
+    user: User,
+    contract_id: int,
+    required_level: PermissionLevel,
+    session: Session,
+) -> bool:
+    """Check if user has the required explicit permission level for a contract."""
+    assigned_level = contract_permission_level(user, contract_id, session)
+    return permission_grants(assigned_level, required_level)
+
+
+def contract_read_for_user(
+    contract: Contract,
+    user: User,
+    session: Session,
+) -> dict[str, object]:
     """Serialize a contract with the caller's effective capabilities."""
     data = ContractRead.model_validate(contract).model_dump()
-    can_full = check_contract_permission(user, contract.id, "full", session) if contract.id is not None else False
-    data["can_read"] = (
-        check_contract_permission(user, contract.id, "read", session)
+    assigned_level = (
+        contract_permission_level(user, contract.id, session)
         if contract.id is not None
-        else False
+        else None
     )
-    data["can_write"] = (
-        check_contract_permission(user, contract.id, "write", session)
-        if contract.id is not None
-        else False
-    )
-    data["can_delete"] = can_full
-    data["can_manage_protection"] = can_full
+    data["can_read"] = permission_grants(assigned_level, "read")
+    data["can_write"] = permission_grants(assigned_level, "write")
+    can_manage = permission_grants(assigned_level, "full")
+    data["can_delete"] = can_manage
+    data["can_manage_protection"] = can_manage
     return data
 
 
@@ -193,6 +248,12 @@ def backfill_existing_contract_read_permissions(session: Session) -> int:
         .where(col(User.role) != "admin")
         .where(col(User.is_active).is_(True))
     ).all()
+    existing_pairs = {
+        (user_id, contract_id)
+        for user_id, contract_id in session.exec(
+            select(ContractPermission.user_id, ContractPermission.contract_id)
+        ).all()
+    }
 
     created = 0
     for contract in contracts:
@@ -201,54 +262,79 @@ def backfill_existing_contract_read_permissions(session: Session) -> int:
         for user in users:
             if user.id is None:
                 continue
-            existing_permission = session.exec(
-                select(ContractPermission)
-                .where(ContractPermission.user_id == user.id)
-                .where(ContractPermission.contract_id == contract.id)
-            ).first()
-            if existing_permission:
+            permission_key = (user.id, contract.id)
+            if permission_key in existing_pairs:
                 continue
 
-            session.add(ContractPermission(
-                user_id=user.id,
-                contract_id=contract.id,
-                permission_level="read",
-            ))
+            session.add(
+                ContractPermission(
+                    user_id=user.id,
+                    contract_id=contract.id,
+                    permission_level="read",
+                )
+            )
+            existing_pairs.add(permission_key)
             created += 1
 
-    session.add(AuditLog(
-        user_id=None,
-        action=ACL_BACKFILL_ACTION,
-        details=f"Granted read access for {created} existing user-contract pairs.",
-    ))
+    session.add(
+        AuditLog(
+            user_id=None,
+            action=ACL_BACKFILL_ACTION,
+            details=f"Granted read access for {created} existing user-contract pairs.",
+        )
+    )
     session.commit()
 
     if created:
-        print(f"[ACL_BACKFILL] Granted read access for {created} existing user-contract pairs.")
+        logger.info(
+            "Granted read access for %d existing user-contract pairs.",
+            created,
+        )
 
     return created
 
 
-def allowed_permission_levels(required_level: str) -> List[str]:
-    level_hierarchy = {"read": 1, "write": 2, "full": 3}
-    required_rank = level_hierarchy.get(required_level, 0)
-    return [level for level, rank in level_hierarchy.items() if rank >= required_rank]
+def allowed_permission_levels(
+    required_level: PermissionLevel,
+) -> tuple[str, ...]:
+    """Return every persisted permission level satisfying the requirement."""
+    required_rank = PERMISSION_LEVEL_RANK[required_level]
+    return tuple(
+        level
+        for level, rank in PERMISSION_LEVEL_RANK.items()
+        if rank >= required_rank
+    )
 
 
-def filter_contracts_for_user(statement, user: User, required_level: str = "read"):
+def filter_contracts_for_user(
+    statement,
+    user: User,
+    required_level: PermissionLevel = "read",
+):
     """Apply contract ACLs to a select statement that includes Contract."""
     if user.role == "admin":
         return statement
 
     return (
         statement
-        .join(ContractPermission, col(ContractPermission.contract_id) == col(Contract.id))
+        .join(
+            ContractPermission,
+            col(ContractPermission.contract_id) == col(Contract.id),
+        )
         .where(col(ContractPermission.user_id) == user.id)
-        .where(col(ContractPermission.permission_level).in_(allowed_permission_levels(required_level)))
+        .where(
+            col(ContractPermission.permission_level).in_(
+                allowed_permission_levels(required_level)
+            )
+        )
     )
 
 
-def visible_contract_count_for_list(list_id: int, user: User, session: Session) -> int:
+def visible_contract_count_for_list(
+    list_id: int,
+    user: User,
+    session: Session,
+) -> int:
     statement = (
         select(func.count(func.distinct(ContractListLink.contract_id)))
         .join(Contract, col(Contract.id) == col(ContractListLink.contract_id))
@@ -258,15 +344,19 @@ def visible_contract_count_for_list(list_id: int, user: User, session: Session) 
     return session.exec(statement).one() or 0
 
 
-def get_visible_list_or_404(list_id: int, user: User, session: Session) -> ContractList:
+def get_visible_list_or_404(
+    list_id: int,
+    user: User,
+    session: Session,
+) -> ContractList:
     lst = session.get(ContractList, list_id)
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
 
-    if user.role != "admin" and visible_contract_count_for_list(list_id, user, session) == 0:
+    if (
+        user.role != "admin"
+        and visible_contract_count_for_list(list_id, user, session) == 0
+    ):
         raise HTTPException(status_code=404, detail="List not found")
 
     return lst
-
-
-

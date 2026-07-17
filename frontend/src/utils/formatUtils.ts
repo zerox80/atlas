@@ -11,7 +11,7 @@ export const formatGermanNumber = (
 
   const num = typeof value === "string" ? parseGermanNumber(value) : value;
 
-  if (num === null || isNaN(num)) return "";
+  if (num === null || !Number.isFinite(num)) return "";
 
   return new Intl.NumberFormat("de-DE", {
     minimumFractionDigits: includeDecimals ? 2 : 0,
