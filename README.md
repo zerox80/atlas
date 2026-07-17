@@ -24,6 +24,19 @@ Die Anwendung nutzt eine moderne Architektur:
 
 ## Installation
 
+### Interaktives Nginx- und HTTPS-Setup
+
+Auf Debian- und Ubuntu-Servern richtet das folgende Skript Docker auf
+`127.0.0.1`, den Host-Nginx und optional HTTPS interaktiv ein:
+
+```bash
+sudo python3 scripts/setup_nginx_proxy.py
+```
+
+Zur Auswahl stehen ein internes LAN-Setup mit lokaler CA und IP-Zertifikat
+sowie ein externes Setup mit Certbot/Let's Encrypt oder vorhandenen
+Zertifikaten. Vorhandene `.env`-, Compose- und Nginx-Dateien werden gesichert.
+
 Für den Betrieb ist die Konfiguration der Umgebungsvariablen in einer .env Datei erforderlich, insbesondere der MISTRAL_API_KEY.
 
 ### Mistral OCR 4
