@@ -196,6 +196,10 @@ class UserUpdate(BaseModel):
         return validate_username_pattern(v)
 
 
+class UserPasswordUpdate(BaseModel):
+    password: str = Field(..., min_length=8, max_length=128)
+
+
 class PermissionCreate(BaseModel):
     user_id: int
     contract_id: int

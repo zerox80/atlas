@@ -11,7 +11,14 @@ from api_core import ensure_active_admin_remains, get_current_user, require_admi
 from auth import get_password_hash
 from database import get_session
 from models import AuditLog, Contract, ContractPermission, User
-from schemas import PermissionCreate, PermissionRead, UserCreate, UserRead, UserUpdate
+from schemas import (
+    PermissionCreate,
+    PermissionRead,
+    UserCreate,
+    UserPasswordUpdate,
+    UserRead,
+    UserUpdate,
+)
 from security_utils import log_audit
 
 router = APIRouter()
@@ -203,6 +210,35 @@ def delete_user(
         request.headers.get("user-agent"),
     )
     
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put('/admin/users/{user_id}/password', status_code=status.HTTP_204_NO_CONTENT)
+def update_user_password(
+    user_id: int,
+    request: Request,
+    password_data: UserPasswordUpdate,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    '''Reset a user's password without changing other account properties.'''
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+
+    user.hashed_password = get_password_hash(password_data.password)
+    session.add(user)
+    log_audit(
+        session,
+        admin.id,
+        'RESET_USER_PASSWORD',
+        f'Reset password for user {user.username!r}',
+        request.client.host if request.client else 'unknown',
+        request.headers.get('user-agent'),
+        commit=False,
+    )
+    session.commit()
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

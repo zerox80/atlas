@@ -37,6 +37,15 @@ export interface AdminModalsProps {
   newPassword: string;
   setNewPassword: (value: string) => void;
   handleAddUser: React.FormEventHandler<HTMLFormElement>;
+  isPasswordModalOpen: boolean;
+  closePasswordModal: () => void;
+  passwordUser: User | null;
+  changedPassword: string;
+  setChangedPassword: (value: string) => void;
+  changedPasswordConfirmation: string;
+  setChangedPasswordConfirmation: (value: string) => void;
+  isChangingPassword: boolean;
+  handleChangePassword: React.FormEventHandler<HTMLFormElement>;
   isEditUserModalOpen: boolean;
   setIsEditUserModalOpen: (isOpen: boolean) => void;
   selectedUser: User | null;
