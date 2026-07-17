@@ -89,6 +89,39 @@ def detected_ssh_client_ip() -> str | None:
     return None
 
 
+def detected_server_ip() -> str | None:
+    fields = os.environ.get("SSH_CONNECTION", "").split()
+    if len(fields) >= 3:
+        try:
+            address = ipaddress.ip_address(fields[2].strip("[]"))
+            if address.version == 4 and not address.is_loopback:
+                return str(address)
+        except ValueError:
+            pass
+
+    route = command_output(["ip", "-o", "-4", "route", "get", "1.1.1.1"])
+    match = re.search(r"\bsrc\s+(\S+)", route)
+    if match:
+        try:
+            address = ipaddress.ip_address(match.group(1))
+            if address.version == 4 and not address.is_loopback:
+                return str(address)
+        except ValueError:
+            pass
+
+    for line in command_output(["ip", "-o", "-4", "addr", "show", "scope", "global"]).splitlines():
+        match = re.match(r"^\d+:\s+\S+\s+inet\s+(\S+)", line)
+        if not match:
+            continue
+        try:
+            address = ipaddress.ip_interface(match.group(1)).ip
+            if not address.is_loopback:
+                return str(address)
+        except ValueError:
+            pass
+    return None
+
+
 def normalized_ufw_source(value: str) -> str:
     value = value.strip()
     if value.lower() in {"any", "alle"}:
@@ -324,7 +357,13 @@ def main() -> None:
     cert: Path | None = None
     key: Path | None = None
     if mode == "lokal":
-        host = ask("Interne Server-IP", "192.168.1.128")
+        detected_host = detected_server_ip()
+        if detected_host is None:
+            print("\nDie interne Server-IP konnte nicht automatisch erkannt werden.")
+            host = ask("Interne Server-IP")
+        else:
+            print(f"\nInterne Server-IP automatisch erkannt: {detected_host}")
+            host = ask("Interne Server-IP", detected_host)
         try:
             if ipaddress.ip_address(host).version != 4:
                 fail("Bitte eine IPv4-Adresse verwenden.")
