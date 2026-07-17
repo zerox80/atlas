@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -8,7 +8,6 @@ import {
   FiCheck,
   FiClock,
   FiFileText,
-  FiPlus,
   FiShield,
   FiTrendingUp,
 } from "react-icons/fi";
@@ -22,8 +21,7 @@ import {
   YAxis,
 } from "recharts";
 import { fetchAllContracts } from "../api";
-import type { Contract, DocumentType } from "../types";
-import UploadModal from "../components/UploadModal";
+import type { Contract } from "../types";
 import { LoadingState, MetricCard, PageHeader } from "../components/ui";
 import { formatGermanNumber } from "../utils/formatUtils";
 import { getCancellationDeadline } from "../utils/contractPresentation";
@@ -46,7 +44,6 @@ const dateLabel = (value?: string | null) =>
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [uploadType, setUploadType] = useState<DocumentType | null>(null);
   const listIdParam = searchParams.get("list_id");
   const listId =
     listIdParam && /^\d+$/.test(listIdParam) ? Number(listIdParam) : null;
@@ -136,22 +133,6 @@ const Dashboard: React.FC = () => {
           "Verträge, Rechnungen und Fristen in einem operativen Überblick –",
           "damit aus Dokumenten echte Entscheidungen werden.",
         ].join(" ")}
-        actions={
-          <>
-            <button
-              onClick={() => setUploadType("invoice")}
-              className="btn-secondary"
-            >
-              <FiFileText /> Rechnung erfassen
-            </button>
-            <button
-              onClick={() => setUploadType("contract")}
-              className="btn-primary"
-            >
-              <FiPlus /> Vertrag hinzufügen
-            </button>
-          </>
-        }
       />
 
       <section className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4 animate-enter">
@@ -431,12 +412,6 @@ const Dashboard: React.FC = () => {
           </div>
         )}
       </section>
-
-      <UploadModal
-        isOpen={uploadType !== null}
-        onClose={() => setUploadType(null)}
-        documentType={uploadType || "contract"}
-      />
     </div>
   );
 };
