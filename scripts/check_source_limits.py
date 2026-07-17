@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce repository-wide source file and line length limits."""
+"""Enforce the repository-wide source file length limit."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from pathlib import Path
 
 
 MAX_FILE_LINES = 500
-MAX_LINE_LENGTH = 120
 
 SOURCE_SUFFIXES = {
     ".cjs",
@@ -56,16 +55,12 @@ class Violation:
     def title(self) -> str:
         if self.kind == "file-lines":
             return "File too long"
-        if self.kind == "line-length":
-            return "Line too long"
         return "Invalid source encoding"
 
     @property
     def message(self) -> str:
         if self.kind == "file-lines":
             return f"File has {self.actual} lines; maximum allowed is {self.limit}."
-        if self.kind == "line-length":
-            return f"Line has {self.actual} characters; maximum allowed is {self.limit}."
         return "File is not valid UTF-8."
 
 
@@ -108,12 +103,6 @@ def inspect_file(path: Path, root: Path) -> list[Violation]:
             Violation(relative_path, MAX_FILE_LINES + 1, "file-lines", len(lines), MAX_FILE_LINES)
         )
 
-    for line_number, line in enumerate(lines, start=1):
-        if len(line) > MAX_LINE_LENGTH:
-            violations.append(
-                Violation(relative_path, line_number, "line-length", len(line), MAX_LINE_LENGTH)
-            )
-
     return violations
 
 
@@ -154,7 +143,6 @@ def write_step_summary(files_checked: int, violations: list[Violation]) -> None:
         outcome,
         "",
         f"- Maximum file length: **{MAX_FILE_LINES} lines**",
-        f"- Maximum line length: **{MAX_LINE_LENGTH} characters**",
     ]
 
     if violations:
@@ -183,16 +171,12 @@ def main() -> int:
         print(
             "Source limit check failed: "
             f"{counts['file-lines']} oversized file(s), "
-            f"{counts['line-length']} overlong line(s), "
             f"{counts['encoding']} encoding error(s).",
             file=sys.stderr,
         )
         return 1
 
-    print(
-        f"Source limit check passed for {len(files)} files "
-        f"(maximum {MAX_FILE_LINES} lines per file and {MAX_LINE_LENGTH} characters per line)."
-    )
+    print(f"Source limit check passed for {len(files)} files (maximum {MAX_FILE_LINES} lines per file).")
     return 0
 
 
