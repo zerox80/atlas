@@ -13,8 +13,9 @@ import io
 import os
 from datetime import datetime, timedelta, timezone
 import pandas as pd
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import ValidationError
+from starlette.background import BackgroundTask
 import uuid
 
 import secrets
@@ -30,6 +31,7 @@ from schemas import ContractCreate, ContractRead, ContractUpdate, UserCreate, Us
 from auth import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_MINUTES
 from security_utils import log_audit
 from file_utils import validate_file, save_upload_file, resolve_file_path, delete_upload_file
+from backup_export import cleanup_backup_file, create_document_backup
 
 # Configuration
 PRODUCTION_MODE = os.getenv("PRODUCTION", "false").lower() == "true"
@@ -923,6 +925,56 @@ def require_admin(current_user: User = Depends(get_current_user)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+
+@app.post("/admin/backup")
+def create_admin_document_backup(
+    request: Request,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """Download every contract and invoice, including protected documents."""
+    backup = None
+    try:
+        documents = session.exec(
+            select(Contract)
+            .where(col(Contract.document_type).in_(["contract", "invoice"]))
+            .options(selectinload(Contract.tags), selectinload(Contract.lists))  # type: ignore[arg-type]
+            .order_by(col(Contract.document_type), col(Contract.id))
+        ).all()
+        backup = create_document_backup(documents)
+
+        log_audit(
+            session,
+            admin.id,
+            "ADMIN_DOCUMENT_BACKUP",
+            (
+                f"contracts={backup.contract_count}; invoices={backup.invoice_count}; "
+                f"exported_files={backup.attachment_count}; "
+                f"missing_files={backup.missing_attachment_count}"
+            ),
+            request.client.host if request.client else "unknown",
+            request.headers.get("user-agent"),
+        )
+    except Exception as error:
+        if backup is not None:
+            cleanup_backup_file(backup.path)
+        print(f"Admin document backup failed: {error}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Datensicherung konnte nicht erstellt werden",
+        ) from error
+
+    return FileResponse(
+        path=backup.path,
+        media_type="application/zip",
+        filename=backup.filename,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+        background=BackgroundTask(cleanup_backup_file, backup.path),
+    )
 
 
 def active_admin_count(session: Session) -> int:
