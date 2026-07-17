@@ -82,6 +82,14 @@ const AdminPanel: React.FC = () => {
   const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [passwordUser, setPasswordUser] = useState<User | null>(null);
+  const [changedPassword, setChangedPassword] = useState('');
+  const [changedPasswordConfirmation, setChangedPasswordConfirmation] =
+    useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const changePasswordRequestPending = React.useRef(false);
+  const adminPanelMounted = React.useRef(true);
 
   // Form states
   const [newUsername, setNewUsername] = useState("");
@@ -104,7 +112,11 @@ const AdminPanel: React.FC = () => {
   const [editTagColor, setEditTagColor] = useState("#3b82f6");
 
   useEffect(() => {
+    adminPanelMounted.current = true;
     loadData();
+    return () => {
+      adminPanelMounted.current = false;
+    };
   }, []);
 
   const loadData = async () => {
@@ -140,6 +152,54 @@ const AdminPanel: React.FC = () => {
       loadData();
     } catch (error: unknown) {
       alert(getApiErrorMessage(error, "Fehler beim Erstellen"));
+    }
+  };
+
+  const clearPasswordModal = () => {
+    setIsPasswordModalOpen(false);
+    setPasswordUser(null);
+    setChangedPassword('');
+    setChangedPasswordConfirmation('');
+  };
+
+  const openPasswordModal = (user: User) => {
+    if (changePasswordRequestPending.current) return;
+    setPasswordUser(user);
+    setChangedPassword('');
+    setChangedPasswordConfirmation('');
+    setIsPasswordModalOpen(true);
+  };
+
+  const closePasswordModal = () => {
+    if (changePasswordRequestPending.current) return;
+    clearPasswordModal();
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordUser || changePasswordRequestPending.current) return;
+    if (changedPassword !== changedPasswordConfirmation) {
+      alert('Die eingegebenen Passwörter stimmen nicht überein.');
+      return;
+    }
+
+    const username = passwordUser.username;
+    changePasswordRequestPending.current = true;
+    setIsChangingPassword(true);
+    try {
+      await api.put('/admin/users/' + passwordUser.id + '/password', {
+        password: changedPassword,
+      });
+      if (!adminPanelMounted.current) return;
+      clearPasswordModal();
+      alert('Das Passwort für „' + username + '“ wurde geändert.');
+    } catch (error: unknown) {
+      if (adminPanelMounted.current) {
+        alert(getApiErrorMessage(error, 'Fehler beim Ändern des Passworts'));
+      }
+    } finally {
+      changePasswordRequestPending.current = false;
+      if (adminPanelMounted.current) setIsChangingPassword(false);
     }
   };
 
@@ -362,6 +422,7 @@ const AdminPanel: React.FC = () => {
         tags={tags}
         setIsAddUserModalOpen={setIsAddUserModalOpen}
         openEditUser={openEditUser}
+        openPasswordModal={openPasswordModal}
         handleDeleteUser={handleDeleteUser}
         setIsPermissionModalOpen={setIsPermissionModalOpen}
         handleDeletePermission={handleDeletePermission}
@@ -383,6 +444,15 @@ const AdminPanel: React.FC = () => {
         newPassword={newPassword}
         setNewPassword={setNewPassword}
         handleAddUser={handleAddUser}
+        isPasswordModalOpen={isPasswordModalOpen}
+        closePasswordModal={closePasswordModal}
+        passwordUser={passwordUser}
+        changedPassword={changedPassword}
+        setChangedPassword={setChangedPassword}
+        changedPasswordConfirmation={changedPasswordConfirmation}
+        setChangedPasswordConfirmation={setChangedPasswordConfirmation}
+        isChangingPassword={isChangingPassword}
+        handleChangePassword={handleChangePassword}
         isEditUserModalOpen={isEditUserModalOpen}
         setIsEditUserModalOpen={setIsEditUserModalOpen}
         selectedUser={selectedUser}

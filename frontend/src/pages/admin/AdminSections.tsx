@@ -6,6 +6,7 @@ import {
   FiCheck,
   FiDownload,
   FiEdit2,
+  FiKey,
   FiLoader,
   FiLock,
   FiPlus,
@@ -25,6 +26,7 @@ interface AdminSectionsProps {
   tags: Tag[];
   setIsAddUserModalOpen: (isOpen: boolean) => void;
   openEditUser: (user: User) => void;
+  openPasswordModal: (user: User) => void;
   handleDeleteUser: (user: User) => void;
   setIsPermissionModalOpen: (isOpen: boolean) => void;
   handleDeletePermission: (permissionId: number) => void;
@@ -46,6 +48,7 @@ const AdminSections: React.FC<AdminSectionsProps> = ({
   tags,
   setIsAddUserModalOpen,
   openEditUser,
+  openPasswordModal,
   handleDeleteUser,
   setIsPermissionModalOpen,
   handleDeletePermission,
@@ -191,6 +194,15 @@ const AdminSections: React.FC<AdminSectionsProps> = ({
                       title="Bearbeiten"
                     >
                       <FiEdit2 />
+                    </button>
+                    <button
+                      type='button'
+                      onClick={() => openPasswordModal(user)}
+                      className='p-2 text-amber-400 hover:bg-amber-500/20 rounded transition-colors'
+                      title='Passwort ändern'
+                      aria-label={'Passwort für ' + user.username + ' ändern'}
+                    >
+                      <FiKey />
                     </button>
                     <button
                       onClick={() => handleDeleteUser(user)}

@@ -10,6 +10,15 @@ const AdminModals: React.FC<AdminModalsProps> = ({
   newPassword,
   setNewPassword,
   handleAddUser,
+  isPasswordModalOpen,
+  closePasswordModal,
+  passwordUser,
+  changedPassword,
+  setChangedPassword,
+  changedPasswordConfirmation,
+  setChangedPasswordConfirmation,
+  isChangingPassword,
+  handleChangePassword,
   isEditUserModalOpen,
   setIsEditUserModalOpen,
   selectedUser,
@@ -112,6 +121,125 @@ const AdminModals: React.FC<AdminModalsProps> = ({
                   className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
                 >
                   Erstellen
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* Change Password Modal */}
+    <AnimatePresence>
+      {isPasswordModalOpen && passwordUser && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className='fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm'
+          onClick={isChangingPassword ? undefined : closePasswordModal}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className='max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-xl border border-gray-700 bg-gray-900 p-6'
+            onClick={(e) => e.stopPropagation()}
+            role='dialog'
+            aria-modal='true'
+            aria-labelledby='change-password-title'
+            aria-busy={isChangingPassword}
+          >
+            <h2
+              id='change-password-title'
+              className='mb-2 text-xl font-bold text-white'
+            >
+              Passwort ändern
+            </h2>
+            <p className='mb-4 text-sm text-gray-400'>
+              Neues Passwort für{' '}
+              <span className='font-medium text-white'>
+                {passwordUser.username}
+              </span>{' '}
+              ({passwordUser.role === 'admin' ? 'Admin' : 'Benutzer'})
+            </p>
+            <form onSubmit={handleChangePassword} className='space-y-4'>
+              <div>
+                <label
+                  htmlFor='changed-password'
+                  className='mb-1 block text-sm font-medium text-gray-400'
+                >
+                  Neues Passwort
+                </label>
+                <input
+                  id='changed-password'
+                  name='changed-password'
+                  type='password'
+                  value={changedPassword}
+                  onChange={(e) => setChangedPassword(e.target.value)}
+                  className='w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-white focus:border-blue-500 focus:outline-none'
+                  disabled={isChangingPassword}
+                  required
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete='new-password'
+                  aria-describedby='changed-password-hint'
+                  autoFocus
+                />
+                <p
+                  id='changed-password-hint'
+                  className='mt-1 text-xs text-gray-500'
+                >
+                  Mindestens 8 Zeichen.
+                </p>
+              </div>
+              <div>
+                <label
+                  htmlFor='changed-password-confirmation'
+                  className='mb-1 block text-sm font-medium text-gray-400'
+                >
+                  Neues Passwort bestätigen
+                </label>
+                <input
+                  id='changed-password-confirmation'
+                  name='changed-password-confirmation'
+                  type='password'
+                  value={changedPasswordConfirmation}
+                  onChange={(e) =>
+                    setChangedPasswordConfirmation(e.target.value)
+                  }
+                  className='w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-white focus:border-blue-500 focus:outline-none'
+                  disabled={isChangingPassword}
+                  required
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete='new-password'
+                />
+              </div>
+              {passwordUser.has_2fa && (
+                <p className='rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-xs leading-5 text-blue-200'>
+                  Die Zwei-Faktor-Authentifizierung dieses Kontos bleibt aktiv.
+                </p>
+              )}
+              <p className='rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-200'>
+                Bereits aktive Sitzungen bleiben bis zu ihrem Ablauf
+                angemeldet.
+              </p>
+              <div className='flex gap-3 pt-2'>
+                <button
+                  type='button'
+                  onClick={closePasswordModal}
+                  disabled={isChangingPassword}
+                  className='flex-1 rounded-lg bg-gray-700 px-4 py-2 text-white transition-colors hover:bg-gray-600'
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type='submit'
+                  disabled={isChangingPassword}
+                  className='flex-1 rounded-lg bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-500'
+                >
+                  {isChangingPassword ? 'Wird geändert …' : 'Passwort ändern'}
                 </button>
               </div>
             </form>
