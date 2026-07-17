@@ -67,6 +67,9 @@ const Dashboard: React.FC = () => {
     const invoices = data.filter((item) => item.document_type === "invoice");
     const now = new Date();
     now.setHours(0, 0, 0, 0);
+    const activeContracts = contracts.filter(
+      (item) => !item.end_date || new Date(item.end_date) >= now,
+    );
     const inSixtyDays = new Date(now);
     inSixtyDays.setDate(now.getDate() + 60);
     const deadlines = contracts.filter((item) => {
@@ -76,6 +79,7 @@ const Dashboard: React.FC = () => {
     const protectedCount = data.filter((item) => item.is_protected).length;
     return {
       contracts,
+      activeContracts,
       invoices,
       deadlines,
       protectedCount,
@@ -161,7 +165,7 @@ const Dashboard: React.FC = () => {
         <MetricCard
           icon={FiFileText}
           label="Aktive Verträge"
-          value={stats.contracts.length}
+          value={stats.activeContracts.length}
           meta="inklusive unbefristeter Verträge"
           tone="blue"
         />

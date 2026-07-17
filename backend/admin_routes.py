@@ -70,9 +70,7 @@ def create_user(
         created_at=datetime.now(timezone.utc)
     )
     session.add(new_user)
-    session.commit()
-    session.refresh(new_user)
-    
+    session.flush()
     log_audit(
         session,
         admin.id,
@@ -80,7 +78,10 @@ def create_user(
         f"Created user '{new_user.username}'",
         request.client.host if request.client else "unknown",
         request.headers.get("user-agent"),
+        commit=False,
     )
+    session.commit()
+    session.refresh(new_user)
     
     return {
         "id": new_user.id,
@@ -143,8 +144,6 @@ def update_user(
     
     if changes:
         session.add(user)
-        session.commit()
-        session.refresh(user)
         log_audit(
             session,
             admin.id,
@@ -152,7 +151,10 @@ def update_user(
             f"Updated user '{user.username}': {'; '.join(changes)}",
             request.client.host if request.client else "unknown",
             request.headers.get("user-agent"),
+            commit=False,
         )
+        session.commit()
+        session.refresh(user)
     
     return {
         "id": user.id,
@@ -283,15 +285,14 @@ def create_permission(
         # Update existing permission
         existing.permission_level = perm_data.permission_level
         session.add(existing)
-        session.commit()
-        session.refresh(existing)
-        
         log_audit(session, admin.id, "UPDATE_PERMISSION", 
                   (
                       f"Updated permission for '{user.username}' on contract "
                       f"'{contract.title}' to '{perm_data.permission_level}'"
                   ),
-                  request.client.host if request.client else "unknown", request.headers.get("user-agent"))
+                  request.client.host if request.client else "unknown", request.headers.get("user-agent"), commit=False)
+        session.commit()
+        session.refresh(existing)
         
         return {
             "id": existing.id,
@@ -308,12 +309,12 @@ def create_permission(
         permission_level=perm_data.permission_level
     )
     session.add(new_perm)
-    session.commit()
-    session.refresh(new_perm)
-    
+    session.flush()
     log_audit(session, admin.id, "CREATE_PERMISSION", 
               f"Granted '{perm_data.permission_level}' permission to '{user.username}' for contract '{contract.title}'",
-              request.client.host if request.client else "unknown", request.headers.get("user-agent"))
+              request.client.host if request.client else "unknown", request.headers.get("user-agent"), commit=False)
+    session.commit()
+    session.refresh(new_perm)
     
     return {
         "id": new_perm.id,

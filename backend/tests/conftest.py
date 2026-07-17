@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Set SECRET_KEY for testing before importing main/auth
 os.environ["SECRET_KEY"] = "test_secret_key_with_at_least_32_chars"
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+os.environ["ADMIN_PASSWORD"] = "test-admin-password-123"
 
 from main import app, get_current_user
 from database import get_session

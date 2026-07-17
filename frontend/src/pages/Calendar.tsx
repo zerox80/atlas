@@ -6,7 +6,6 @@ import {
   endOfMonth,
   endOfWeek,
   format,
-  isSameDay,
   isSameMonth,
   isToday,
   parseISO,
@@ -62,27 +61,39 @@ const Calendar: React.FC = () => {
     });
   }, [currentDate]);
 
-  const getEventsForDay = (day: Date): CalendarEvent[] =>
-    contracts.flatMap((contract) => {
-      const events: CalendarEvent[] = [];
-      if (contract.start_date && isSameDay(parseISO(contract.start_date), day))
-        events.push({ type: "start", label: "Start", contract });
-      if (contract.end_date && isSameDay(parseISO(contract.end_date), day))
-        events.push({ type: "end", label: "Ende", contract });
-      if (
-        contract.end_date &&
-        isSameDay(
-          subDays(parseISO(contract.end_date), contract.notice_period ?? 30),
-          day,
-        )
-      )
-        events.push({ type: "notice", label: "Kündigen", contract });
-      return events;
+  const eventsByDay = useMemo(() => {
+    const events = new Map<string, CalendarEvent[]>();
+    const addEvent = (date: Date, event: CalendarEvent) => {
+      const key = format(date, "yyyy-MM-dd");
+      events.set(key, [...(events.get(key) ?? []), event]);
+    };
+
+    contracts.forEach((contract) => {
+      if (contract.start_date)
+        addEvent(parseISO(contract.start_date), {
+          type: "start",
+          label: "Start",
+          contract,
+        });
+      if (contract.end_date) {
+        const endDate = parseISO(contract.end_date);
+        addEvent(endDate, { type: "end", label: "Ende", contract });
+        addEvent(subDays(endDate, contract.notice_period ?? 30), {
+          type: "notice",
+          label: "Kündigen",
+          contract,
+        });
+      }
     });
+    return events;
+  }, [contracts]);
+
+  const getEventsForDay = (day: Date): CalendarEvent[] =>
+    eventsByDay.get(format(day, "yyyy-MM-dd")) ?? [];
 
   const monthEvents = useMemo(
     () => days.flatMap(getEventsForDay),
-    [days, contracts],
+    [days, eventsByDay],
   );
   const weekDays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 

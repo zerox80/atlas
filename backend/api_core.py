@@ -13,7 +13,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import func
+from sqlalchemy import and_, exists, func, insert, literal, select as sa_select, true
 from sqlmodel import Session, col, select
 
 from auth import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY, get_password_hash
@@ -38,6 +38,7 @@ PERMISSION_LEVEL_RANK: dict[str, int] = {
 }
 
 PRODUCTION_MODE = os.getenv("PRODUCTION", "false").lower() == "true"
+SECURE_COOKIES = os.getenv("SECURE_COOKIES", str(PRODUCTION_MODE)).lower() == "true"
 RATE_LIMIT_LOGIN = os.getenv("RATE_LIMIT_LOGIN", "5/minute")
 ACL_BACKFILL_ACTION = "ACL_BACKFILL_V1"
 CSRF_COOKIE_NAME = "csrf_token"
@@ -53,8 +54,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
 
 def request_is_https(request: Request) -> bool:
-    """Detect HTTPS when running behind a reverse proxy."""
-    return PRODUCTION_MODE or request.url.scheme == "https"
+    """Decide whether authentication cookies must carry the Secure attribute."""
+    return SECURE_COOKIES or request.url.scheme == "https"
 
 
 def set_csrf_cookie(response: Response, request: Request) -> str:
@@ -82,21 +83,14 @@ def bootstrap_admin_user(session: Session) -> None:
         return
 
     configured_password = os.getenv("ADMIN_PASSWORD")
-    if PRODUCTION_MODE and (not configured_password or len(configured_password) < 12):
+    if not configured_password or len(configured_password) < 12:
         raise RuntimeError(
-            "ADMIN_PASSWORD must contain at least 12 characters for initial production bootstrap."
-        )
-
-    admin_pw = configured_password or secrets.token_urlsafe(16)
-    if not configured_password:
-        logger.warning(
-            "ADMIN_PASSWORD is not set; generated temporary admin password: %s",
-            admin_pw,
+            "ADMIN_PASSWORD must contain at least 12 characters for initial admin bootstrap."
         )
 
     admin_user = User(
         username="admin",
-        hashed_password=get_password_hash(admin_pw),
+        hashed_password=get_password_hash(configured_password),
         role="admin",
         is_active=True,
     )
@@ -291,39 +285,29 @@ def backfill_existing_contract_read_permissions(session: Session) -> int:
     if already_ran:
         return 0
 
-    contracts = session.exec(select(Contract)).all()
-    users = session.exec(
-        select(User)
-        .where(col(User.role) != "admin")
-        .where(col(User.is_active).is_(True))
-    ).all()
-    existing_pairs = {
-        (user_id, contract_id)
-        for user_id, contract_id in session.exec(
-            select(ContractPermission.user_id, ContractPermission.contract_id)
-        ).all()
-    }
-
-    created = 0
-    for contract in contracts:
-        if contract.id is None:
-            continue
-        for user in users:
-            if user.id is None:
-                continue
-            permission_key = (user.id, contract.id)
-            if permission_key in existing_pairs:
-                continue
-
-            session.add(
-                ContractPermission(
-                    user_id=user.id,
-                    contract_id=contract.id,
-                    permission_level="read",
-                )
+    users = User.__table__
+    contracts = Contract.__table__
+    permissions = ContractPermission.__table__
+    permission_exists = exists(
+        sa_select(1)
+        .select_from(permissions)
+        .where(
+            and_(
+                permissions.c.user_id == users.c.id,
+                permissions.c.contract_id == contracts.c.id,
             )
-            existing_pairs.add(permission_key)
-            created += 1
+        )
+    )
+    insert_missing_permissions = insert(permissions).from_select(
+        ["user_id", "contract_id", "permission_level"],
+        sa_select(users.c.id, contracts.c.id, literal("read"))
+        .select_from(users.join(contracts, true()))
+        .where(users.c.role != "admin")
+        .where(users.c.is_active.is_(True))
+        .where(~permission_exists),
+    )
+    result = session.execute(insert_missing_permissions)
+    created = max(result.rowcount or 0, 0)
 
     session.add(
         AuditLog(

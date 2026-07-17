@@ -131,18 +131,18 @@ def build_contract_query(
 
 @router.get("/contracts", response_model=List[ContractRead])
 def read_contracts(
-    q: Optional[str] = None,                    # Full-text search
-    tags: Optional[str] = None,                 # Comma-separated tag names
+    q: Optional[str] = Query(default=None, max_length=200),
+    tags: Optional[str] = Query(default=None, max_length=500),
     list_id: Optional[int] = None,              # Filter by list
     min_value: Optional[float] = None,
     max_value: Optional[float] = None,
     start_date_from: Optional[datetime] = None,
     start_date_to: Optional[datetime] = None,
-    status: Optional[str] = None,               # "active" or "expired"
-    document_type: Optional[str] = None,        # "contract" or "invoice"
+    status: Optional[Literal["active", "expired"]] = None,
+    document_type: Optional[Literal["contract", "invoice"]] = None,
     is_protected: Optional[bool] = None,
-    sort_by: Optional[str] = "uploaded_at",     # title, value, start_date, end_date
-    sort_order: Optional[str] = "desc",         # asc or desc
+    sort_by: Literal["title", "value", "start_date", "end_date", "uploaded_at"] = "uploaded_at",
+    sort_order: Literal["asc", "desc"] = "desc",
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
     cursor_uploaded_at: Optional[datetime] = None,
@@ -176,17 +176,17 @@ def read_contracts(
 
 @router.get("/contracts/export")
 def export_contracts(
-    q: Optional[str] = None,
-    tags: Optional[str] = None,
+    q: Optional[str] = Query(default=None, max_length=200),
+    tags: Optional[str] = Query(default=None, max_length=500),
     list_id: Optional[int] = None,
     min_value: Optional[float] = None,
     max_value: Optional[float] = None,
     start_date_from: Optional[datetime] = None,
     start_date_to: Optional[datetime] = None,
-    status: Optional[str] = None,
-    document_type: Optional[str] = None,
-    sort_by: Optional[str] = "uploaded_at",
-    sort_order: Optional[str] = "desc",
+    status: Optional[Literal["active", "expired"]] = None,
+    document_type: Optional[Literal["contract", "invoice"]] = None,
+    sort_by: Literal["title", "value", "start_date", "end_date", "uploaded_at"] = "uploaded_at",
+    sort_order: Literal["asc", "desc"] = "desc",
     format: Literal["csv", "excel"] = "csv",
     current_user: User = Depends(get_current_user), 
     session: Session = Depends(get_session)

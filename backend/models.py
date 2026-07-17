@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 # Join table for Contracts and Tags
@@ -34,6 +34,12 @@ class User(SQLModel, table=True):
 class ContractPermission(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("user_id", "contract_id", name="uq_contractpermission_user_contract"),
+        Index(
+            "ix_contractpermission_user_level_contract",
+            "user_id",
+            "permission_level",
+            "contract_id",
+        ),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -59,6 +65,11 @@ class ContractList(SQLModel, table=True):
 
     
 class Contract(SQLModel, table=True):
+    __table_args__ = (
+        Index("ix_contract_document_uploaded_at", "document_type", "uploaded_at"),
+        Index("ix_contract_end_date", "end_date"),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str
     description: Optional[str] = None

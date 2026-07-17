@@ -38,9 +38,7 @@ def create_tag(
     
     new_tag = Tag(name=tag_data.name, color=tag_data.color)
     session.add(new_tag)
-    session.commit()
-    session.refresh(new_tag)
-    
+    session.flush()
     log_audit(
         session,
         admin.id,
@@ -48,7 +46,10 @@ def create_tag(
         f"Created tag '{new_tag.name}'",
         request.client.host if request.client else "unknown",
         request.headers.get("user-agent"),
+        commit=False,
     )
+    session.commit()
+    session.refresh(new_tag)
     return new_tag
 
 
@@ -81,8 +82,6 @@ def update_tag(
     
     if changes:
         session.add(tag)
-        session.commit()
-        session.refresh(tag)
         log_audit(
             session,
             admin.id,
@@ -90,7 +89,10 @@ def update_tag(
             f"Updated tag '{tag.name}': {'; '.join(changes)}",
             request.client.host if request.client else "unknown",
             request.headers.get("user-agent"),
+            commit=False,
         )
+        session.commit()
+        session.refresh(tag)
     
     return tag
 
@@ -113,8 +115,6 @@ def delete_tag(
     session.exec(delete(ContractTagLink).where(col(ContractTagLink.tag_id) == tag_id))
     
     session.delete(tag)
-    session.commit()
-    
     log_audit(
         session,
         admin.id,
@@ -122,7 +122,9 @@ def delete_tag(
         f"Deleted tag '{tag_name}'",
         request.client.host if request.client else "unknown",
         request.headers.get("user-agent"),
+        commit=False,
     )
+    session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.get("/audit-logs", response_model=List[AuditLogRead])

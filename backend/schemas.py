@@ -148,6 +148,27 @@ class AuditLogRead(BaseModel):
 class OTPVerify(BaseModel):
     otp: str = Field(..., min_length=6, max_length=6)
 
+    @field_validator("otp")
+    @classmethod
+    def otp_is_numeric(cls, value: str) -> str:
+        if not value.isdigit():
+            raise ValueError("OTP must contain only digits")
+        return value
+
+
+class TwoFactorSetup(BaseModel):
+    """Proof required before issuing a new TOTP enrollment secret."""
+
+    password: str = Field(..., min_length=8, max_length=128)
+    current_otp: Optional[str] = Field(default=None, min_length=6, max_length=6)
+
+    @field_validator("current_otp")
+    @classmethod
+    def current_otp_is_numeric(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.isdigit():
+            raise ValueError("OTP must contain only digits")
+        return value
+
 
 # Admin Panel Schemas
 class UserRead(BaseModel):

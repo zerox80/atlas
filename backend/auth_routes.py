@@ -22,7 +22,7 @@ from api_core import (
 from auth import create_access_token, verify_password
 from database import get_session
 from models import User
-from schemas import OTPVerify
+from schemas import OTPVerify, TwoFactorSetup
 from security_utils import log_audit
 
 router = APIRouter()
@@ -130,10 +130,37 @@ def refresh_csrf_token(request: Request, response: Response):
 
 # --- 2FA Endpoints ---
 @router.post("/2fa/setup")
-def setup_2fa(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+@limiter.limit("5/minute")
+def setup_2fa(
+    request: Request,
+    setup_data: TwoFactorSetup,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Start TOTP enrollment after a fresh password (and, if enabled, TOTP) check."""
+    if not verify_password(setup_data.password, current_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+    if current_user.totp_secret:
+        if not setup_data.current_otp or not pyotp.TOTP(current_user.totp_secret).verify(
+            setup_data.current_otp,
+            valid_window=1,
+        ):
+            raise HTTPException(status_code=401, detail="Valid current 2FA code required")
+
     secret = pyotp.random_base32()
     current_user.pending_totp_secret = secret
     session.add(current_user)
+    client_host = request.client.host if request.client else "unknown"
+    log_audit(
+        session,
+        current_user.id,
+        "TOTP_ENROLLMENT_STARTED",
+        "Started two-factor enrollment",
+        client_host,
+        request.headers.get("user-agent"),
+        commit=False,
+    )
     session.commit()
     
     # Generate QR Code
@@ -149,23 +176,34 @@ def setup_2fa(current_user: User = Depends(get_current_user), session: Session =
     return Response(content=buf.getvalue(), media_type="image/png")
 
 @router.post("/2fa/verify")
+@limiter.limit("5/minute")
 def verify_2fa(
+    request: Request,
     otp_data: OTPVerify,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    secret = current_user.pending_totp_secret or current_user.totp_secret
+    secret = current_user.pending_totp_secret
     if not secret:
-        raise HTTPException(status_code=400, detail="2FA not setup")
+        raise HTTPException(status_code=400, detail="No pending 2FA enrollment")
         
     totp = pyotp.TOTP(secret)
     if not totp.verify(otp_data.otp):
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    if current_user.pending_totp_secret:
-        current_user.totp_secret = current_user.pending_totp_secret
-        current_user.pending_totp_secret = None
-        session.add(current_user)
-        session.commit()
+    current_user.totp_secret = secret
+    current_user.pending_totp_secret = None
+    session.add(current_user)
+    client_host = request.client.host if request.client else "unknown"
+    log_audit(
+        session,
+        current_user.id,
+        "TOTP_ENROLLMENT_COMPLETED",
+        "Enabled two-factor authentication",
+        client_host,
+        request.headers.get("user-agent"),
+        commit=False,
+    )
+    session.commit()
 
     return {"message": "Verified"}

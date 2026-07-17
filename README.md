@@ -45,4 +45,14 @@ Starten Sie die Anwendung mit folgendem Befehl im Hauptverzeichnis:
 
 docker-compose up -d
 
+Vor dem ersten Start müssen Sie eine `.env` aus `.env.example` erstellen und
+mindestens `SECRET_KEY` sowie ein `ADMIN_PASSWORD` mit mindestens 12 Zeichen
+setzen. Das initiale Passwort wird nicht erzeugt oder ausgegeben.
+
+Docker veröffentlicht Atlas ausschließlich auf `127.0.0.1:8080`. Für den
+Produktivbetrieb konfigurieren Sie einen TLS-Reverse-Proxy davor; eine sichere
+Vorlage mit HTTP-zu-HTTPS-Weiterleitung liegt in `nginx-external-sample.conf`.
+Für lokale HTTP-Entwicklung müssen `PRODUCTION=false` und
+`SECURE_COOKIES=false` bewusst in der lokalen `.env` gesetzt werden.
+
 Nach dem Start ist Atlas über den konfigurierten Nginx Proxy erreichbar. Die Datenbank wird beim ersten Start automatisch initialisiert.

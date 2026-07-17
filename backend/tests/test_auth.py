@@ -87,7 +87,10 @@ class TestAuthentication:
         test_user: User,
     ):
         """2FA setup must not lock users out before the first OTP is verified."""
-        response = auth_client.post("/2fa/setup")
+        response = auth_client.post(
+            "/2fa/setup",
+            json={"password": "testpassword123"},
+        )
 
         assert response.status_code == 200
         session.refresh(test_user)
@@ -101,6 +104,14 @@ class TestAuthentication:
         session.refresh(test_user)
         assert test_user.totp_secret
         assert test_user.pending_totp_secret is None
+
+    def test_setup_2fa_requires_current_password(self, auth_client: TestClient):
+        response = auth_client.post(
+            "/2fa/setup",
+            json={"password": "wrong-password"},
+        )
+
+        assert response.status_code == 401
 
 
 class TestUserCreation:

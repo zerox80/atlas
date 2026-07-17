@@ -237,11 +237,29 @@ def migration_004_audit_contract_id(cursor: sqlite3.Cursor) -> None:
             )
 
 
+def migration_005_contract_query_indexes(cursor: sqlite3.Cursor) -> None:
+    """Add indexes for the document list, calendar, and ACL lookup hot paths."""
+    if table_exists(cursor, "contract"):
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS ix_contract_document_uploaded_at "
+            "ON contract (document_type, uploaded_at DESC)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS ix_contract_end_date ON contract (end_date)"
+        )
+    if table_exists(cursor, "contractpermission"):
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS ix_contractpermission_user_level_contract "
+            "ON contractpermission (user_id, permission_level, contract_id)"
+        )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     ("001_legacy_columns_and_permission_index", migration_001_legacy_columns),
     ("002_contract_document_type", migration_002_document_type),
     ("003_contract_end_date_nullable", migration_003_contract_end_date_nullable),
     ("004_audit_contract_id", migration_004_audit_contract_id),
+    ("005_contract_query_indexes", migration_005_contract_query_indexes),
 )
 
 

@@ -34,10 +34,25 @@ const ContractChat: React.FC<ContractChatProps> = ({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const activeRequestRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    activeRequestRef.current?.abort();
+    activeRequestRef.current = null;
+    setMessages([]);
+    setInput("");
+    setLoading(false);
+  }, [contractId, isOpen]);
+
+  const handleClose = () => {
+    activeRequestRef.current?.abort();
+    activeRequestRef.current = null;
+    onClose();
+  };
 
   const updateAssistant = (content: string, isStreaming = true) => {
     setMessages((current) => {
@@ -59,6 +74,8 @@ const ContractChat: React.FC<ContractChatProps> = ({
       { role: "assistant", content: "", isStreaming: true },
     ]);
     setLoading(true);
+    const requestController = new AbortController();
+    activeRequestRef.current = requestController;
 
     try {
       const csrfToken = await ensureCsrfToken();
@@ -72,6 +89,7 @@ const ContractChat: React.FC<ContractChatProps> = ({
           },
           body: JSON.stringify({ question }),
           credentials: "include",
+          signal: requestController.signal,
         },
       );
       if (!response.ok)
@@ -111,12 +129,16 @@ const ContractChat: React.FC<ContractChatProps> = ({
       if (pending.trim()) processEvent(pending);
       updateAssistant(fullContent, false);
     } catch (error: unknown) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       updateAssistant(
         `Die Anfrage konnte nicht beantwortet werden: ${getErrorMessage(error, "Unbekannter Fehler")}`,
         false,
       );
     } finally {
-      setLoading(false);
+      if (activeRequestRef.current === requestController) {
+        activeRequestRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -128,7 +150,7 @@ const ContractChat: React.FC<ContractChatProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={handleClose}
             className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
           />
           <motion.aside
@@ -160,7 +182,7 @@ const ContractChat: React.FC<ContractChatProps> = ({
                     </h2>
                   </div>
                 </div>
-                <button onClick={onClose} className="icon-btn shrink-0">
+                <button onClick={handleClose} className="icon-btn shrink-0">
                   <FiX />
                 </button>
               </div>
