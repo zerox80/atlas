@@ -22,10 +22,12 @@ import {
   FiChevronRight,
   FiClock,
 } from "react-icons/fi";
-import api from "../api";
+import api, { fetchAllContracts } from "../api";
 import type { Contract } from "../types";
 import UploadModal from "../components/UploadModal";
+import ContractDetailsModal from "../components/ContractDetailsModal";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
+import { triggerBlobDownload } from "../utils/downloadUtils";
 
 interface CalendarEvent {
   type: "start" | "end" | "notice";
@@ -44,13 +46,11 @@ const Calendar: React.FC = () => {
   const [selectedContract, setSelectedContract] = useState<Contract | null>(
     null,
   );
+  const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const { data: contracts = [], isLoading } = useQuery<Contract[]>(
     ["contracts", "all"],
     async () => {
-      const response = await api.get<Contract[]>("/contracts", {
-        params: { status: "active" },
-      });
-      return response.data;
+      return fetchAllContracts({ status: "active" });
     },
   );
 
@@ -85,6 +85,21 @@ const Calendar: React.FC = () => {
     [days, contracts],
   );
   const weekDays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+
+  const handleDownload = async (contract: Contract) => {
+    try {
+      const response = await api.get<Blob>(
+        `/contracts/${contract.id}/download`,
+        { responseType: "blob" },
+      );
+      const extension = contract.file_extension?.startsWith(".")
+        ? contract.file_extension
+        : `.${contract.file_extension || "pdf"}`;
+      triggerBlobDownload(response.data, `${contract.title}${extension}`);
+    } catch {
+      alert("Das Dokument konnte nicht heruntergeladen werden.");
+    }
+  };
 
   if (isLoading) return <LoadingState label="Kalender wird geladen" />;
 
@@ -218,10 +233,19 @@ const Calendar: React.FC = () => {
       <div className="mt-4 flex items-center gap-2 text-xs text-white/32">
         <FiClock /> Termine werden direkt aus den Dokumentdaten berechnet.
       </div>
-      <UploadModal
-        isOpen={Boolean(selectedContract)}
+      <ContractDetailsModal
+        contract={selectedContract}
         onClose={() => setSelectedContract(null)}
-        initialData={selectedContract}
+        onDownload={handleDownload}
+        onEdit={(contract) => {
+          setSelectedContract(null);
+          setEditingContract(contract);
+        }}
+      />
+      <UploadModal
+        isOpen={Boolean(editingContract)}
+        onClose={() => setEditingContract(null)}
+        initialData={editingContract}
       />
     </div>
   );

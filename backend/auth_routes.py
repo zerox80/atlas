@@ -102,7 +102,8 @@ async def login_for_access_token(
         httponly=True,
         secure=request_is_https(request),  # Only secure if actually using HTTPS
         samesite="lax",
-        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
     )
     set_csrf_cookie(response, request)
     
@@ -115,8 +116,8 @@ async def login_for_access_token(
 def logout(response: Response, request: Request):
     """Clear the access_token cookie to log out"""
     secure = request_is_https(request)
-    response.delete_cookie(key="access_token", secure=secure, samesite="lax")
-    response.delete_cookie(key=CSRF_COOKIE_NAME, secure=secure, samesite="lax")
+    response.delete_cookie(key="access_token", secure=secure, samesite="lax", path="/")
+    response.delete_cookie(key=CSRF_COOKIE_NAME, secure=secure, samesite="lax", path="/")
     return {"message": "Logged out"}
 
 

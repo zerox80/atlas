@@ -2,12 +2,14 @@
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, delete, select
 
 from api_core import (
-    contract_read_for_user,
+    allowed_permission_levels,
+    contract_reads_for_user,
     filter_contracts_for_user,
     get_current_user,
     get_visible_list_or_404,
@@ -15,7 +17,7 @@ from api_core import (
     visible_contract_count_for_list,
 )
 from database import get_session
-from models import Contract, ContractList, ContractListLink, User
+from models import Contract, ContractList, ContractListLink, ContractPermission, User
 from schemas import ContractListCreate, ContractListRead, ContractListUpdate, ContractRead
 
 router = APIRouter()
@@ -27,11 +29,36 @@ def get_lists(
 ):
     """Get visible contract lists with permission-aware contract counts."""
     lists = session.exec(select(ContractList).order_by(col(ContractList.name).asc())).all()
+    count_statement = (
+        select(
+            ContractListLink.list_id,
+            func.count(func.distinct(ContractListLink.contract_id)),
+        )
+        .join(Contract, col(Contract.id) == col(ContractListLink.contract_id))
+    )
+    if current_user.role != "admin":
+        count_statement = (
+            count_statement
+            .join(
+                ContractPermission,
+                col(ContractPermission.contract_id) == col(Contract.id),
+            )
+            .where(col(ContractPermission.user_id) == current_user.id)
+            .where(
+                col(ContractPermission.permission_level).in_(
+                    allowed_permission_levels("read")
+                )
+            )
+        )
+    counts = dict(
+        session.exec(count_statement.group_by(ContractListLink.list_id)).all()
+    )
+
     result = []
     for lst in lists:
         if lst.id is None:
             continue
-        count = visible_contract_count_for_list(lst.id, current_user, session)
+        count = int(counts.get(lst.id, 0))
         if current_user.role != "admin" and count == 0:
             continue
         result.append({
@@ -212,6 +239,8 @@ def remove_contract_from_list(
 @router.get("/lists/{list_id}/contracts", response_model=List[ContractRead])
 def get_list_contracts(
     list_id: int,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
@@ -225,9 +254,9 @@ def get_list_contracts(
         .options(selectinload(Contract.tags), selectinload(Contract.lists))  # type: ignore[arg-type]
     )
     statement = filter_contracts_for_user(statement, current_user, "read").distinct()
-    contracts = session.exec(statement).all()
+    contracts = session.exec(statement.offset(offset).limit(limit)).all()
     
-    return [contract_read_for_user(contract, current_user, session) for contract in contracts]
+    return contract_reads_for_user(contracts, current_user, session)
 
 
 # ========================================
@@ -235,6 +264,5 @@ def get_list_contracts(
 # ========================================
 
 # Imports moved to top
-
 
 

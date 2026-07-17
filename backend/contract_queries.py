@@ -2,10 +2,10 @@
 
 import io
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
@@ -15,7 +15,7 @@ from sqlmodel import Session, col, select
 
 from api_core import (
     AI_SUPPORTED_FILE_EXTENSION,
-    contract_read_for_user,
+    contract_reads_for_user,
     filter_contracts_for_user,
     get_current_user,
 )
@@ -24,6 +24,8 @@ from models import Contract, ContractListLink, ContractTagLink, Tag, User
 from schemas import ContractRead
 
 router = APIRouter()
+EXPORT_MAX_ROWS = 10_000
+SPREADSHEET_FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 # --- Contract Endpoints ---
 
@@ -115,6 +117,8 @@ def read_contracts(
     document_type: Optional[str] = None,        # "contract" or "invoice"
     sort_by: Optional[str] = "uploaded_at",     # title, value, start_date, end_date
     sort_order: Optional[str] = "desc",         # asc or desc
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
     current_user: User = Depends(get_current_user), 
     session: Session = Depends(get_session)
 ):
@@ -136,8 +140,8 @@ def read_contracts(
         sort_by=sort_by,
         sort_order=sort_order,
     )
-    contracts = session.exec(statement).all()
-    return [contract_read_for_user(contract, current_user, session) for contract in contracts]
+    contracts = session.exec(statement.offset(offset).limit(limit)).all()
+    return contract_reads_for_user(contracts, current_user, session)
 
 @router.get("/contracts/export")
 def export_contracts(
@@ -149,9 +153,10 @@ def export_contracts(
     start_date_from: Optional[datetime] = None,
     start_date_to: Optional[datetime] = None,
     status: Optional[str] = None,
+    document_type: Optional[str] = None,
     sort_by: Optional[str] = "uploaded_at",
     sort_order: Optional[str] = "desc",
-    format: str = "csv",
+    format: Literal["csv", "excel"] = "csv",
     current_user: User = Depends(get_current_user), 
     session: Session = Depends(get_session)
 ):
@@ -168,26 +173,32 @@ def export_contracts(
         start_date_from=start_date_from,
         start_date_to=start_date_to,
         status_filter=status,
+        document_type=document_type,
         sort_by=sort_by,
         sort_order=sort_order,
     )
-    contracts = session.exec(statement).all()
+    contracts = session.exec(statement.limit(EXPORT_MAX_ROWS + 1)).all()
+    if len(contracts) > EXPORT_MAX_ROWS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Export is limited to {EXPORT_MAX_ROWS} rows; narrow the filters.",
+        )
     
     # --- Data Processing ---
     data = []
     for c in contracts:
         data.append({
             "ID": c.id,
-            "Titel": c.title,
-            "Beschreibung": c.description,
-            "Wert (â‚¬)": c.value,
-            "JÃ¤hrlicher Wert (â‚¬)": c.annual_value,
+            "Titel": _spreadsheet_safe(c.title),
+            "Beschreibung": _spreadsheet_safe(c.description),
+            "Wert (€)": c.value,
+            "Jährlicher Wert (€)": c.annual_value,
             "Startdatum": c.start_date.strftime("%Y-%m-%d") if c.start_date else "",
             "Enddatum": c.end_date.strftime("%Y-%m-%d") if c.end_date else "",
-            "KÃ¼ndigungsfrist (Tage)": c.notice_period if c.notice_period is not None else "",
-            "GeschÃ¼tzt": "Ja" if c.is_protected else "Nein",
-            "Tags": ", ".join([t.name for t in c.tags]),
-            "Listen": ", ".join([contract_list.name for contract_list in c.lists]),
+            "Kündigungsfrist (Tage)": c.notice_period if c.notice_period is not None else "",
+            "Geschützt": "Ja" if c.is_protected else "Nein",
+            "Tags": _spreadsheet_safe(", ".join([t.name for t in c.tags])),
+            "Listen": _spreadsheet_safe(", ".join([contract_list.name for contract_list in c.lists])),
             "Erstellt am": c.uploaded_at.strftime("%Y-%m-%d %H:%M") if c.uploaded_at else ""
         })
         
@@ -196,7 +207,7 @@ def export_contracts(
     if format == "excel":
         excel_output = io.BytesIO()
         with pd.ExcelWriter(excel_output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='VertrÃ¤ge')
+            df.to_excel(writer, index=False, sheet_name="Verträge")
         excel_output.seek(0)
         
         headers = {
@@ -208,15 +219,24 @@ def export_contracts(
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         
-    else: # Default to CSV
-        csv_output = io.StringIO()
-        df.to_csv(csv_output, index=False, sep=';', encoding='utf-8-sig') # German Excel compatible CSV
-        output_bytes = io.BytesIO(csv_output.getvalue().encode('utf-8-sig'))
-        
-        headers = {
-            'Content-Disposition': 'attachment; filename="vertrage_export.csv"'
-        }
-        return StreamingResponse(output_bytes, headers=headers, media_type='text/csv')
+    csv_output = io.StringIO()
+    df.to_csv(csv_output, index=False, sep=";")
+    output_bytes = io.BytesIO(csv_output.getvalue().encode("utf-8-sig"))
+
+    headers = {
+        "Content-Disposition": 'attachment; filename="vertrage_export.csv"'
+    }
+    return StreamingResponse(output_bytes, headers=headers, media_type="text/csv")
+
+
+def _spreadsheet_safe(value: str | None) -> str:
+    """Prevent user-controlled text from becoming an Excel/CSV formula."""
+    if value is None:
+        return ""
+    candidate = value.lstrip(" \t\r\n")
+    if candidate.startswith(SPREADSHEET_FORMULA_PREFIXES):
+        return "'" + value
+    return value
 
 def parse_date_form(val: Optional[str]) -> Optional[datetime]:
     if not val:
@@ -271,4 +291,3 @@ def ensure_ai_supported_contract_file(contract: Contract) -> None:
             status_code=400,
             detail="KI-Chat unterstuetzt aktuell nur PDF-Dateien.",
         )
-

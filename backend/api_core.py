@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+from collections.abc import Sequence
 from typing import Annotated, Literal, TypeAlias
 
 from fastapi import Cookie, Depends, HTTPException, Request, Response, status
@@ -53,7 +54,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
 def request_is_https(request: Request) -> bool:
     """Detect HTTPS when running behind a reverse proxy."""
-    return request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    return PRODUCTION_MODE or request.url.scheme == "https"
 
 
 def set_csrf_cookie(response: Response, request: Request) -> str:
@@ -80,8 +81,14 @@ def bootstrap_admin_user(session: Session) -> None:
             )
         return
 
-    admin_pw = os.getenv("ADMIN_PASSWORD") or secrets.token_urlsafe(16)
-    if not os.getenv("ADMIN_PASSWORD"):
+    configured_password = os.getenv("ADMIN_PASSWORD")
+    if PRODUCTION_MODE and (not configured_password or len(configured_password) < 12):
+        raise RuntimeError(
+            "ADMIN_PASSWORD must contain at least 12 characters for initial production bootstrap."
+        )
+
+    admin_pw = configured_password or secrets.token_urlsafe(16)
+    if not configured_password:
         logger.warning(
             "ADMIN_PASSWORD is not set; generated temporary admin password: %s",
             admin_pw,
@@ -214,24 +221,66 @@ def check_contract_permission(
     return permission_grants(assigned_level, required_level)
 
 
+_PERMISSION_NOT_LOADED = object()
+
+
 def contract_read_for_user(
     contract: Contract,
     user: User,
     session: Session,
+    assigned_level: str | None | object = _PERMISSION_NOT_LOADED,
 ) -> dict[str, object]:
     """Serialize a contract with the caller's effective capabilities."""
     data = ContractRead.model_validate(contract).model_dump()
-    assigned_level = (
-        contract_permission_level(user, contract.id, session)
-        if contract.id is not None
-        else None
-    )
-    data["can_read"] = permission_grants(assigned_level, "read")
-    data["can_write"] = permission_grants(assigned_level, "write")
-    can_manage = permission_grants(assigned_level, "full")
+    if assigned_level is _PERMISSION_NOT_LOADED:
+        assigned_level = (
+            contract_permission_level(user, contract.id, session)
+            if contract.id is not None
+            else None
+        )
+    effective_level = assigned_level if isinstance(assigned_level, str) else None
+    data["can_read"] = permission_grants(effective_level, "read")
+    data["can_write"] = permission_grants(effective_level, "write")
+    can_manage = permission_grants(effective_level, "full")
     data["can_delete"] = can_manage
     data["can_manage_protection"] = can_manage
     return data
+
+
+def contract_reads_for_user(
+    contracts: Sequence[Contract],
+    user: User,
+    session: Session,
+) -> list[dict[str, object]]:
+    """Serialize many contracts while loading ACLs in a single query."""
+    if user.role == "admin":
+        return [
+            contract_read_for_user(contract, user, session, "full")
+            for contract in contracts
+        ]
+
+    contract_ids = [contract.id for contract in contracts if contract.id is not None]
+    permissions_by_contract: dict[int, str] = {}
+    if user.id is not None and contract_ids:
+        permissions = session.exec(
+            select(ContractPermission)
+            .where(ContractPermission.user_id == user.id)
+            .where(col(ContractPermission.contract_id).in_(contract_ids))
+        ).all()
+        permissions_by_contract = {
+            permission.contract_id: permission.permission_level
+            for permission in permissions
+        }
+
+    return [
+        contract_read_for_user(
+            contract,
+            user,
+            session,
+            permissions_by_contract.get(contract.id) if contract.id is not None else None,
+        )
+        for contract in contracts
+    ]
 
 
 def backfill_existing_contract_read_permissions(session: Session) -> int:

@@ -211,18 +211,20 @@ def list_permissions(
     session: Session = Depends(get_session)
 ):
     """List all contract permissions (Admin only)"""
-    perms = session.exec(select(ContractPermission)).all()
+    rows = session.exec(
+        select(ContractPermission, User, Contract)
+        .join(User, col(User.id) == col(ContractPermission.user_id))
+        .join(Contract, col(Contract.id) == col(ContractPermission.contract_id))
+    ).all()
     result = []
-    for p in perms:
-        user = session.get(User, p.user_id)
-        contract = session.get(Contract, p.contract_id)
+    for permission, user, contract in rows:
         result.append({
-            "id": p.id,
-            "user_id": p.user_id,
-            "contract_id": p.contract_id,
-            "permission_level": p.permission_level,
-            "username": user.username if user else None,
-            "contract_title": contract.title if contract else None
+            "id": permission.id,
+            "user_id": permission.user_id,
+            "contract_id": permission.contract_id,
+            "permission_level": permission.permission_level,
+            "username": user.username,
+            "contract_title": contract.title,
         })
     return result
 
@@ -234,18 +236,21 @@ def get_user_permissions(
     session: Session = Depends(get_session)
 ):
     """Get all permissions for a specific user (Admin only)"""
-    perms = session.exec(select(ContractPermission).where(ContractPermission.user_id == user_id)).all()
+    rows = session.exec(
+        select(ContractPermission, User, Contract)
+        .join(User, col(User.id) == col(ContractPermission.user_id))
+        .join(Contract, col(Contract.id) == col(ContractPermission.contract_id))
+        .where(ContractPermission.user_id == user_id)
+    ).all()
     result = []
-    for p in perms:
-        contract = session.get(Contract, p.contract_id)
-        user = session.get(User, p.user_id)
+    for permission, user, contract in rows:
         result.append({
-            "id": p.id,
-            "user_id": p.user_id,
-            "contract_id": p.contract_id,
-            "permission_level": p.permission_level,
-            "username": user.username if user else None,
-            "contract_title": contract.title if contract else None
+            "id": permission.id,
+            "user_id": permission.user_id,
+            "contract_id": permission.contract_id,
+            "permission_level": permission.permission_level,
+            "username": user.username,
+            "contract_title": contract.title,
         })
     return result
 
@@ -351,4 +356,3 @@ def delete_permission(
 # ========================================
 #           CONTRACT LISTS ENDPOINTS
 # ========================================
-

@@ -10,7 +10,7 @@ import {
   FiTrash2,
   FiTrendingUp,
 } from "react-icons/fi";
-import api from "../api";
+import api, { fetchAllContracts } from "../api";
 import UploadModal from "../components/UploadModal";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import { formatGermanNumber } from "../utils/formatUtils";
@@ -30,15 +30,12 @@ const Invoices: React.FC = () => {
   const { data: invoices = [], isLoading } = useQuery<Contract[]>(
     ["invoices", listId],
     async () => {
-      const response = await api.get<Contract[]>("/contracts", {
-        params: {
+      return fetchAllContracts({
           document_type: "invoice",
           sort_by: "uploaded_at",
           sort_order: "desc",
           ...(listId ? { list_id: listId } : {}),
-        },
       });
-      return response.data;
     },
   );
 

@@ -11,6 +11,8 @@ services:
       - PRODUCTION=${PRODUCTION:-false}
       - DEBUG_MODE=${DEBUG_MODE:-false}
       - RATE_LIMIT_LOGIN=${RATE_LIMIT_LOGIN:-5/minute}
+      # The backend is only reachable through the isolated Docker network proxy.
+      - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-*}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
       - MISTRAL_CHAT_MODEL=${MISTRAL_CHAT_MODEL:-mistral-medium-3-5}

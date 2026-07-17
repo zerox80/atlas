@@ -13,7 +13,7 @@ import {
   FiShield,
   FiTrash2,
 } from "react-icons/fi";
-import api, { toggleContractProtection } from "../api";
+import api, { fetchAllContracts, toggleContractProtection } from "../api";
 import UploadModal from "../components/UploadModal";
 import ContractChat from "../components/ContractChat";
 import AddToListModal from "../components/AddToListModal";
@@ -28,10 +28,12 @@ import {
 } from "../utils/contractPresentation";
 import { triggerBlobDownload } from "../utils/downloadUtils";
 import { formatGermanNumber } from "../utils/formatUtils";
+import { useUser } from "../App";
 
 type ViewFilter = "all" | ContractStateKey;
 
 const Contracts: React.FC = () => {
+  const { isAdmin } = useUser();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const listIdParam = searchParams.get("list_id");
@@ -50,15 +52,12 @@ const Contracts: React.FC = () => {
   const { data = [], isLoading } = useQuery<Contract[]>(
     ["contracts", listId],
     async () => {
-      const response = await api.get<Contract[]>("/contracts", {
-        params: {
+      return fetchAllContracts({
           document_type: "contract",
           sort_by: "uploaded_at",
           sort_order: "desc",
           ...(listId ? { list_id: listId } : {}),
-        },
       });
-      return response.data;
     },
   );
 
@@ -282,15 +281,17 @@ const Contracts: React.FC = () => {
                         >
                           Bearbeiten
                         </button>
-                        <button
-                          onClick={() => {
-                            setListContract(contract);
-                            setOpenMenu(null);
-                          }}
-                          className="btn-ghost w-full justify-start"
-                        >
-                          <FiFolder /> Sammlung zuweisen
-                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => {
+                              setListContract(contract);
+                              setOpenMenu(null);
+                            }}
+                            className="btn-ghost w-full justify-start"
+                          >
+                            <FiFolder /> Sammlung zuweisen
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             setAuditContract(contract);

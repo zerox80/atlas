@@ -17,6 +17,15 @@ export interface ContractState {
 export const formatContractDate = (value?: string | null): string =>
   value ? new Date(value).toLocaleDateString("de-DE") : "Offen";
 
+export const getCancellationDeadline = (contract: Contract): Date | null => {
+  if (!contract.end_date) return null;
+  const deadline = new Date(contract.end_date);
+  deadline.setDate(
+    deadline.getDate() - (contract.notice_period ?? DEFAULT_NOTICE_PERIOD),
+  );
+  return deadline;
+};
+
 export const getContractState = (contract: Contract): ContractState => {
   if (!contract.end_date) {
     return {
@@ -29,10 +38,7 @@ export const getContractState = (contract: Contract): ContractState => {
   }
 
   const end = new Date(contract.end_date);
-  const deadline = new Date(end);
-  deadline.setDate(
-    end.getDate() - (contract.notice_period ?? DEFAULT_NOTICE_PERIOD),
-  );
+  const deadline = getCancellationDeadline(contract)!;
   const now = new Date();
   const days = Math.ceil((deadline.getTime() - now.getTime()) / 86_400_000);
 

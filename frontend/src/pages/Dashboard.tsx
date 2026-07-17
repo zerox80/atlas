@@ -21,11 +21,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import api from "../api";
+import { fetchAllContracts } from "../api";
 import type { Contract, DocumentType } from "../types";
 import UploadModal from "../components/UploadModal";
 import { LoadingState, MetricCard, PageHeader } from "../components/ui";
 import { formatGermanNumber } from "../utils/formatUtils";
+import { getCancellationDeadline } from "../utils/contractPresentation";
 
 const money = (value: number) =>
   value.toLocaleString("de-DE", {
@@ -53,12 +54,11 @@ const Dashboard: React.FC = () => {
   const { data = [], isLoading } = useQuery<Contract[]>(
     ["workspace-documents", listId],
     async () => {
-      const response = await api.get<Contract[]>("/contracts", {
-        params: listId
+      return fetchAllContracts(
+        listId
           ? { list_id: listId, sort_by: "uploaded_at", sort_order: "desc" }
           : { sort_by: "uploaded_at", sort_order: "desc" },
-      });
-      return Array.isArray(response.data) ? response.data : [];
+      );
     },
   );
 
@@ -66,14 +66,13 @@ const Dashboard: React.FC = () => {
     const contracts = data.filter((item) => item.document_type !== "invoice");
     const invoices = data.filter((item) => item.document_type === "invoice");
     const now = new Date();
+    now.setHours(0, 0, 0, 0);
     const inSixtyDays = new Date(now);
     inSixtyDays.setDate(now.getDate() + 60);
-    const deadlines = contracts.filter(
-      (item) =>
-        item.end_date &&
-        new Date(item.end_date) >= now &&
-        new Date(item.end_date) <= inSixtyDays,
-    );
+    const deadlines = contracts.filter((item) => {
+      const deadline = getCancellationDeadline(item);
+      return deadline && deadline >= now && deadline <= inSixtyDays;
+    });
     const protectedCount = data.filter((item) => item.is_protected).length;
     return {
       contracts,
@@ -110,7 +109,8 @@ const Dashboard: React.FC = () => {
   const upcoming = [...stats.deadlines]
     .sort(
       (a, b) =>
-        new Date(a.end_date!).getTime() - new Date(b.end_date!).getTime(),
+        getCancellationDeadline(a)!.getTime() -
+        getCancellationDeadline(b)!.getTime(),
     )
     .slice(0, 5);
   const recent = data.slice(0, 6);
@@ -269,11 +269,11 @@ const Dashboard: React.FC = () => {
           {upcoming.length ? (
             <div className="border-t border-white/[0.06]">
               {upcoming.map((contract) => {
+                const cancellationDeadline = getCancellationDeadline(contract)!;
                 const days = Math.max(
                   0,
                   Math.ceil(
-                    (new Date(contract.end_date!).getTime() - Date.now()) /
-                      86400000,
+                    (cancellationDeadline.getTime() - Date.now()) / 86400000,
                   ),
                 );
                 return (
@@ -308,7 +308,7 @@ const Dashboard: React.FC = () => {
                         {contract.title}
                       </strong>
                       <small className="mt-1 block text-xs muted">
-                        Endet am {dateLabel(contract.end_date)}
+                        Kündbar bis {dateLabel(cancellationDeadline.toISOString())}
                       </small>
                     </span>
                     <FiArrowRight className="text-[#505a69]" />

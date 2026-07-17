@@ -6,7 +6,7 @@ Uses Mistral Large 3 for:
 - Contract chatbot (Q&A)
 
 Supports two modes (configurable via MISTRAL_USE_OCR env var):
-- OCR mode (default): Uses Mistral OCR API for unlimited pages
+- OCR mode (default): Uses Mistral OCR API within configured resource limits
 - Image mode: Uses Vision API with max 8 pages
 """
 
@@ -47,6 +47,12 @@ MODEL = os.getenv("MISTRAL_CHAT_MODEL", "mistral-medium-3-5")
 OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-4-0")
 OCR_TABLE_FORMAT = os.getenv("MISTRAL_OCR_TABLE_FORMAT", "markdown").lower()
 OCR_CONFIDENCE_GRANULARITY = os.getenv("MISTRAL_OCR_CONFIDENCE_GRANULARITY", "page").lower()
+MAX_PDF_PAGES = max(1, int(os.getenv("MISTRAL_MAX_PDF_PAGES", "100")))
+MAX_OCR_CHARACTERS = max(1, int(os.getenv("MISTRAL_MAX_OCR_CHARACTERS", "100000")))
+AI_REQUEST_TIMEOUT_SECONDS = max(
+    10,
+    int(os.getenv("MISTRAL_REQUEST_TIMEOUT_SECONDS", "120")),
+)
 
 # Retry configuration for rate limits
 MAX_RETRIES = 5
@@ -151,7 +157,13 @@ def _format_ocr_text(ocr_response: Any) -> str:
 
         formatted_pages.append("\n\n".join(page_parts))
 
-    return "\n\n---\n\n".join(formatted_pages)
+    result = "\n\n---\n\n".join(formatted_pages)
+    if len(result) > MAX_OCR_CHARACTERS:
+        return (
+            result[:MAX_OCR_CHARACTERS]
+            + "\n\n[Dokumenttext wegen Kontextlimit gekürzt]"
+        )
+    return result
 
 
 async def _retry_on_rate_limit(func: Callable, *args, **kwargs) -> Any:
@@ -176,7 +188,7 @@ async def _retry_on_rate_limit(func: Callable, *args, **kwargs) -> Any:
         except Exception as e:
             # Check if error message contains rate limit info
             error_str = str(e).lower()
-            if "429" in error_str or "rate" in error_str or "limit" in error_str:
+            if "429" in error_str or "rate limit" in error_str:
                 delay = BASE_DELAY * (2 ** attempt)
                 logger.warning(f"Rate limit hit, waiting {delay}s before retry {attempt + 1}/{MAX_RETRIES}")
                 await asyncio.sleep(delay)
@@ -226,6 +238,31 @@ def _process_pdf_to_images(pdf_bytes: bytes, max_pages: int = 8) -> list[str]:
     return images_base64
 
 
+def _validate_pdf_limits(pdf_bytes: bytes) -> None:
+    """Reject malformed, encrypted, or excessive PDFs before an external API call."""
+    import fitz
+
+    try:
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf_doc:
+            if pdf_doc.needs_pass:
+                raise ValueError("Passwortgeschützte PDFs werden nicht unterstützt.")
+            if len(pdf_doc) == 0:
+                raise ValueError("Das PDF enthält keine Seiten.")
+            if len(pdf_doc) > MAX_PDF_PAGES:
+                raise ValueError(
+                    f"Das PDF überschreitet das Limit von {MAX_PDF_PAGES} Seiten."
+                )
+    except ValueError:
+        raise
+    except Exception as error:
+        raise ValueError("Das PDF ist beschädigt oder ungültig.") from error
+
+
+async def _validate_pdf_for_ai(pdf_bytes: bytes) -> None:
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(_executor, _validate_pdf_limits, pdf_bytes)
+
+
 async def _process_pdf_with_ocr(pdf_bytes: bytes) -> str:
     """
     Process PDF using Mistral OCR 4. Returns extracted markdown plus OCR metadata.
@@ -237,13 +274,16 @@ async def _process_pdf_with_ocr(pdf_bytes: bytes) -> str:
     
     # Call OCR API
     ocr_options = _build_ocr_options()
-    ocr_response = await _retry_on_rate_limit(
-        client.ocr.process_async,
-        **ocr_options,
-        document={
-            "type": "document_url",
-            "document_url": f"data:application/pdf;base64,{pdf_base64}"
-        }
+    ocr_response = await asyncio.wait_for(
+        _retry_on_rate_limit(
+            client.ocr.process_async,
+            **ocr_options,
+            document={
+                "type": "document_url",
+                "document_url": f"data:application/pdf;base64,{pdf_base64}",
+            },
+        ),
+        timeout=AI_REQUEST_TIMEOUT_SECONDS,
     )
     
     return _format_ocr_text(ocr_response)
@@ -478,4 +518,3 @@ async def chat_about_contract_stream(pdf_bytes: bytes, question: str):
             delta = chunk.data.choices[0].delta
             if hasattr(delta, 'content') and delta.content:
                 yield delta.content
-

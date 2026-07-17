@@ -35,7 +35,7 @@ const CommandPalette = () => {
   useEffect(() => {
     if (!open) return;
     api
-      .get<Contract[]>("/contracts")
+      .get<Contract[]>("/contracts", { params: { limit: 50 } })
       .then((response) => setContracts(response.data))
       .catch(() => setContracts([]));
   }, [open]);

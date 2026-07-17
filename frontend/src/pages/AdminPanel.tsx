@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { FiShield } from "react-icons/fi";
-import api from "../api";
+import api, { fetchAllContracts } from "../api";
 import {
   getApiErrorDetail,
   getApiErrorMessage,
@@ -112,12 +112,12 @@ const AdminPanel: React.FC = () => {
     try {
       const [usersRes, contractsRes, permsRes, tagsRes] = await Promise.all([
         api.get<User[]>("/admin/users"),
-        api.get<Contract[]>("/contracts"),
+        fetchAllContracts(),
         api.get<Permission[]>("/admin/permissions"),
         api.get<Tag[]>("/tags"),
       ]);
       setUsers(usersRes.data);
-      setContracts(contractsRes.data);
+      setContracts(contractsRes);
       setPermissions(permsRes.data);
       setTags(tagsRes.data);
     } catch (error) {

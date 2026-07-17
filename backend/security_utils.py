@@ -14,6 +14,8 @@ def log_audit(
     details: str,
     ip_address: str | None = None,
     user_agent: str | None = None,
+    *,
+    commit: bool = True,
 ) -> None:
     """Persist a single audit record in the caller's database session."""
     audit_log = AuditLog(
@@ -25,4 +27,5 @@ def log_audit(
         user_agent=user_agent,
     )
     session.add(audit_log)
-    session.commit()
+    if commit:
+        session.commit()

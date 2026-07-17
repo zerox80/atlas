@@ -7,7 +7,7 @@ import {
   FiShield,
   FiUnlock,
 } from "react-icons/fi";
-import api, { toggleContractProtection } from "../api";
+import { fetchAllContracts, toggleContractProtection } from "../api";
 import type { Contract } from "../types";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 
@@ -25,8 +25,8 @@ const ProtectedContracts: React.FC = () => {
   const fetchProtectedContracts = async () => {
     setIsLoading(true);
     try {
-      const response = await api.get<Contract[]>("/contracts");
-      setContracts(response.data.filter((contract) => contract.is_protected));
+      const documents = await fetchAllContracts();
+      setContracts(documents.filter((contract) => contract.is_protected));
       setError(null);
     } catch {
       setError("Geschützte Dokumente konnten nicht geladen werden.");

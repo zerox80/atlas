@@ -35,6 +35,33 @@ from security_utils import log_audit
 
 router = APIRouter()
 
+
+def _resolve_tags(session: Session, tag_names: list[str]) -> list[Tag]:
+    """Resolve tags without committing the caller's transaction."""
+    unique_names = list(dict.fromkeys(tag_names))
+    if not unique_names:
+        return []
+
+    existing = session.exec(select(Tag).where(col(Tag.name).in_(unique_names))).all()
+    tags_by_name = {tag.name: tag for tag in existing}
+
+    for tag_name in unique_names:
+        if tag_name in tags_by_name:
+            continue
+        try:
+            with session.begin_nested():
+                tag = Tag(name=tag_name)
+                session.add(tag)
+                session.flush()
+            tags_by_name[tag_name] = tag
+        except IntegrityError:
+            tag = session.exec(select(Tag).where(Tag.name == tag_name)).first()
+            if tag is None:
+                raise
+            tags_by_name[tag_name] = tag
+
+    return [tags_by_name[name] for name in unique_names]
+
 @router.post("/contracts", response_model=ContractRead)
 async def create_contract(
     request: Request,
@@ -92,65 +119,34 @@ async def create_contract(
         notice_period=contract_data.notice_period
     )
     
-    # Handle Tags
-    if contract_data.tags:
-        tag_list = contract_data.tags
-        if tag_list:
-            # Optimization: Fetch existing tags in one query
-            existing_tags = session.exec(select(Tag).where(col(Tag.name).in_(tag_list))).all()
-            existing_map = {t.name: t for t in existing_tags}
-
-            for t_name in tag_list:
-                # Find in pre-fetched map or create
-                tag = existing_map.get(t_name)
-                
-                if not tag:
-                    try:
-                        tag = Tag(name=t_name)
-                        session.add(tag)
-                        session.commit()
-                        session.refresh(tag)
-                        existing_map[t_name] = tag
-                    except IntegrityError:
-                        session.rollback()
-                        # Race condition caught: tag was created by another request
-                        tag = session.exec(select(Tag).where(Tag.name == t_name)).first()
-                        if tag:
-                            existing_map[t_name] = tag
-            
-                if tag:
-                     contract.tags.append(tag)
-            
     try:
+        contract.tags.extend(_resolve_tags(session, contract_data.tags or []))
         session.add(contract)
-        session.commit()
-        session.refresh(contract)
-    except Exception as e:
-        # Cleanup file if DB insert fails
-        try:
-            delete_upload_file(file_path)
-        except Exception as cleanup_error:
-            print(f"Error cleaning up failed upload: {cleanup_error}")
-        raise e
-
-    if current_user.id is not None and contract.id is not None:
+        session.flush()
+        if current_user.id is None or contract.id is None:
+            raise RuntimeError("Contract owner could not be assigned")
         session.add(ContractPermission(
             user_id=current_user.id,
             contract_id=contract.id,
             permission_level="full"
         ))
+        client_host = request.client.host if request.client else "unknown"
+        log_audit(
+            session,
+            current_user.id,
+            "UPLOAD",
+            f"[CID:{contract.id}] Uploaded {contract.document_type} {contract.title}",
+            client_host,
+            request.headers.get("user-agent"),
+            commit=False,
+        )
         session.commit()
         session.refresh(contract)
-    
-    client_host = request.client.host if request.client else "unknown"
-    log_audit(
-        session,
-        current_user.id,
-        "UPLOAD",
-        f"[CID:{contract.id}] Uploaded {contract.document_type} {contract.title}",
-        client_host,
-        request.headers.get("user-agent"),
-    )
+    except Exception:
+        session.rollback()
+        delete_upload_file(file_path)
+        raise
+
     return contract_read_for_user(contract, current_user, session)
 
 # Removed unused StreamingResponse import
@@ -262,6 +258,9 @@ async def update_contract(
     check_and_update("annual_value", update_data.annual_value, annual_value is not None)
     check_and_update("notice_period", update_data.notice_period, notice_period is not None)
 
+    new_file_path: str | None = None
+    old_file_path: str | None = None
+
     # Handle File Update
     if file:
         # Validate and Save
@@ -278,54 +277,37 @@ async def update_contract(
         
         contract.file_path = new_file_path
         changes.append("file: updated")
-    else:
-        old_file_path = None
-    
-    # Handle Tags Update if provided
-    if tags is not None:
-        # Simple Logic: Clear and Re-add. 
-        old_tags = [t.name for t in contract.tags]
-        new_tags = update_data.tags or []
-        
-        if set(old_tags) != set(new_tags):
-            changes.append(f"tags: {old_tags} -> {new_tags}")
-            contract.tags = []
-            for t_name in new_tags:
-                tag = session.exec(select(Tag).where(Tag.name == t_name)).first()
-                if not tag:
-                    try:
-                        tag = Tag(name=t_name)
-                        session.add(tag)
-                        session.commit()
-                        session.refresh(tag)
-                    except IntegrityError:
-                        session.rollback()
-                        tag = session.exec(select(Tag).where(Tag.name == t_name)).first()
-                
-                if tag:
-                    contract.tags.append(tag)
-    
-    if changes:
-        session.add(contract)
-        session.commit()
-        session.refresh(contract)
 
-        # Now it is safe to remove the old file if it was updated
-        if old_file_path and old_file_path != contract.file_path:
-            try:
-                delete_upload_file(old_file_path)
-            except Exception as e:
-                print(f"Error removing old file: {e}")
-        
-        diff_summary = "; ".join(changes)
-        log_audit(
-            session, 
-            current_user.id, 
-            "UPDATE_CONTRACT", 
-            f"[CID:{contract_id}] Updated Contract. Changes: {diff_summary}", 
-            request.client.host if request.client else "unknown", 
-            request.headers.get("user-agent")
-        )
+    try:
+        if tags is not None:
+            old_tags = [tag.name for tag in contract.tags]
+            new_tags = update_data.tags or []
+            if set(old_tags) != set(new_tags):
+                changes.append(f"tags: {old_tags} -> {new_tags}")
+                contract.tags = _resolve_tags(session, new_tags)
+
+        if changes:
+            session.add(contract)
+            diff_summary = "; ".join(changes)
+            log_audit(
+                session,
+                current_user.id,
+                "UPDATE_CONTRACT",
+                f"[CID:{contract_id}] Updated Contract. Changes: {diff_summary}",
+                request.client.host if request.client else "unknown",
+                request.headers.get("user-agent"),
+                commit=False,
+            )
+            session.commit()
+            session.refresh(contract)
+    except Exception:
+        session.rollback()
+        if new_file_path:
+            delete_upload_file(new_file_path)
+        raise
+
+    if old_file_path and old_file_path != contract.file_path:
+        delete_upload_file(old_file_path)
     
     return contract_read_for_user(contract, current_user, session)
 
@@ -360,9 +342,6 @@ def delete_contract(
     session.exec(delete(ContractTagLink).where(col(ContractTagLink.contract_id) == contract_id))
     session.exec(delete(ContractListLink).where(col(ContractListLink.contract_id) == contract_id))
     session.exec(delete(ContractPermission).where(col(ContractPermission.contract_id) == contract_id))
-    session.delete(contract)
-    session.commit()
-
     client_host = request.client.host if request.client else "unknown"
     log_audit(
         session,
@@ -371,7 +350,10 @@ def delete_contract(
         f"[CID:{contract_id}] Deleted contract {contract_title}",
         client_host,
         request.headers.get("user-agent"),
+        commit=False,
     )
+    session.delete(contract)
+    session.commit()
 
     # Delete file if exists (After commit checks pass)
     if file_path_to_delete:
@@ -400,10 +382,6 @@ def toggle_contract_protection(
         raise HTTPException(status_code=403, detail="You don't have permission to modify protection status")
         
     contract.is_protected = not contract.is_protected
-    session.add(contract)
-    session.commit()
-    session.refresh(contract)
-    
     action = "PROTECTED" if contract.is_protected else "UNPROTECTED"
     log_audit(
         session, 
@@ -411,9 +389,12 @@ def toggle_contract_protection(
         f"CONTRACT_{action}", 
         f"[CID:{contract_id}] Contract {action}", 
         "unknown",
-        "unknown"
+        "unknown",
+        commit=False,
     )
+    session.add(contract)
+    session.commit()
+    session.refresh(contract)
     
     return contract_read_for_user(contract, current_user, session)
-
 

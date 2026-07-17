@@ -3,6 +3,7 @@ import {
   buildContractQueryParams,
   type ContractFilterState,
 } from "./utils/filterParams";
+import type { Contract } from "./types";
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
 const CSRF_COOKIE_NAME = "csrf_token";
@@ -77,6 +78,21 @@ api.interceptors.response.use(
 
 export const toggleContractProtection = (id: number) =>
   api.put(`/contracts/${id}/toggle-protection`);
+
+export const fetchAllContracts = async (
+  params: Record<string, unknown> = {},
+): Promise<Contract[]> => {
+  const pageSize = 500;
+  const contracts: Contract[] = [];
+
+  for (let offset = 0; ; offset += pageSize) {
+    const response = await api.get<Contract[]>("/contracts", {
+      params: { ...params, offset, limit: pageSize },
+    });
+    contracts.push(...response.data);
+    if (response.data.length < pageSize) return contracts;
+  }
+};
 
 export const exportContracts = (
   filters: ContractFilterState,

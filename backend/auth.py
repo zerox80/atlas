@@ -8,8 +8,19 @@ from jose import jwt
 from passlib.context import CryptContext
 
 SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
-    raise ValueError("FATAL: SECRET_KEY environment variable is not set. Cannot start securely.")
+INSECURE_SECRET_KEYS = {
+    "change_this_to_a_secure_random_hex_string",
+    "changeme",
+    "secret",
+}
+if (
+    not SECRET_KEY
+    or len(SECRET_KEY) < 32
+    or SECRET_KEY.strip().lower() in INSECURE_SECRET_KEYS
+):
+    raise ValueError(
+        "FATAL: SECRET_KEY must be a unique random value with at least 32 characters."
+    )
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
