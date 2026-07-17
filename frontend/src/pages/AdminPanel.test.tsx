@@ -59,7 +59,7 @@ describe('AdminPanel user deletion', () => {
     })
 
     it('does not delete a user when confirmation is cancelled', async () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+        vi.spyOn(window, 'confirm').mockReturnValue(false)
         render(<AdminPanel />)
 
         await screen.findByText('alice')
@@ -122,7 +122,7 @@ describe('AdminPanel document backup', () => {
             resolveBackup = resolve
         }))
         let downloadedFilename = ''
-        const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
+        const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
             downloadedFilename = this.download
         })
         const backupButton = await openBackupTab()

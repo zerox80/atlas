@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import { FiArrowRight, FiCheck, FiFileText, FiLock, FiShield, FiZap } from 'react-icons/fi'
 import api from '../api'
+import ThemeToggle from '../components/ThemeToggle'
 
 interface LoginProps {
     onLoginSuccess: () => void
@@ -47,6 +48,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             <div className="ambient-grid absolute inset-0 opacity-50" />
             <div className="absolute -left-32 top-[-12rem] h-[34rem] w-[34rem] rounded-full bg-[#b8f15a]/10 blur-[120px]" />
             <div className="absolute -bottom-52 right-[-8rem] h-[40rem] w-[40rem] rounded-full bg-[#7397ff]/10 blur-[140px]" />
+            <ThemeToggle className="absolute right-5 top-5 z-20 sm:right-8 sm:top-8" />
 
             <div className="relative mx-auto grid min-h-screen max-w-[1500px] lg:grid-cols-[1.1fr_0.9fr]">
                 <section className="hidden border-r border-white/[0.07] px-12 py-10 lg:flex lg:flex-col lg:justify-between xl:px-20">

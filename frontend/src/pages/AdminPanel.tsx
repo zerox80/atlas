@@ -37,6 +37,8 @@ const safeBackupFilename = (candidate?: string): string => {
     const filename = candidate
         ?.split(/[\\/]/)
         .pop()
+        // Control characters and reserved Windows filename characters are unsafe in downloads.
+        // eslint-disable-next-line no-control-regex
         ?.replace(/[\u0000-\u001f<>:"|?*]/g, '_')
         .trim()
     return filename?.toLowerCase().endsWith('.zip') ? filename : 'atlas-datensicherung.zip'

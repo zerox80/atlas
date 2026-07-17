@@ -7,6 +7,7 @@ import {
 import { useUser } from '../App'
 import api from '../api'
 import CommandPalette from './CommandPalette'
+import ThemeToggle from './ThemeToggle'
 import UploadModal from './UploadModal'
 
 interface LayoutProps { children: React.ReactNode }
@@ -109,6 +110,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     <button onClick={() => setMobileOpen(true)} className="icon-btn lg:hidden" aria-label="Menü öffnen"><FiMenu /></button>
                     <div className="min-w-0 flex-1"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#687282]">{meta.eyebrow}</p><p className="truncate text-sm font-semibold text-[#e9edf3]">{meta.title}</p></div>
                     <button onClick={openCommand} className="btn-ghost hidden sm:inline-flex"><FiCommand /><span>Command</span><kbd className="ml-1 rounded-md border border-white/[0.09] px-1.5 py-0.5 text-[10px] text-[#697384]">Ctrl K</kbd></button>
+                    <ThemeToggle />
                     <div className="relative">
                         <button onClick={() => setCreateOpen(!createOpen)} className="btn-primary"><FiPlus /><span className="hidden sm:inline">Neu anlegen</span><FiChevronDown className={`transition ${createOpen ? 'rotate-180' : ''}`} /></button>
                         {createOpen && <div className="surface-raised absolute right-0 top-12 w-56 p-2">
