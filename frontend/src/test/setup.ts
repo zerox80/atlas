@@ -9,6 +9,9 @@ import { afterEach, vi } from 'vitest';
 // Cleanup after each test
 afterEach(() => {
     cleanup();
+    window.localStorage.clear();
+    document.documentElement.dataset.theme = 'dark';
+    document.documentElement.style.colorScheme = 'dark';
 });
 
 // Mock window.matchMedia

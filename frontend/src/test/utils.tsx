@@ -5,6 +5,7 @@ import { ReactElement } from 'react';
 import { render, RenderOptions } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ThemeProvider } from '../theme';
 
 // Create a fresh QueryClient for each test
 const createTestQueryClient = () =>
@@ -28,11 +29,13 @@ function AllTheProviders({ children }: WrapperProps) {
     const testQueryClient = createTestQueryClient();
 
     return (
-        <QueryClientProvider client={testQueryClient}>
-            <BrowserRouter>
-                {children}
-            </BrowserRouter>
-        </QueryClientProvider>
+        <ThemeProvider>
+            <QueryClientProvider client={testQueryClient}>
+                <BrowserRouter>
+                    {children}
+                </BrowserRouter>
+            </QueryClientProvider>
+        </ThemeProvider>
     );
 }
 
