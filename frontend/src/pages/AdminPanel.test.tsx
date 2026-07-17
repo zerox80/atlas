@@ -15,6 +15,7 @@ vi.mock("../api", () => ({
     put: vi.fn(),
     delete: mockDelete,
   },
+  fetchAllContracts: () => mockGet().then((response) => response.data),
 }));
 
 const users = [

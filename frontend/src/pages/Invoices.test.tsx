@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({ get: vi.fn() }));
 
 vi.mock("../api", () => ({
   default: { get: mocks.get },
+  fetchAllContracts: () => mocks.get().then((response) => response.data),
 }));
 
 vi.mock("../components/UploadModal", () => ({

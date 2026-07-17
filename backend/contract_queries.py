@@ -49,14 +49,19 @@ def build_contract_query(
     start_date_to: Optional[datetime] = None,
     status_filter: Optional[str] = None,
     document_type: Optional[str] = None,
+    is_protected: Optional[bool] = None,
     sort_by: Optional[str] = "uploaded_at",
     sort_order: Optional[str] = "desc",
+    cursor_uploaded_at: Optional[datetime] = None,
+    cursor_id: Optional[int] = None,
 ):
     """Build the shared filtered contract query used by list and export endpoints."""
     statement = select(Contract)
 
     if document_type in {"contract", "invoice"}:
         statement = statement.where(col(Contract.document_type) == document_type)
+    if is_protected is not None:
+        statement = statement.where(col(Contract.is_protected) == is_protected)
 
     if q:
         search_term = f"%{q}%"
@@ -93,11 +98,31 @@ def build_contract_query(
 
     statement = filter_contracts_for_user(statement, current_user, "read")
 
-    sort_column = CONTRACT_SORT_COLUMNS.get(sort_by or "uploaded_at", col(Contract.uploaded_at))
+    resolved_sort_by = sort_by or "uploaded_at"
+    sort_column = CONTRACT_SORT_COLUMNS.get(resolved_sort_by, col(Contract.uploaded_at))
+    if (cursor_uploaded_at is not None or cursor_id is not None) and resolved_sort_by != "uploaded_at":
+        raise HTTPException(status_code=422, detail="Cursor-Paginierung unterstützt nur uploaded_at.")
+    if (cursor_uploaded_at is None) != (cursor_id is None):
+        raise HTTPException(status_code=422, detail="cursor_uploaded_at und cursor_id müssen zusammen gesetzt sein.")
+    if cursor_uploaded_at is not None and cursor_id is not None:
+        if sort_order == "asc":
+            statement = statement.where(
+                or_(
+                    col(Contract.uploaded_at) > cursor_uploaded_at,
+                    (col(Contract.uploaded_at) == cursor_uploaded_at) & (col(Contract.id) > cursor_id),
+                )
+            )
+        else:
+            statement = statement.where(
+                or_(
+                    col(Contract.uploaded_at) < cursor_uploaded_at,
+                    (col(Contract.uploaded_at) == cursor_uploaded_at) & (col(Contract.id) < cursor_id),
+                )
+            )
     if sort_order == "asc":
-        statement = statement.order_by(sort_column.asc())
+        statement = statement.order_by(sort_column.asc(), col(Contract.id).asc())
     else:
-        statement = statement.order_by(sort_column.desc())
+        statement = statement.order_by(sort_column.desc(), col(Contract.id).desc())
 
     return statement.distinct().options(
         selectinload(Contract.tags),
@@ -115,10 +140,13 @@ def read_contracts(
     start_date_to: Optional[datetime] = None,
     status: Optional[str] = None,               # "active" or "expired"
     document_type: Optional[str] = None,        # "contract" or "invoice"
+    is_protected: Optional[bool] = None,
     sort_by: Optional[str] = "uploaded_at",     # title, value, start_date, end_date
     sort_order: Optional[str] = "desc",         # asc or desc
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
+    cursor_uploaded_at: Optional[datetime] = None,
+    cursor_id: Optional[int] = Query(default=None, ge=1),
     current_user: User = Depends(get_current_user), 
     session: Session = Depends(get_session)
 ):
@@ -137,8 +165,11 @@ def read_contracts(
         start_date_to=start_date_to,
         status_filter=status,
         document_type=document_type,
+        is_protected=is_protected,
         sort_by=sort_by,
         sort_order=sort_order,
+        cursor_uploaded_at=cursor_uploaded_at,
+        cursor_id=cursor_id,
     )
     contracts = session.exec(statement.offset(offset).limit(limit)).all()
     return contract_reads_for_user(contracts, current_user, session)

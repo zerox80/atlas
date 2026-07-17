@@ -1,5 +1,6 @@
 """FastAPI application assembly for Atlas."""
 
+import os
 import secrets
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -30,6 +31,7 @@ from contract_queries import router as contract_query_router
 from contract_routes import router as contract_router
 from database import create_db_and_tables, get_session
 from list_routes import router as list_router
+from migrate_db import migrate
 from models import Contract, Tag, User
 from security_utils import log_audit
 
@@ -40,18 +42,18 @@ app.add_exception_handler(
     _rate_limit_exceeded_handler,  # type: ignore[arg-type]
 )
 
+cors_allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost,http://localhost:80,http://127.0.0.1,http://127.0.0.1:80",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost",
-        "http://localhost:80",
-        "http://127.0.0.1",
-        "http://127.0.0.1:80",
-    ],
-    allow_origin_regex=(
-        r"^https?://(192\.168\.\d{1,3}\.\d{1,3}|"
-        r"10\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?$"
-    ),
+    allow_origins=cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -83,6 +85,11 @@ async def csrf_protection_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 def on_startup():
+    # Docker runs this before Uvicorn as well; migration records make the second
+    # invocation a no-op.  Calling it here keeps local Uvicorn deployments from
+    # serving an outdated SQLite schema.
+    if os.getenv("DATABASE_URL", "sqlite:///./data/ze_dashboard.db").startswith("sqlite:///"):
+        migrate()
     create_db_and_tables()
     with next(get_session()) as session:
         bootstrap_admin_user(session)

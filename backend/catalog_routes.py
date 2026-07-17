@@ -12,6 +12,7 @@ from schemas import AuditLogRead, TagCreate, TagRead, TagUpdate
 from security_utils import log_audit
 
 router = APIRouter()
+CONTRACT_AUDIT_LOG_LIMIT = 100
 
 @router.get("/tags", response_model=List[TagRead])
 def get_tags(
@@ -154,12 +155,12 @@ def get_contract_audit_logs(
     if not check_contract_permission(current_user, contract_id, "read", session):
         raise HTTPException(status_code=403, detail="You don't have permission to access this contract")
 
-    pattern = f"%[CID:{contract_id}]%"
     results = session.exec(
         select(AuditLog, User)
         .join(User, isouter=True)
-        .where(col(AuditLog.details).like(pattern))
+        .where(col(AuditLog.contract_id) == contract_id)
         .order_by(col(AuditLog.timestamp).desc())
+        .limit(CONTRACT_AUDIT_LOG_LIMIT)
     ).all()
     
     logs = []
@@ -173,5 +174,3 @@ def get_contract_audit_logs(
 # ========================================
 #           ADMIN PANEL ENDPOINTS
 # ========================================
-
-

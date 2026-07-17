@@ -289,6 +289,31 @@ async def _process_pdf_with_ocr(pdf_bytes: bytes) -> str:
     return _format_ocr_text(ocr_response)
 
 
+async def _complete_chat_with_timeout(client: Mistral, **kwargs: Any) -> Any:
+    """Run a chat completion with one deadline covering retries and the request."""
+    return await asyncio.wait_for(
+        _retry_on_rate_limit(client.chat.complete_async, **kwargs),
+        timeout=AI_REQUEST_TIMEOUT_SECONDS,
+    )
+
+
+async def _stream_chunks_with_timeout(stream: Any):
+    """Yield a stream while enforcing one total deadline, including idle periods."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + AI_REQUEST_TIMEOUT_SECONDS
+    iterator = stream.__aiter__()
+
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise TimeoutError("KI-Stream hat das Zeitlimit überschritten.")
+        try:
+            chunk = await asyncio.wait_for(iterator.__anext__(), timeout=remaining)
+        except StopAsyncIteration:
+            return
+        yield chunk
+
+
 async def analyze_contract_pdf(pdf_bytes: bytes, document_type: str = "contract") -> dict:
     """
     Analyze a PDF contract and extract structured data.
@@ -300,6 +325,7 @@ async def analyze_contract_pdf(pdf_bytes: bytes, document_type: str = "contract"
     if document_type not in {"contract", "invoice"}:
         raise ValueError("Ungültiger Dokumenttyp.")
 
+    await _validate_pdf_for_ai(pdf_bytes)
     client = get_client()
     
     if use_ocr_mode():
@@ -331,8 +357,8 @@ async def analyze_contract_pdf(pdf_bytes: bytes, document_type: str = "contract"
     if document_type == "invoice":
         content.append({"type": "text", "text": INVOICE_ANALYSIS_PROMPT})
 
-    response = await _retry_on_rate_limit(
-        client.chat.complete_async,
+    response = await _complete_chat_with_timeout(
+        client,
         model=MODEL,
         messages=[
             {
@@ -394,6 +420,7 @@ async def chat_about_contract(pdf_bytes: bytes, question: str) -> str:
     Returns:
         AI-generated answer
     """
+    await _validate_pdf_for_ai(pdf_bytes)
     client = get_client()
     
     if use_ocr_mode():
@@ -428,8 +455,8 @@ async def chat_about_contract(pdf_bytes: bytes, question: str) -> str:
             "text": f"Frage zum Vertrag: {question}"
         })
     
-    response = await _retry_on_rate_limit(
-        client.chat.complete_async,
+    response = await _complete_chat_with_timeout(
+        client,
         model=MODEL,
         messages=[
             {
@@ -462,6 +489,7 @@ async def chat_about_contract_stream(pdf_bytes: bytes, question: str):
     Yields:
         str: Each token/chunk of the response as it arrives
     """
+    await _validate_pdf_for_ai(pdf_bytes)
     client = get_client()
     
     if use_ocr_mode():
@@ -498,22 +526,25 @@ async def chat_about_contract_stream(pdf_bytes: bytes, question: str):
         })
     
     # Use streaming API
-    stream_response = await client.chat.stream_async(
-        model=MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": CONTRACT_ASSISTANT_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": content
-            }
-        ]
+    stream_response = await asyncio.wait_for(
+        client.chat.stream_async(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": CONTRACT_ASSISTANT_PROMPT,
+                },
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ]
+        ),
+        timeout=AI_REQUEST_TIMEOUT_SECONDS,
     )
     
     # Yield each chunk as it arrives
-    async for chunk in stream_response:
+    async for chunk in _stream_chunks_with_timeout(stream_response):
         if chunk.data.choices and len(chunk.data.choices) > 0:
             delta = chunk.data.choices[0].delta
             if hasattr(delta, 'content') and delta.content:

@@ -138,6 +138,7 @@ async def create_contract(
             f"[CID:{contract.id}] Uploaded {contract.document_type} {contract.title}",
             client_host,
             request.headers.get("user-agent"),
+            contract_id=contract.id,
             commit=False,
         )
         session.commit()
@@ -182,6 +183,7 @@ def download_contract(
         f"[CID:{contract.id}] Downloaded {contract.title}",
         client_host,
         request.headers.get("user-agent"),
+        contract_id=contract.id,
     )
     
     # Determine basic mime types to avoid browser confusion
@@ -296,6 +298,7 @@ async def update_contract(
                 f"[CID:{contract_id}] Updated Contract. Changes: {diff_summary}",
                 request.client.host if request.client else "unknown",
                 request.headers.get("user-agent"),
+                contract_id=contract_id,
                 commit=False,
             )
             session.commit()
@@ -350,6 +353,7 @@ def delete_contract(
         f"[CID:{contract_id}] Deleted contract {contract_title}",
         client_host,
         request.headers.get("user-agent"),
+        contract_id=contract_id,
         commit=False,
     )
     session.delete(contract)
@@ -390,6 +394,7 @@ def toggle_contract_protection(
         f"[CID:{contract_id}] Contract {action}", 
         "unknown",
         "unknown",
+        contract_id=contract_id,
         commit=False,
     )
     session.add(contract)
@@ -397,4 +402,3 @@ def toggle_contract_protection(
     session.refresh(contract)
     
     return contract_read_for_user(contract, current_user, session)
-

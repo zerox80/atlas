@@ -25,8 +25,8 @@ const ProtectedContracts: React.FC = () => {
   const fetchProtectedContracts = async () => {
     setIsLoading(true);
     try {
-      const documents = await fetchAllContracts();
-      setContracts(documents.filter((contract) => contract.is_protected));
+      const documents = await fetchAllContracts({ is_protected: true });
+      setContracts(documents);
       setError(null);
     } catch {
       setError("Geschützte Dokumente konnten nicht geladen werden.");

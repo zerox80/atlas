@@ -212,10 +212,36 @@ def migration_003_contract_end_date_nullable(cursor: sqlite3.Cursor) -> None:
         cursor.execute(statement)
 
 
+def migration_004_audit_contract_id(cursor: sqlite3.Cursor) -> None:
+    """Store contract references structurally so audit history can use an index."""
+    add_missing_columns(
+        cursor,
+        "auditlog",
+        (("contract_id", "contract_id INTEGER"),),
+    )
+    if not table_exists(cursor, "auditlog"):
+        return
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS ix_auditlog_contract_id ON auditlog (contract_id)"
+    )
+    rows = cursor.execute(
+        "SELECT id, details FROM auditlog WHERE contract_id IS NULL"
+    ).fetchall()
+    for audit_id, details in rows:
+        match = re.search(r"\[CID:(\d+)\]", details or "")
+        if match:
+            cursor.execute(
+                "UPDATE auditlog SET contract_id = ? WHERE id = ?",
+                (int(match.group(1)), audit_id),
+            )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     ("001_legacy_columns_and_permission_index", migration_001_legacy_columns),
     ("002_contract_document_type", migration_002_document_type),
     ("003_contract_end_date_nullable", migration_003_contract_end_date_nullable),
+    ("004_audit_contract_id", migration_004_audit_contract_id),
 )
 
 

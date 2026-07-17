@@ -82,15 +82,26 @@ export const toggleContractProtection = (id: number) =>
 export const fetchAllContracts = async (
   params: Record<string, unknown> = {},
 ): Promise<Contract[]> => {
-  const pageSize = 500;
+  const pageSize = 200;
   const contracts: Contract[] = [];
+  let cursor: Pick<Contract, "id" | "uploaded_at"> | null = null;
 
-  for (let offset = 0; ; offset += pageSize) {
+  for (;;) {
     const response = await api.get<Contract[]>("/contracts", {
-      params: { ...params, offset, limit: pageSize },
+      params: {
+        ...params,
+        limit: pageSize,
+        ...(cursor
+          ? {
+              cursor_uploaded_at: cursor.uploaded_at,
+              cursor_id: cursor.id,
+            }
+          : {}),
+      },
     });
     contracts.push(...response.data);
     if (response.data.length < pageSize) return contracts;
+    cursor = response.data[response.data.length - 1];
   }
 };
 

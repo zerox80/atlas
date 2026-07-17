@@ -15,11 +15,13 @@ def log_audit(
     ip_address: str | None = None,
     user_agent: str | None = None,
     *,
+    contract_id: int | None = None,
     commit: bool = True,
 ) -> None:
     """Persist a single audit record in the caller's database session."""
     audit_log = AuditLog(
         user_id=user_id,
+        contract_id=contract_id,
         action=action,
         details=details,
         timestamp=datetime.now(timezone.utc),

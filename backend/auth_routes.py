@@ -46,7 +46,7 @@ async def login_for_access_token(
         verify_password(form_data.password, "$2b$12$MA8m9iq9ZqTVSzMjoAVSQu9AGRa5IYuE3zn/C2.qvYpPJc1y4vIR.")
         is_valid = False
 
-    if not is_valid:
+    if not is_valid or not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
