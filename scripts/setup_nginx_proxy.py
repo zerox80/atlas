@@ -55,6 +55,87 @@ def command(args: list[str], cwd: Path | None = None) -> None:
     subprocess.run(args, cwd=cwd, check=True)
 
 
+def command_output(args: list[str]) -> str:
+    environment = dict(os.environ)
+    environment["LC_ALL"] = "C"
+    completed = subprocess.run(
+        args,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        env=environment,
+    )
+    return completed.stdout.strip()
+
+
+def detected_ssh_client_ip() -> str | None:
+    for variable in ("SSH_CONNECTION", "SSH_CLIENT"):
+        fields = os.environ.get(variable, "").split()
+        if not fields:
+            continue
+        try:
+            return str(ipaddress.ip_address(fields[0].strip("[]")))
+        except ValueError:
+            pass
+
+    who = command_output(["who", "-m"])
+    match = re.search(r"\(([^()]+)\)\s*$", who)
+    if match:
+        try:
+            return str(ipaddress.ip_address(match.group(1).strip("[]")))
+        except ValueError:
+            pass
+    return None
+
+
+def normalized_ufw_source(value: str) -> str:
+    value = value.strip()
+    if value.lower() in {"any", "alle"}:
+        return "any"
+    try:
+        if "/" in value:
+            return str(ipaddress.ip_network(value, strict=False))
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        fail("Ungültige UFW-Quell-IP bzw. ungültiges CIDR-Netz.")
+
+
+def interface_for_ip(address: str) -> str | None:
+    for line in command_output(["ip", "-o", "-4", "addr", "show"]).splitlines():
+        match = re.match(r"^\d+:\s+(\S+)\s+inet\s+(\S+)", line)
+        if not match:
+            continue
+        try:
+            interface_address = ipaddress.ip_interface(match.group(2)).ip
+        except ValueError:
+            continue
+        if str(interface_address) == address:
+            return match.group(1).split("@", 1)[0]
+    return None
+
+
+def ufw_state() -> str:
+    if shutil.which("ufw") is None:
+        return "nicht installiert"
+    status = command_output(["ufw", "status"])
+    if re.search(r"^Status:\s+active\b", status, flags=re.MULTILINE):
+        return "aktiv"
+    return "inaktiv"
+
+
+def allow_ufw_ports(ports: tuple[int, ...], source: str, interface: str | None) -> None:
+    for public_port in ports:
+        args = ["ufw", "allow", "in"]
+        if interface is not None:
+            args.extend(["on", interface])
+        args.extend([
+            "proto", "tcp", "from", source, "to", "any", "port", str(public_port),
+            "comment", "Atlas Nginx",
+        ])
+        command(args)
+
+
 def backup(path: Path) -> None:
     if not path.exists() and not path.is_symlink():
         return
@@ -271,10 +352,35 @@ def main() -> None:
                 fail("Zertifikat oder Schlüssel nicht gefunden.")
 
     origin = f"{'https' if tls != 'none' else 'http'}://{host}"
+    public_ports = (80,) if tls == "none" else (80, 443)
+    firewall_state = ufw_state()
+    firewall_source = "any"
+    firewall_interface: str | None = None
+    if firewall_state == "aktiv" and mode == "lokal":
+        detected_source = detected_ssh_client_ip()
+        if detected_source is None:
+            print("\nUFW: Die SSH-Client-IP konnte nicht automatisch erkannt werden.")
+            firewall_source = normalized_ufw_source(
+                ask("Client-IP oder Clientnetz für Atlas (z. B. 10.212.134.200 oder 10.212.134.0/24)")
+            )
+        else:
+            print(f"\nUFW: SSH-Client automatisch erkannt: {detected_source}")
+            firewall_source = normalized_ufw_source(
+                ask("Erlaubte Client-IP bzw. erlaubtes CIDR-Netz", detected_source)
+            )
+        firewall_interface = interface_for_ip(host)
+
     print(f"\nAdresse:         {origin}")
     print(f"Docker:          127.0.0.1:{port}")
     print(f"TLS-Modus:       {tls}")
     print(f"Nginx-Site:      {SITE}")
+    if firewall_state == "aktiv":
+        interface_text = firewall_interface or "alle passenden Interfaces"
+        ports_text = ", ".join(f"TCP/{value}" for value in public_ports)
+        print(f"UFW:             aktiv; {firewall_source} → {ports_text} auf {interface_text}")
+        print(f"                  TCP/{port} bleibt ausschließlich auf 127.0.0.1")
+    else:
+        print(f"UFW:             {firewall_state}; keine Firewall-Regeln werden geändert")
     print("Vorhandene Projekt- und Nginx-Dateien werden vorher gesichert.")
     if not confirm("Jetzt anwenden?"):
         fail("Keine Änderungen vorgenommen.")
@@ -298,6 +404,9 @@ def main() -> None:
             packages.extend(["certbot", "python3-certbot-nginx"])
         command(["apt-get", "update"])
         command(["apt-get", "install", "-y", *packages])
+
+        if firewall_state == "aktiv":
+            allow_ufw_ports(public_ports, firewall_source, firewall_interface)
 
         ca_cert: Path | None = None
         if tls == "local":
@@ -338,6 +447,9 @@ def main() -> None:
         fail(f"Befehl fehlgeschlagen (Exit-Code {error.returncode}); Sicherungen bleiben erhalten.")
 
     print(f"\nFertig: {origin}")
+    print(f"Atlas-Docker-Port bleibt intern: 127.0.0.1:{port}")
+    if firewall_state == "aktiv":
+        print(f"UFW wurde für {firewall_source} auf den Nginx-Ports angepasst.")
     if ca_cert is not None:
         print(f"Lokale CA für die Client-Vertrauensstellung: {ca_cert}")
         print("Den privaten CA-Schlüssel niemals vom Server kopieren.")

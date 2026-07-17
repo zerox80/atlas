@@ -35,7 +35,11 @@ sudo python3 scripts/setup_nginx_proxy.py
 
 Zur Auswahl stehen ein internes LAN-Setup mit lokaler CA und IP-Zertifikat
 sowie ein externes Setup mit Certbot/Let's Encrypt oder vorhandenen
-Zertifikaten. Vorhandene `.env`-, Compose- und Nginx-Dateien werden gesichert.
+Zertifikaten. Ist UFW aktiv, erkennt das Skript im lokalen Modus die echte
+SSH-Client-IP und richtet die Freigaben für die Nginx-Ports `80`/`443` ein;
+der Docker-Port `8080` bleibt ausschließlich an `127.0.0.1` gebunden. Die
+automatisch erkannte Quell-IP kann bei der Abfrage durch ein CIDR-Netz ersetzt
+werden. Vorhandene `.env`-, Compose- und Nginx-Dateien werden gesichert.
 
 Für den Betrieb ist die Konfiguration der Umgebungsvariablen in einer .env Datei erforderlich, insbesondere der MISTRAL_API_KEY.
 
