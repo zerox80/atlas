@@ -10,23 +10,13 @@ import {
   FiDownload,
 } from "react-icons/fi";
 import api, { exportContracts } from "../api";
+import type { ContractList, Tag } from "../types";
 import {
   getContractFilterValidationError,
   type ContractFilterState,
 } from "../utils/filterParams";
-
-interface Tag {
-  id: number;
-  name: string;
-  color: string;
-}
-
-interface ContractList {
-  id: number;
-  name: string;
-  color: string;
-  contract_count: number;
-}
+import { triggerBlobDownload } from "../utils/downloadUtils";
+import { getApiErrorMessage } from "../utils/errorUtils";
 
 interface SearchFilterBarProps {
   onFiltersChange: (filters: FilterState) => void;
@@ -52,13 +42,13 @@ const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
 
   // Fetch tags
   const { data: tags } = useQuery<Tag[]>(["tags"], async () => {
-    const res = await api.get("/tags");
+    const res = await api.get<Tag[]>("/tags");
     return res.data;
   });
 
   // Fetch lists
   const { data: lists } = useQuery<ContractList[]>(["lists"], async () => {
-    const res = await api.get("/lists");
+    const res = await api.get<ContractList[]>("/lists");
     return res.data;
   });
 
@@ -139,19 +129,13 @@ const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
     }
     try {
       const response = await exportContracts(filters, format);
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute(
-        "download",
+      triggerBlobDownload(
+        response.data,
         `vertrage_export.${format === "excel" ? "xlsx" : "csv"}`,
       );
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (e) {
-      console.error("Export failed", e);
-      alert("Fehler beim Exportieren der Verträge.");
+    } catch (error: unknown) {
+      console.error("Export failed", error);
+      alert(getApiErrorMessage(error, "Fehler beim Exportieren der Verträge."));
     }
   };
 

@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { FiShield } from "react-icons/fi";
 import api from "../api";
+import {
+  getApiErrorDetail,
+  getApiErrorMessage,
+  getApiErrorResponseData,
+} from "../utils/errorUtils";
 import { LoadingState, PageHeader } from "../components/ui";
+import { triggerBlobDownload } from "../utils/downloadUtils";
 import AdminModals from "./admin/AdminModals";
 import AdminSections from "./admin/AdminSections";
 import type { AdminTab, Contract, Permission, Tag, User } from "./admin/types";
@@ -35,15 +41,24 @@ const backupFilenameFromHeader = (contentDisposition?: string): string => {
   return safeBackupFilename(filenameMatch?.[1]);
 };
 
-const backupErrorMessage = async (error: any): Promise<string> => {
-  const responseData = error.response?.data;
-  if (typeof responseData?.detail === "string") return responseData.detail;
+const backupErrorMessage = async (error: unknown): Promise<string> => {
+  const detail = getApiErrorDetail(error);
+  if (typeof detail === "string") return detail;
+
+  const responseData = getApiErrorResponseData(error);
   if (typeof responseData === "string") return responseData;
 
   if (responseData instanceof Blob) {
     try {
-      const payload = JSON.parse(await responseData.text());
-      if (typeof payload.detail === "string") return payload.detail;
+      const payload: unknown = JSON.parse(await responseData.text());
+      if (
+        typeof payload === "object" &&
+        payload !== null &&
+        "detail" in payload &&
+        typeof payload.detail === "string"
+      ) {
+        return payload.detail;
+      }
     } catch {
       // Use the stable message below for non-JSON error bodies.
     }
@@ -96,10 +111,10 @@ const AdminPanel: React.FC = () => {
     setIsLoading(true);
     try {
       const [usersRes, contractsRes, permsRes, tagsRes] = await Promise.all([
-        api.get("/admin/users"),
-        api.get("/contracts"),
-        api.get("/admin/permissions"),
-        api.get("/tags"),
+        api.get<User[]>("/admin/users"),
+        api.get<Contract[]>("/contracts"),
+        api.get<Permission[]>("/admin/permissions"),
+        api.get<Tag[]>("/tags"),
       ]);
       setUsers(usersRes.data);
       setContracts(contractsRes.data);
@@ -123,8 +138,8 @@ const AdminPanel: React.FC = () => {
       setNewPassword("");
       setIsAddUserModalOpen(false);
       loadData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "Fehler beim Erstellen");
+    } catch (error: unknown) {
+      alert(getApiErrorMessage(error, "Fehler beim Erstellen"));
     }
   };
 
@@ -139,8 +154,8 @@ const AdminPanel: React.FC = () => {
       setIsEditUserModalOpen(false);
       setSelectedUser(null);
       loadData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "Fehler beim Aktualisieren");
+    } catch (error: unknown) {
+      alert(getApiErrorMessage(error, "Fehler beim Aktualisieren"));
     }
   };
 
@@ -154,8 +169,8 @@ const AdminPanel: React.FC = () => {
     try {
       await api.delete(`/admin/users/${user.id}`);
       loadData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "Fehler beim Löschen");
+    } catch (error: unknown) {
+      alert(getApiErrorMessage(error, "Fehler beim Löschen"));
     }
   };
 
@@ -172,8 +187,8 @@ const AdminPanel: React.FC = () => {
       setPermContractId(0);
       setPermLevel("read");
       loadData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "Fehler beim Erstellen");
+    } catch (error: unknown) {
+      alert(getApiErrorMessage(error, "Fehler beim Erstellen"));
     }
   };
 
@@ -182,8 +197,8 @@ const AdminPanel: React.FC = () => {
     try {
       await api.delete(`/admin/permissions/${permId}`);
       loadData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "Fehler beim Löschen");
+    } catch (error: unknown) {
+      alert(getApiErrorMessage(error, "Fehler beim Löschen"));
     }
   };
 
@@ -232,8 +247,8 @@ const AdminPanel: React.FC = () => {
       setNewTagColor("#3b82f6");
       setIsAddTagModalOpen(false);
       loadData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "Fehler beim Erstellen");
+    } catch (error: unknown) {
+      alert(getApiErrorMessage(error, "Fehler beim Erstellen"));
     }
   };
 
@@ -248,8 +263,8 @@ const AdminPanel: React.FC = () => {
       setIsEditTagModalOpen(false);
       setSelectedTag(null);
       loadData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "Fehler beim Aktualisieren");
+    } catch (error: unknown) {
+      alert(getApiErrorMessage(error, "Fehler beim Aktualisieren"));
     }
   };
 
@@ -259,8 +274,8 @@ const AdminPanel: React.FC = () => {
     try {
       await api.delete(`/tags/${tagId}`);
       loadData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "Fehler beim Löschen");
+    } catch (error: unknown) {
+      alert(getApiErrorMessage(error, "Fehler beim Löschen"));
     }
   };
 
@@ -285,26 +300,14 @@ const AdminPanel: React.FC = () => {
     setBackupError(null);
 
     try {
-      const response = await api.post("/admin/backup", undefined, {
+      const response = await api.post<Blob>("/admin/backup", undefined, {
         responseType: "blob",
       });
-      const objectUrl = URL.createObjectURL(response.data);
-      let downloadLink: HTMLAnchorElement | null = null;
-
-      try {
-        downloadLink = document.createElement("a");
-        downloadLink.href = objectUrl;
-        downloadLink.download = backupFilenameFromHeader(
-          response.headers?.["content-disposition"],
-        );
-        downloadLink.style.display = "none";
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-      } finally {
-        downloadLink?.remove();
-        URL.revokeObjectURL(objectUrl);
-      }
-    } catch (error: any) {
+      triggerBlobDownload(
+        response.data,
+        backupFilenameFromHeader(response.headers?.["content-disposition"]),
+      );
+    } catch (error: unknown) {
       setBackupError(await backupErrorMessage(error));
     } finally {
       setIsBackupRunning(false);

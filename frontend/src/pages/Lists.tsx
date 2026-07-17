@@ -13,15 +13,8 @@ import api from "../api";
 import ListModal from "../components/ListModal";
 import { useUser } from "../App";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
-
-interface ContractList {
-  id: number;
-  name: string;
-  description: string | null;
-  color: string;
-  created_at: string;
-  contract_count: number;
-}
+import type { ContractList } from "../types";
+import { getApiErrorMessage } from "../utils/errorUtils";
 
 const Lists: React.FC = () => {
   const navigate = useNavigate();
@@ -33,7 +26,7 @@ const Lists: React.FC = () => {
 
   const { data: lists = [], isLoading } = useQuery<ContractList[]>(
     ["lists"],
-    async () => (await api.get("/lists")).data,
+    async () => (await api.get<ContractList[]>("/lists")).data,
   );
 
   const openCreate = () => {
@@ -50,12 +43,12 @@ const Lists: React.FC = () => {
     try {
       if (editingList) await api.put(`/lists/${editingList.id}`, data);
       else await api.post("/lists", data);
-      queryClient.invalidateQueries(["lists"]);
+      void queryClient.invalidateQueries(["lists"]);
       setIsModalOpen(false);
       setEditingList(null);
-    } catch (error: any) {
+    } catch (error: unknown) {
       alert(
-        error.response?.data?.detail || "Fehler beim Speichern der Sammlung",
+        getApiErrorMessage(error, "Fehler beim Speichern der Sammlung"),
       );
     } finally {
       setIsSaving(false);
@@ -71,9 +64,9 @@ const Lists: React.FC = () => {
       return;
     try {
       await api.delete(`/lists/${list.id}`);
-      queryClient.invalidateQueries(["lists"]);
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "Fehler beim Löschen der Sammlung");
+      void queryClient.invalidateQueries(["lists"]);
+    } catch (error: unknown) {
+      alert(getApiErrorMessage(error, "Fehler beim Löschen der Sammlung"));
     }
   };
 

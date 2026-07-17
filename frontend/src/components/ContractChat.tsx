@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { FiCpu, FiMessageCircle, FiSend, FiX, FiZap } from "react-icons/fi";
 import ReactMarkdown from "react-markdown";
 import { buildApiUrl, ensureCsrfToken } from "../api";
+import { getErrorMessage } from "../utils/errorUtils";
 
 interface ContractChatProps {
   isOpen: boolean;
@@ -109,9 +110,9 @@ const ContractChat: React.FC<ContractChatProps> = ({
       pending += decoder.decode();
       if (pending.trim()) processEvent(pending);
       updateAssistant(fullContent, false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       updateAssistant(
-        `Die Anfrage konnte nicht beantwortet werden: ${error.message || "Unbekannter Fehler"}`,
+        `Die Anfrage konnte nicht beantwortet werden: ${getErrorMessage(error, "Unbekannter Fehler")}`,
         false,
       );
     } finally {

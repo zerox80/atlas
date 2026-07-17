@@ -23,6 +23,12 @@ export default tseslint.config(
             'no-undef': 'off',
             'react-hooks/rules-of-hooks': 'error',
             'react-hooks/exhaustive-deps': 'off',
+            '@typescript-eslint/no-explicit-any': 'error',
+        },
+    },
+    {
+        files: ['src/test/**/*.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+        rules: {
             '@typescript-eslint/no-explicit-any': 'off',
         },
     },

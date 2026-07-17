@@ -23,7 +23,7 @@ import {
   FiClock,
 } from "react-icons/fi";
 import api from "../api";
-import { Contract } from "../types";
+import type { Contract } from "../types";
 import UploadModal from "../components/UploadModal";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 
@@ -46,7 +46,12 @@ const Calendar: React.FC = () => {
   );
   const { data: contracts = [], isLoading } = useQuery<Contract[]>(
     ["contracts", "all"],
-    async () => (await api.get("/contracts?status=active")).data,
+    async () => {
+      const response = await api.get<Contract[]>("/contracts", {
+        params: { status: "active" },
+      });
+      return response.data;
+    },
   );
 
   const days = useMemo(() => {

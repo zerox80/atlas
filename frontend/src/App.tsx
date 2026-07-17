@@ -59,7 +59,7 @@ export function AppRoutes() {
     const checkAuth = async () => {
       try {
         // First check if authenticated by calling /me
-        const meRes = await api.get("/me");
+        const meRes = await api.get<UserInfo>("/me");
         if (!isUserInfo(meRes.data)) throw new Error("Invalid user response");
         setUser(meRes.data);
         setIsAuthenticated(true);
@@ -70,12 +70,12 @@ export function AppRoutes() {
         setIsLoading(false);
       }
     };
-    checkAuth();
+    void checkAuth();
   }, []);
 
   const handleLoginSuccess = async () => {
     try {
-      const meRes = await api.get("/me");
+      const meRes = await api.get<UserInfo>("/me");
       if (!isUserInfo(meRes.data)) throw new Error("Invalid user response");
       setUser(meRes.data);
       setIsAuthenticated(true);

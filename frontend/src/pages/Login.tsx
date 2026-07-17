@@ -10,6 +10,7 @@ import {
 } from "react-icons/fi";
 import api from "../api";
 import ThemeToggle from "../components/ThemeToggle";
+import { getApiErrorDetail, getApiErrorStatus } from "../utils/errorUtils";
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -36,16 +37,18 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     try {
       await api.post("/token", formData, { withCredentials: true });
       onLoginSuccess();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const status = getApiErrorStatus(err);
+      const detail = getApiErrorDetail(err);
       if (
-        err.response?.status === 401 &&
-        err.response?.data?.detail === "2FA Required"
+        status === 401 &&
+        detail === "2FA Required"
       ) {
         setIsTwoFactorInfo(true);
         setError("Two-Factor Authentication Required");
       } else if (
-        err.response?.status === 401 &&
-        err.response?.data?.detail === "Invalid 2FA Code"
+        status === 401 &&
+        detail === "Invalid 2FA Code"
       ) {
         setError("Invalid Code. Please try again.");
       } else {

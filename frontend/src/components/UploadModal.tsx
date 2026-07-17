@@ -4,6 +4,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { FiFileText, FiUploadCloud, FiX } from "react-icons/fi";
 import { useQueryClient } from "@tanstack/react-query";
 import api from "../api";
+import type {
+  Contract,
+  ContractAnalysisResult,
+  DocumentType,
+} from "../types";
+import { getApiErrorMessage } from "../utils/errorUtils";
 import { formatGermanNumber, parseGermanNumber } from "../utils/formatUtils";
 import UploadSourcePanel, {
   ACCEPTED_UPLOAD_TYPES,
@@ -14,11 +20,11 @@ import UploadSourcePanel, {
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialData?: any;
-  documentType?: "contract" | "invoice";
+  initialData?: Contract | null;
+  documentType?: DocumentType;
 }
 
-const dateForInput = (value?: string) => {
+const dateForInput = (value?: string | null) => {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -62,7 +68,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
         ? formatGermanNumber(initialData.annual_value)
         : "",
     );
-    setTags(initialData?.tags?.map((tag: any) => tag.name).join(", ") || "");
+    setTags(initialData?.tags.map((tag) => tag.name).join(", ") || "");
     setNoticePeriod(initialData?.notice_period?.toString() || "");
     setStartDate(dateForInput(initialData?.start_date));
     setEndDate(dateForInput(initialData?.end_date));
@@ -108,9 +114,11 @@ const UploadModal: React.FC<UploadModalProps> = ({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("document_type", isInvoice ? "invoice" : "contract");
-      const { data } = await api.post("/contracts/analyze", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const { data } = await api.post<ContractAnalysisResult>(
+        "/contracts/analyze",
+        formData,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
       if (data.title) setTitle(data.title);
       if (data.description) setDescription(data.description);
       if (data.value != null) setValue(formatGermanNumber(data.value));
@@ -122,10 +130,10 @@ const UploadModal: React.FC<UploadModalProps> = ({
         data.notice_period != null ? data.notice_period.toString() : "",
       );
       if (data.tags?.length) setTags(data.tags.join(", "));
-    } catch (error: any) {
-      const detail =
-        error.response?.data?.detail || error.message || "Unbekannter Fehler";
-      alert(`KI-Analyse fehlgeschlagen: ${detail}`);
+    } catch (error: unknown) {
+      alert(
+        `KI-Analyse fehlgeschlagen: ${getApiErrorMessage(error, "Unbekannter Fehler")}`,
+      );
     } finally {
       setAnalyzing(false);
     }
@@ -208,10 +216,10 @@ const UploadModal: React.FC<UploadModalProps> = ({
         queryClient.invalidateQueries(["workspace-documents"]),
       ]);
       resetAndClose();
-    } catch (error: any) {
-      const message =
-        error.response?.data?.detail || error.message || "Unbekannter Fehler";
-      alert(`Vorgang fehlgeschlagen: ${message}`);
+    } catch (error: unknown) {
+      alert(
+        `Vorgang fehlgeschlagen: ${getApiErrorMessage(error, "Unbekannter Fehler")}`,
+      );
     } finally {
       setUploading(false);
     }

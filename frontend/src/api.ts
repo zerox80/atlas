@@ -70,7 +70,7 @@ export const exportContracts = async (
   filters: ContractFilterState,
   format: "csv" | "excel",
 ) => {
-  return api.get("/contracts/export", {
+  return api.get<Blob>("/contracts/export", {
     params: { ...buildContractQueryParams(filters), format },
     responseType: "blob",
   });

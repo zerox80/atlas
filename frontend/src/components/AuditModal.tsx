@@ -5,12 +5,12 @@ import api from "../api";
 
 interface AuditLog {
   id: number;
-  user_id?: number;
-  username?: string;
+  user_id: number | null;
+  username?: string | null;
   action: string;
   details: string;
   timestamp: string;
-  ip_address?: string;
+  ip_address?: string | null;
 }
 
 interface AuditModalProps {
@@ -31,14 +31,14 @@ export default function AuditModal({
 
   useEffect(() => {
     if (isOpen && contractId) {
-      fetchLogs();
+      void fetchLogs(contractId);
     }
   }, [isOpen, contractId]);
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (id: number) => {
     setLoading(true);
     try {
-      const res = await api.get(`/contracts/${contractId}/audit`);
+      const res = await api.get<AuditLog[]>(`/contracts/${id}/audit`);
       setLogs(res.data);
     } catch (error) {
       console.error("Failed to fetch audit logs", error);

@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field, field_validator
-from datetime import datetime
-from typing import Optional, List, Literal
 import re
+from datetime import datetime
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 
@@ -27,13 +28,13 @@ class UserCreate(BaseModel):
     def username_pattern(cls, v: str) -> str:
         return validate_username_pattern(v)
 
+
 class TagRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     color: str
-
-    class Config:
-        from_attributes = True
 
 
 class TagCreate(BaseModel):
@@ -47,6 +48,8 @@ class TagUpdate(BaseModel):
 
 
 class ContractListRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     description: Optional[str] = None
@@ -54,8 +57,6 @@ class ContractListRead(BaseModel):
     created_at: datetime
     contract_count: int = 0
 
-    class Config:
-        from_attributes = True
 
 class ContractCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
@@ -109,6 +110,8 @@ class ContractUpdate(BaseModel):
         return normalize_tag_names(values)
 
 class ContractRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     description: Optional[str] = None
@@ -119,8 +122,8 @@ class ContractRead(BaseModel):
     value: Optional[float] = None
     annual_value: Optional[float] = None
     version: int
-    tags: List[TagRead] = []
-    lists: List[ContractListRead] = []
+    tags: List[TagRead] = Field(default_factory=list)
+    lists: List[ContractListRead] = Field(default_factory=list)
     notice_period: Optional[int] = None
     is_protected: bool
     file_extension: str
@@ -129,9 +132,6 @@ class ContractRead(BaseModel):
     can_write: bool = False
     can_delete: bool = False
     can_manage_protection: bool = False
-
-    class Config:
-        from_attributes = True
 
 
 class AuditLogRead(BaseModel):
@@ -144,21 +144,21 @@ class AuditLogRead(BaseModel):
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
 
+
 class OTPVerify(BaseModel):
     otp: str = Field(..., min_length=6, max_length=6)
 
 
 # Admin Panel Schemas
 class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     username: str
     role: str
     is_active: bool
     created_at: datetime
     has_2fa: bool = False
-
-    class Config:
-        from_attributes = True
 
 
 class UserUpdate(BaseModel):
@@ -182,15 +182,14 @@ class PermissionCreate(BaseModel):
 
 
 class PermissionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
     contract_id: int
     permission_level: str
     username: Optional[str] = None
     contract_title: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 # Contract List Schemas
@@ -216,7 +215,7 @@ class ContractAnalysisResult(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     notice_period: Optional[int] = None
-    tags: List[str] = []
+    tags: List[str] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):

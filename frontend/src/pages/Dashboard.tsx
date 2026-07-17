@@ -22,7 +22,7 @@ import {
   YAxis,
 } from "recharts";
 import api from "../api";
-import type { Contract } from "../types";
+import type { Contract, DocumentType } from "../types";
 import UploadModal from "../components/UploadModal";
 import { LoadingState, MetricCard, PageHeader } from "../components/ui";
 import { formatGermanNumber } from "../utils/formatUtils";
@@ -33,7 +33,7 @@ const money = (value: number) =>
     currency: "EUR",
     maximumFractionDigits: 0,
   });
-const dateLabel = (value?: string) =>
+const dateLabel = (value?: string | null) =>
   value
     ? new Date(value).toLocaleDateString("de-DE", {
         day: "2-digit",
@@ -45,9 +45,7 @@ const dateLabel = (value?: string) =>
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [uploadType, setUploadType] = useState<"contract" | "invoice" | null>(
-    null,
-  );
+  const [uploadType, setUploadType] = useState<DocumentType | null>(null);
   const listIdParam = searchParams.get("list_id");
   const listId =
     listIdParam && /^\d+$/.test(listIdParam) ? Number(listIdParam) : null;
@@ -55,7 +53,7 @@ const Dashboard: React.FC = () => {
   const { data = [], isLoading } = useQuery<Contract[]>(
     ["workspace-documents", listId],
     async () => {
-      const response = await api.get("/contracts", {
+      const response = await api.get<Contract[]>("/contracts", {
         params: listId
           ? { list_id: listId, sort_by: "uploaded_at", sort_order: "desc" }
           : { sort_by: "uploaded_at", sort_order: "desc" },

@@ -17,7 +17,7 @@ interface ContractDetailsModalProps {
   onEdit?: (contract: Contract) => void;
 }
 
-const formatDate = (value?: string) =>
+const formatDate = (value?: string | null) =>
   value ? new Date(value).toLocaleDateString("de-DE") : "Nicht hinterlegt";
 const formatMoney = (value?: number | null) =>
   value != null ? `${formatGermanNumber(value)} €` : "Nicht hinterlegt";

@@ -3,62 +3,38 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { FiX, FiCheck, FiFolder } from "react-icons/fi";
 import api from "../api";
-
-interface ContractList {
-  id: number;
-  name: string;
-  description: string | null;
-  color: string;
-  contract_count: number;
-}
+import type { Contract, ContractList } from "../types";
+import { getApiErrorMessage } from "../utils/errorUtils";
 
 interface AddToListModalProps {
   isOpen: boolean;
   onClose: () => void;
-  contractId: number | null;
-  contractTitle: string;
+  contract: Contract | null;
 }
 
 const AddToListModal: React.FC<AddToListModalProps> = ({
   isOpen,
   onClose,
-  contractId,
-  contractTitle,
+  contract,
 }) => {
   const queryClient = useQueryClient();
   const [contractLists, setContractLists] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const contractId = contract?.id ?? null;
 
-  // Fetch all lists
   const { data: lists } = useQuery<ContractList[]>(
     ["lists"],
     async () => {
-      const res = await api.get("/lists");
+      const res = await api.get<ContractList[]>("/lists");
       return res.data;
     },
     { enabled: isOpen },
   );
 
-  // Fetch current contract's lists when modal opens
   useEffect(() => {
-    if (isOpen && contractId) {
-      // Get current assignments by checking each list
-      const fetchContractLists = async () => {
-        try {
-          const res = await api.get("/contracts", { params: {} });
-          const contract = res.data.find((c: any) => c.id === contractId);
-          if (contract && contract.lists) {
-            setContractLists(contract.lists.map((l: any) => l.id));
-          } else {
-            setContractLists([]);
-          }
-        } catch {
-          setContractLists([]);
-        }
-      };
-      fetchContractLists();
-    }
-  }, [isOpen, contractId]);
+    if (!isOpen) return;
+    setContractLists(contract?.lists?.map((list) => list.id) ?? []);
+  }, [isOpen, contract]);
 
   const handleToggleList = async (listId: number) => {
     if (!contractId) return;
@@ -74,17 +50,18 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
         await api.post(`/lists/${listId}/contracts/${contractId}`);
         setContractLists((prev) => [...prev, listId]);
       }
-      // Invalidate queries to refresh data
       await Promise.all([
         queryClient.invalidateQueries(["lists"]),
         queryClient.invalidateQueries(["contracts"]),
         queryClient.invalidateQueries(["workspace-documents"]),
       ]);
-    } catch (e: any) {
-      console.error("Failed to update list assignment", e);
+    } catch (error: unknown) {
+      console.error("Failed to update list assignment", error);
       alert(
-        e.response?.data?.detail ||
+        getApiErrorMessage(
+          error,
           "Fehler beim Aktualisieren der Listenzuweisung",
+        ),
       );
     } finally {
       setIsLoading(false);
@@ -116,7 +93,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                     Sammlungen zuweisen
                   </h3>
                   <p className="mt-1 max-w-[320px] truncate text-sm muted">
-                    {contractTitle}
+                    {contract?.title ?? ""}
                   </p>
                 </div>
                 <button

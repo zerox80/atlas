@@ -3,9 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import {
   FiActivity,
-  FiAlertTriangle,
-  FiCheckCircle,
-  FiClock,
   FiDownload,
   FiFileText,
   FiFolder,
@@ -24,53 +21,15 @@ import AuditModal from "../components/AuditModal";
 import ContractDetailsModal from "../components/ContractDetailsModal";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import type { Contract } from "../types";
+import {
+  formatContractDate,
+  getContractState,
+  type ContractStateKey,
+} from "../utils/contractPresentation";
+import { triggerBlobDownload } from "../utils/downloadUtils";
 import { formatGermanNumber } from "../utils/formatUtils";
 
-type ViewFilter = "all" | "attention" | "active" | "expired";
-const DEFAULT_NOTICE_PERIOD = 30;
-const date = (value?: string) =>
-  value ? new Date(value).toLocaleDateString("de-DE") : "Offen";
-
-const contractState = (contract: Contract) => {
-  if (!contract.end_date)
-    return {
-      key: "active",
-      label: "Unbefristet",
-      deadline: "Keine feste Laufzeit",
-      tone: "text-[#77a7ff] bg-[#77a7ff]/10 border-[#77a7ff]/15",
-      icon: FiCheckCircle,
-    };
-  const end = new Date(contract.end_date);
-  const deadline = new Date(end);
-  deadline.setDate(
-    end.getDate() - (contract.notice_period ?? DEFAULT_NOTICE_PERIOD),
-  );
-  const now = new Date();
-  const days = Math.ceil((deadline.getTime() - now.getTime()) / 86400000);
-  if (end < now)
-    return {
-      key: "expired",
-      label: "Abgelaufen",
-      deadline: `Endete am ${date(contract.end_date)}`,
-      tone: "text-[#7d8796] bg-white/[0.04] border-white/[0.07]",
-      icon: FiClock,
-    };
-  if (days <= 30)
-    return {
-      key: "attention",
-      label: days < 0 ? "Frist verpasst" : `${days} Tage`,
-      deadline: `Kündbar bis ${date(deadline.toISOString())}`,
-      tone: "text-amber-200 bg-amber-300/10 border-amber-300/20",
-      icon: FiAlertTriangle,
-    };
-  return {
-    key: "active",
-    label: "Aktiv",
-    deadline: `Kündbar bis ${date(deadline.toISOString())}`,
-    tone: "text-[#b8f15a] bg-[#b8f15a]/10 border-[#b8f15a]/15",
-    icon: FiCheckCircle,
-  };
-};
+type ViewFilter = "all" | ContractStateKey;
 
 const Contracts: React.FC = () => {
   const queryClient = useQueryClient();
@@ -91,7 +50,7 @@ const Contracts: React.FC = () => {
   const { data = [], isLoading } = useQuery<Contract[]>(
     ["contracts", listId],
     async () => {
-      const response = await api.get("/contracts", {
+      const response = await api.get<Contract[]>("/contracts", {
         params: {
           document_type: "contract",
           sort_by: "uploaded_at",
@@ -112,7 +71,7 @@ const Contracts: React.FC = () => {
             .includes(search.toLowerCase());
         return (
           matchesQuery &&
-          (filter === "all" || contractState(contract).key === filter)
+          (filter === "all" || getContractState(contract).key === filter)
         );
       }),
     [data, filter, search],
@@ -121,11 +80,12 @@ const Contracts: React.FC = () => {
   const counts = useMemo(
     () => ({
       all: data.length,
-      attention: data.filter((item) => contractState(item).key === "attention")
+      attention: data.filter(
+        (item) => getContractState(item).key === "attention",
+      ).length,
+      active: data.filter((item) => getContractState(item).key === "active")
         .length,
-      active: data.filter((item) => contractState(item).key === "active")
-        .length,
-      expired: data.filter((item) => contractState(item).key === "expired")
+      expired: data.filter((item) => getContractState(item).key === "expired")
         .length,
     }),
     [data],
@@ -156,20 +116,21 @@ const Contracts: React.FC = () => {
 
   const handleDownload = async (contract: Contract) => {
     try {
-      const response = await api.get(`/contracts/${contract.id}/download`, {
-        responseType: "blob",
-      });
+      const response = await api.get<Blob>(
+        `/contracts/${contract.id}/download`,
+        {
+          responseType: "blob",
+        },
+      );
       const extension = contract.file_extension?.startsWith(".")
         ? contract.file_extension
         : `.${contract.file_extension || "pdf"}`;
-      const url = URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = contract.title.endsWith(extension)
-        ? contract.title
-        : `${contract.title}${extension}`;
-      link.click();
-      URL.revokeObjectURL(url);
+      triggerBlobDownload(
+        response.data,
+        contract.title.endsWith(extension)
+          ? contract.title
+          : `${contract.title}${extension}`,
+      );
     } catch {
       alert("Das Dokument konnte nicht heruntergeladen werden.");
     }
@@ -252,7 +213,7 @@ const Contracts: React.FC = () => {
       {filtered.length ? (
         <div className="grid gap-4 xl:grid-cols-2">
           {filtered.map((contract) => {
-            const status = contractState(contract);
+            const status = getContractState(contract);
             const StatusIcon = status.icon;
             return (
               <article
@@ -368,8 +329,8 @@ const Contracts: React.FC = () => {
                   ].join(" ")}
                 >
                   {[
-                    ["Beginn", date(contract.start_date)],
-                    ["Ende", date(contract.end_date)],
+                    ["Beginn", formatContractDate(contract.start_date)],
+                    ["Ende", formatContractDate(contract.end_date)],
                     ["Kündigungsfenster", status.deadline],
                     [
                       "Vertragswert",
@@ -472,8 +433,7 @@ const Contracts: React.FC = () => {
       <AddToListModal
         isOpen={!!listContract}
         onClose={() => setListContract(null)}
-        contractId={listContract?.id || null}
-        contractTitle={listContract?.title || ""}
+        contract={listContract}
       />
       <AuditModal
         isOpen={!!auditContract}

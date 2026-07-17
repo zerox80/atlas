@@ -14,6 +14,7 @@ import api from "../api";
 import UploadModal from "../components/UploadModal";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import { formatGermanNumber } from "../utils/formatUtils";
+import { triggerBlobDownload } from "../utils/downloadUtils";
 import type { Contract } from "../types";
 
 const Invoices: React.FC = () => {
@@ -29,7 +30,7 @@ const Invoices: React.FC = () => {
   const { data: invoices = [], isLoading } = useQuery<Contract[]>(
     ["invoices", listId],
     async () => {
-      const response = await api.get("/contracts", {
+      const response = await api.get<Contract[]>("/contracts", {
         params: {
           document_type: "invoice",
           sort_by: "uploaded_at",
@@ -90,20 +91,19 @@ const Invoices: React.FC = () => {
 
   const handleDownload = async (invoice: Contract) => {
     try {
-      const response = await api.get(`/contracts/${invoice.id}/download`, {
-        responseType: "blob",
-      });
+      const response = await api.get<Blob>(
+        `/contracts/${invoice.id}/download`,
+        { responseType: "blob" },
+      );
       const extension = invoice.file_extension?.startsWith(".")
         ? invoice.file_extension
         : `.${invoice.file_extension || "pdf"}`;
-      const url = URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = invoice.title.endsWith(extension)
-        ? invoice.title
-        : `${invoice.title}${extension}`;
-      link.click();
-      URL.revokeObjectURL(url);
+      triggerBlobDownload(
+        response.data,
+        invoice.title.endsWith(extension)
+          ? invoice.title
+          : `${invoice.title}${extension}`,
+      );
     } catch {
       alert("Die Rechnung konnte nicht heruntergeladen werden.");
     }

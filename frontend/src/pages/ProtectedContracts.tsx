@@ -8,7 +8,7 @@ import {
   FiUnlock,
 } from "react-icons/fi";
 import api, { toggleContractProtection } from "../api";
-import { Contract } from "../types";
+import type { Contract } from "../types";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 
 const money = (value?: number | null) =>
@@ -36,7 +36,7 @@ const ProtectedContracts: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchProtectedContracts();
+    void fetchProtectedContracts();
   }, []);
 
   const handleUnprotect = async (contract: Contract) => {
@@ -44,7 +44,7 @@ const ProtectedContracts: React.FC = () => {
       return;
     try {
       await toggleContractProtection(contract.id);
-      fetchProtectedContracts();
+      void fetchProtectedContracts();
     } catch {
       alert("Der Schutzstatus konnte nicht geändert werden.");
     }
