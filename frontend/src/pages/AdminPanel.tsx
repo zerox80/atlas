@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FiUsers, FiPlus, FiEdit2, FiTrash2, FiShield, FiCheck, FiX, FiLock, FiTag } from 'react-icons/fi'
+import { FiUsers, FiPlus, FiEdit2, FiTrash2, FiShield, FiCheck, FiX, FiLock, FiTag, FiArchive, FiAlertTriangle, FiDownload, FiLoader } from 'react-icons/fi'
 import api from '../api'
 import { LoadingState, PageHeader } from '../components/ui'
 
@@ -33,13 +33,57 @@ interface Tag {
     color: string
 }
 
+const safeBackupFilename = (candidate?: string): string => {
+    const filename = candidate
+        ?.split(/[\\/]/)
+        .pop()
+        ?.replace(/[\u0000-\u001f<>:"|?*]/g, '_')
+        .trim()
+    return filename?.toLowerCase().endsWith('.zip') ? filename : 'atlas-datensicherung.zip'
+}
+
+const backupFilenameFromHeader = (contentDisposition?: string): string => {
+    if (!contentDisposition) return 'atlas-datensicherung.zip'
+
+    const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+    if (encodedMatch) {
+        try {
+            return safeBackupFilename(decodeURIComponent(encodedMatch[1].trim()))
+        } catch {
+            // Fall through to the plain filename variant.
+        }
+    }
+
+    const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
+    return safeBackupFilename(filenameMatch?.[1])
+}
+
+const backupErrorMessage = async (error: any): Promise<string> => {
+    const responseData = error.response?.data
+    if (typeof responseData?.detail === 'string') return responseData.detail
+    if (typeof responseData === 'string') return responseData
+
+    if (responseData instanceof Blob) {
+        try {
+            const payload = JSON.parse(await responseData.text())
+            if (typeof payload.detail === 'string') return payload.detail
+        } catch {
+            // Use the stable message below for non-JSON error bodies.
+        }
+    }
+
+    return 'Datensicherung konnte nicht erstellt werden. Bitte versuchen Sie es erneut.'
+}
+
 const AdminPanel: React.FC = () => {
     const [users, setUsers] = useState<User[]>([])
     const [contracts, setContracts] = useState<Contract[]>([])
     const [permissions, setPermissions] = useState<Permission[]>([])
     const [tags, setTags] = useState<Tag[]>([])
     const [isLoading, setIsLoading] = useState(true)
-    const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'tags'>('users')
+    const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'tags' | 'backup'>('users')
+    const [isBackupRunning, setIsBackupRunning] = useState(false)
+    const [backupError, setBackupError] = useState<string | null>(null)
 
     // Modal states
     const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false)
@@ -236,13 +280,45 @@ const AdminPanel: React.FC = () => {
         setIsEditTagModalOpen(true)
     }
 
+    const handleBackup = async () => {
+        const confirmed = window.confirm(
+            'Diese Datensicherung enthält alle Verträge und Rechnungen einschließlich geschützter Dokumente. Die ZIP ist nicht passwortgeschützt. Jetzt erstellen?'
+        )
+        if (!confirmed) return
+
+        setIsBackupRunning(true)
+        setBackupError(null)
+
+        try {
+            const response = await api.post('/admin/backup', undefined, { responseType: 'blob' })
+            const objectUrl = URL.createObjectURL(response.data)
+            let downloadLink: HTMLAnchorElement | null = null
+
+            try {
+                downloadLink = document.createElement('a')
+                downloadLink.href = objectUrl
+                downloadLink.download = backupFilenameFromHeader(response.headers?.['content-disposition'])
+                downloadLink.style.display = 'none'
+                document.body.appendChild(downloadLink)
+                downloadLink.click()
+            } finally {
+                downloadLink?.remove()
+                URL.revokeObjectURL(objectUrl)
+            }
+        } catch (error: any) {
+            setBackupError(await backupErrorMessage(error))
+        } finally {
+            setIsBackupRunning(false)
+        }
+    }
+
     if (isLoading) {
         return <LoadingState label="Administration wird geladen" />
     }
 
     return (
         <div className="app-page">
-            <PageHeader eyebrow="System / Control Center" title="Administration" description="Benutzer, Dokumentrechte und Taxonomie an einem zentralen Kontrollpunkt verwalten." actions={<span className="chip border-[#b8f15a]/20 bg-[#b8f15a]/[0.07] text-[#b8f15a]"><FiShield /> Admin access</span>} />
+            <PageHeader eyebrow="System / Control Center" title="Administration" description="Benutzer, Dokumentrechte, Taxonomie und Datensicherungen an einem zentralen Kontrollpunkt verwalten." actions={<span className="chip border-[#b8f15a]/20 bg-[#b8f15a]/[0.07] text-[#b8f15a]"><FiShield /> Admin access</span>} />
 
             <div className="mb-5 grid gap-3 sm:grid-cols-3">
                 <div className="surface p-5"><p className="eyebrow">Benutzer</p><p className="metric-value mt-3">{users.length}</p><p className="mt-2 text-xs text-white/34">{users.filter((user) => user.is_active).length} aktiv</p></div>
@@ -281,6 +357,16 @@ const AdminPanel: React.FC = () => {
                 >
                     <FiTag />
                     Tags ({tags.length})
+                </button>
+                <button
+                    onClick={() => setActiveTab('backup')}
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${activeTab === 'backup'
+                        ? 'bg-white/[0.09] text-white'
+                        : 'text-white/38 hover:bg-white/[0.04] hover:text-white'
+                        }`}
+                >
+                    <FiArchive />
+                    Datensicherung
                 </button>
             </div>
 
@@ -501,6 +587,62 @@ const AdminPanel: React.FC = () => {
                                 )}
                             </tbody>
                         </table>
+                    </div>
+                </motion.div>
+            )}
+
+            {/* Backup Tab */}
+            {activeTab === 'backup' && (
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="surface overflow-hidden"
+                >
+                    <div className="grid gap-8 p-6 lg:grid-cols-[1fr_0.8fr] lg:p-8">
+                        <div>
+                            <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl border border-[#b8f15a]/20 bg-[#b8f15a]/10 text-xl text-[#b8f15a]">
+                                <FiArchive />
+                            </div>
+                            <p className="eyebrow">Vollständiger Dokumentexport</p>
+                            <h2 className="mt-3 text-2xl font-semibold text-white">Verträge und Rechnungen sichern</h2>
+                            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/50">
+                                Erstellt eine ZIP mit allen Verträgen und Rechnungen. Für jeden Datensatz enthält sie eine lesbare Info-PDF sowie die hinterlegte Originaldatei, sofern diese auf dem Server verfügbar ist.
+                            </p>
+
+                            <ul className="mt-6 space-y-3 text-sm text-white/55">
+                                <li className="flex items-start gap-3"><FiCheck className="mt-0.5 shrink-0 text-[#b8f15a]" /> Geschützte Dokumente werden ebenfalls gesichert.</li>
+                                <li className="flex items-start gap-3"><FiCheck className="mt-0.5 shrink-0 text-[#b8f15a]" /> Fehlende Dateien werden im Sicherungsbericht aufgeführt.</li>
+                                <li className="flex items-start gap-3"><FiCheck className="mt-0.5 shrink-0 text-[#b8f15a]" /> Benutzerkonten und die vollständige Datenbank sind nicht enthalten.</li>
+                            </ul>
+                        </div>
+
+                        <div className="flex flex-col justify-between rounded-2xl border border-white/[0.08] bg-black/20 p-5">
+                            <div>
+                                <div className="flex items-start gap-3 rounded-xl border border-amber-400/20 bg-amber-400/[0.07] p-4 text-amber-100/80">
+                                    <FiAlertTriangle className="mt-0.5 shrink-0 text-amber-300" />
+                                    <p className="text-sm leading-5">
+                                        Die ZIP enthält vertrauliche Daten und ist nicht passwortgeschützt. Legen Sie sie ausschließlich an einem geschützten Ort ab.
+                                    </p>
+                                </div>
+
+                                {backupError && (
+                                    <div role="alert" className="mt-4 rounded-xl border border-red-400/20 bg-red-500/[0.08] p-4 text-sm text-red-200">
+                                        {backupError}
+                                    </div>
+                                )}
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={handleBackup}
+                                disabled={isBackupRunning}
+                                aria-busy={isBackupRunning}
+                                className="btn-primary mt-6 w-full justify-center disabled:cursor-wait disabled:opacity-60"
+                            >
+                                {isBackupRunning ? <FiLoader className="animate-spin" /> : <FiDownload />}
+                                {isBackupRunning ? 'Sicherung wird erstellt …' : 'Alles sichern'}
+                            </button>
+                        </div>
                     </div>
                 </motion.div>
             )}
