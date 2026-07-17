@@ -43,6 +43,77 @@ Docker-Port `8080` bleibt ausschließlich an `127.0.0.1` gebunden. Die automatis
 erkannte Quell-IP kann bei der Abfrage durch ein CIDR-Netz ersetzt werden.
 Vorhandene `.env`-, Compose- und Nginx-Dateien werden gesichert.
 
+#### Lokale CA per Gruppenrichtlinie verteilen
+
+Beim lokalen HTTPS-Modus müssen die Windows-Clients der von Atlas erzeugten CA
+vertrauen. Verteilt wird ausschließlich das öffentliche CA-Zertifikat. Der
+private Schlüssel `/etc/nginx/atlas-tls/atlas-local-ca.key` darf niemals den
+Server verlassen.
+
+Zunächst wird das PEM-Zertifikat auf dem Atlas-Server in eine für den
+Windows-Import geeignete DER-Datei umgewandelt und für den Download lesbar
+gemacht:
+
+```bash
+sudo openssl x509 \
+  -in /etc/nginx/atlas-tls/atlas-local-ca.crt \
+  -outform DER \
+  -out /tmp/atlas-local-ca.cer
+sudo chmod 0644 /tmp/atlas-local-ca.cer
+```
+
+Anschließend wird die Datei auf einem Windows-Administrationsrechner mit `scp`
+in das aktuelle Verzeichnis kopiert. Benutzername und Server-IP sind bei Bedarf
+anzupassen:
+
+```powershell
+scp dashboard@192.168.1.128:/tmp/atlas-local-ca.cer .
+```
+
+Die Datei liegt danach im aktuellen Verzeichnis. Soll stattdessen `C:\Temp`
+verwendet werden, muss der Ordner vor dem Kopieren existieren:
+
+```powershell
+mkdir C:\Temp
+scp dashboard@192.168.1.128:/tmp/atlas-local-ca.cer C:\Temp\atlas-local-ca.cer
+```
+
+Die Verteilung erfolgt anschließend über die Gruppenrichtlinienverwaltung:
+
+1. `gpmc.msc` öffnen und eine neue GPO, beispielsweise `Atlas Local CA Trust`,
+   erstellen.
+2. Die GPO mit der OU verknüpfen, in der sich die **Computerobjekte** der
+   Zielgeräte befinden. Eine Verknüpfung auf Domänenebene gilt entsprechend für
+   alle einbezogenen Domänencomputer.
+3. Die GPO bearbeiten und zu
+   `Computerkonfiguration > Richtlinien > Windows-Einstellungen >`
+   `Sicherheitseinstellungen > Richtlinien für öffentliche Schlüssel >`
+   `Vertrauenswürdige Stammzertifizierungsstellen` navigieren.
+4. Dort `atlas-local-ca.cer` über **Importieren** hinzufügen. Nicht das
+   Serverzertifikat `atlas.crt` importieren.
+5. Auf einem Client die Richtlinie sofort aktualisieren und danach den Browser
+   vollständig neu starten:
+
+   ```powershell
+   gpupdate /force
+   ```
+
+6. Die Installation auf dem Client kontrollieren:
+
+   ```powershell
+   Get-ChildItem Cert:\LocalMachine\Root |
+       Where-Object Subject -eq 'CN=Atlas Local CA' |
+       Format-List Subject, Thumbprint, NotAfter
+   ```
+
+Chrome und Edge verwenden den Windows-Zertifikatsspeicher. Aktuelle
+Firefox-Versionen übernehmen durch Windows beziehungsweise GPO installierte
+Root-CAs ebenfalls. Die aufgerufene IP muss weiterhin exakt mit der IP im
+Atlas-Serverzertifikat übereinstimmen, beispielsweise `https://192.168.1.128`.
+Der offizielle Ablauf ist außerdem in der
+[Microsoft-Dokumentation zur Zertifikatsverteilung per GPO](https://learn.microsoft.com/en-us/windows-server/identity/ad-fs/deployment/distribute-certificates-to-client-computers-by-using-group-policy)
+beschrieben.
+
 Für den Betrieb ist die Konfiguration der Umgebungsvariablen in einer .env Datei erforderlich, insbesondere der MISTRAL_API_KEY.
 
 ### Mistral OCR 4
