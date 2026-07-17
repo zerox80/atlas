@@ -1,5 +1,6 @@
 # Environment files (contain secrets!)
 .env
+.env.backup-*
 *.env.local
 
 # Python
@@ -56,3 +57,9 @@ Thumbs.db
 
 # Docker
 *.log
+docker-compose.yml.backup-*
+
+# Reverse-proxy certificates and private keys
+*.key
+*.pem
+*.csr
