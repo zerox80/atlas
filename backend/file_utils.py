@@ -86,7 +86,10 @@ async def validate_file(file: UploadFile) -> str:
     expected_exts = mime_to_exts.get(mime_type, [])
     
     if ext not in expected_exts:
-        raise HTTPException(status_code=400, detail=f"File extension '{ext}' does not match detected type '{mime_type}'")
+        raise HTTPException(
+            status_code=400,
+            detail=f"File extension '{ext}' does not match detected type '{mime_type}'",
+        )
 
     return mime_type
 
