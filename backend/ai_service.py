@@ -19,6 +19,14 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Any
 
+from ai_prompts import (
+    CONTRACT_ANALYSIS_PROMPT,
+    CONTRACT_ASSISTANT_PROMPT,
+    INVOICE_ANALYSIS_PROMPT,
+    build_contract_question_prompt,
+    build_ocr_analysis_prompt,
+)
+
 try:
     from mistralai import Mistral  # type: ignore[attr-defined]
 except ImportError:  # mistralai 2.x exposes the client below the generated namespace.
@@ -262,34 +270,7 @@ async def analyze_contract_pdf(pdf_bytes: bytes, document_type: str = "contract"
         if not document_text:
             raise ValueError("OCR konnte keinen Text aus dem PDF extrahieren")
         
-        content = [{
-            "type": "text",
-            "text": f"""Hier ist der extrahierte Text eines Vertrags:
-
-{document_text}
-
-Analysiere diesen Vertrag sorgfältig und extrahiere die folgenden Informationen.
-Antworte NUR mit einem validen JSON-Objekt, ohne zusätzlichen Text oder Erklärungen.
-
-{{
-    "title": "Kurzer, prägnanter Vertragstitel",
-    "description": "Kurze Zusammenfassung des Vertrags (max 200 Zeichen)",
-    "value": 0.0,
-    "annual_value": 0.0,
-    "start_date": "YYYY-MM-DD",
-    "end_date": "YYYY-MM-DD",
-    "notice_period": 30,
-    "tags": ["Kategorie1", "Kategorie2"]
-}}
-
-Regeln:
-- value: Der GESAMTWERT des Vertrags (falls berechenbar, sonst null). Berechne: (Summe aller monatlichen Kosten inkl. Versicherung/Steuer) * (Laufzeit in Monaten). Falls Laufzeit unbegrenzt/unbekannt: Nimm (Monatliche Kosten * 12).
-- annual_value: Der jährliche Preis oder Basiswert (falls anwendbar). Z.B. monatliche Kosten * 12. Falls nicht zutreffend, null.
-- start_date/end_date: Vertragslaufzeit im ISO-Format. Wenn kein Datum explizit genannt wird oder es z.B. unbefristet ist, setze das Feld zwingend auf null.
-- notice_period: Kündigungsfrist in Tagen. Falls KEINE Frist explizit genannt ist, verwende null.
-- tags: 1-3 passende Kategorien (z.B. "Software", "Lizenz", "Miete", "Service")
-- WICHTIG: Wenn ein Wert nicht explizit im Text steht, gib null zurück. Erfinde KEINE Daten. Insbesondere bei Kündigungsfristen und Start-/Enddaten: Wenn unklar, nimm null!"""
-        }]
+        content = [{"type": "text", "text": build_ocr_analysis_prompt(document_text)}]
     else:
         # Image mode: Convert to images (max 8 pages)
         logger.info("Using image mode for contract analysis")
@@ -305,36 +286,10 @@ Regeln:
         for img_b64 in images_base64:
             content.append({"type": "image_url", "image_url": img_b64})
         
-        content.append({
-            "type": "text",
-            "text": """Analysiere diesen Vertrag sorgfältig und extrahiere die folgenden Informationen.
-Antworte NUR mit einem validen JSON-Objekt, ohne zusätzlichen Text oder Erklärungen.
+        content.append({"type": "text", "text": CONTRACT_ANALYSIS_PROMPT})
 
-{
-    "title": "Kurzer, prägnanter Vertragstitel",
-    "description": "Kurze Zusammenfassung des Vertrags (max 200 Zeichen)",
-    "value": 0.0,
-    "annual_value": 0.0,
-    "start_date": "YYYY-MM-DD",
-    "end_date": "YYYY-MM-DD",
-    "notice_period": 30,
-    "tags": ["Kategorie1", "Kategorie2"]
-}
-
-Regeln:
-- value: Der GESAMTWERT des Vertrags (falls berechenbar, sonst null). Berechne: (Summe aller monatlichen Kosten inkl. Versicherung/Steuer) * (Laufzeit in Monaten). Falls Laufzeit unbegrenzt/unbekannt: Nimm (Monatliche Kosten * 12).
-- annual_value: Der jährliche Preis oder Basiswert (falls anwendbar). Z.B. monatliche Kosten * 12. Falls nicht zutreffend, null.
-- start_date/end_date: Vertragslaufzeit im ISO-Format. Wenn kein Datum explizit genannt wird oder es z.B. unbefristet ist, setze das Feld zwingend auf null.
-- notice_period: Kündigungsfrist in Tagen. Falls KEINE Frist explizit genannt ist, verwende null.
-- tags: 1-3 passende Kategorien (z.B. "Software", "Lizenz", "Miete", "Service")
-- WICHTIG: Wenn ein Wert nicht explizit im Text steht, gib null zurück. Erfinde KEINE Daten. Insbesondere bei Kündigungsfristen und Start-/Enddaten: Wenn unklar, nimm null!"""
-        })
-    
     if document_type == "invoice":
-        content.append({
-            "type": "text",
-            "text": """Dieses Dokument ist eine Rechnung, kein Vertrag. Extrahiere den Lieferanten oder Rechnungstitel, den Rechnungsbetrag inklusive Umsatzsteuer (value) und das Rechnungsdatum (start_date). Setze annual_value, end_date und notice_period auf null, sofern sie nicht ausdrücklich auf der Rechnung stehen. Erfinde keine Rechnungsnummern, Daten oder Beträge."""
-        })
+        content.append({"type": "text", "text": INVOICE_ANALYSIS_PROMPT})
 
     response = await _retry_on_rate_limit(
         client.chat.complete_async,
@@ -411,11 +366,7 @@ async def chat_about_contract(pdf_bytes: bytes, question: str) -> str:
         
         content = [{
             "type": "text",
-            "text": f"""Hier ist der extrahierte Text eines Vertrags:
-
-{document_text}
-
-Frage zum Vertrag: {question}"""
+            "text": build_contract_question_prompt(document_text, question),
         }]
     else:
         # Image mode: Convert to images (max 8 pages)
@@ -443,10 +394,7 @@ Frage zum Vertrag: {question}"""
         messages=[
             {
                 "role": "system",
-                "content": """Du bist ein hilfreicher Vertragsassistent. 
-Beantworte Fragen basierend auf dem bereitgestellten Vertragsdokument.
-Sei präzise und verweise auf spezifische Abschnitte wenn möglich.
-Wenn du etwas nicht im Dokument findest, sage das ehrlich."""
+                "content": CONTRACT_ASSISTANT_PROMPT,
             },
             {
                 "role": "user",
@@ -487,11 +435,7 @@ async def chat_about_contract_stream(pdf_bytes: bytes, question: str):
         
         content = [{
             "type": "text",
-            "text": f"""Hier ist der extrahierte Text eines Vertrags:
-
-{document_text}
-
-Frage zum Vertrag: {question}"""
+            "text": build_contract_question_prompt(document_text, question),
         }]
     else:
         # Image mode: Convert to images (max 8 pages)
@@ -519,10 +463,7 @@ Frage zum Vertrag: {question}"""
         messages=[
             {
                 "role": "system",
-                "content": """Du bist ein hilfreicher Vertragsassistent. 
-Beantworte Fragen basierend auf dem bereitgestellten Vertragsdokument.
-Sei präzise und verweise auf spezifische Abschnitte wenn möglich.
-Wenn du etwas nicht im Dokument findest, sage das ehrlich."""
+                "content": CONTRACT_ASSISTANT_PROMPT,
             },
             {
                 "role": "user",
