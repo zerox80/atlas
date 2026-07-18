@@ -26,7 +26,12 @@ def enforce_upload_rate_limit(request: Request) -> None:
         raise HTTPException(status_code=429, detail="Upload rate limit exceeded")
 
 
-def resolve_tags(session: Session, tag_names: list[str]) -> list[Tag]:
+def resolve_tags(
+    session: Session,
+    tag_names: list[str],
+    *,
+    allow_create: bool = False,
+) -> list[Tag]:
     """Resolve tags without committing the caller's transaction."""
     unique_names = list(dict.fromkeys(tag_names))
     if not unique_names:
@@ -34,10 +39,17 @@ def resolve_tags(session: Session, tag_names: list[str]) -> list[Tag]:
 
     existing = session.exec(select(Tag).where(col(Tag.name).in_(unique_names))).all()
     tags_by_name = {tag.name: tag for tag in existing}
+    missing_names = [name for name in unique_names if name not in tags_by_name]
+    if missing_names and not allow_create:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Only administrators can create tags. Unknown tags: "
+                + ", ".join(missing_names)
+            ),
+        )
 
-    for tag_name in unique_names:
-        if tag_name in tags_by_name:
-            continue
+    for tag_name in missing_names:
         try:
             with session.begin_nested():
                 tag = Tag(name=tag_name)

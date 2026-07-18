@@ -23,6 +23,19 @@ def _unicode_casefold(value: object) -> str:
     return value.casefold() if isinstance(value, str) else ""
 
 
+def _business_cancellation_julianday(
+    end_date_value: object,
+    notice_period_value: object,
+) -> float | None:
+    """Defer the business-time import to avoid a database/query import cycle."""
+    from contract_queries.business_time import sqlite_business_cancellation_julianday
+
+    return sqlite_business_cancellation_julianday(
+        end_date_value,
+        notice_period_value,
+    )
+
+
 def _configure_sqlite_connection(
     dbapi_connection: Any,
     _connection_record: Any,
@@ -31,6 +44,12 @@ def _configure_sqlite_connection(
         "unicode_casefold",
         1,
         _unicode_casefold,
+        deterministic=True,
+    )
+    dbapi_connection.create_function(
+        "business_cancellation_julianday",
+        2,
+        _business_cancellation_julianday,
         deterministic=True,
     )
     cursor = dbapi_connection.cursor()
