@@ -16,7 +16,13 @@ from slowapi.util import get_remote_address
 from sqlalchemy import and_, exists, func, insert, literal, select as sa_select, true
 from sqlmodel import Session, col, select
 
-from auth import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY, get_password_hash
+from auth import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    ALGORITHM,
+    SECRET_KEY,
+    TOKEN_VERSION_CLAIM,
+    get_password_hash,
+)
 from database import get_session
 from models import (
     AuditLog,
@@ -41,6 +47,7 @@ PRODUCTION_MODE = os.getenv("PRODUCTION", "false").lower() == "true"
 SECURE_COOKIES = os.getenv("SECURE_COOKIES", str(PRODUCTION_MODE)).lower() == "true"
 RATE_LIMIT_LOGIN = os.getenv("RATE_LIMIT_LOGIN", "5/minute")
 ACL_BACKFILL_ACTION = "ACL_BACKFILL_V1"
+BUSINESS_TIMEZONE_NAME = os.getenv("BUSINESS_TIMEZONE", "Europe/Berlin")
 CSRF_COOKIE_NAME = "csrf_token"
 CSRF_HEADER_NAME = "x-csrf-token"
 CSRF_EXEMPT_PATHS = {"/token", "/csrf-token"}
@@ -120,14 +127,23 @@ def get_current_user(
             detail="Could not validate credentials",
         ) from error
 
-    username = payload.get("sub")
-    if not isinstance(username, str) or not username:
+    auth_subject = payload.get("sub")
+    if not isinstance(auth_subject, str) or not auth_subject:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
 
-    user = session.exec(select(User).where(User.username == username)).first()
+    token_version = payload.get(TOKEN_VERSION_CLAIM)
+    if type(token_version) is not int:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has expired",
+        )
+
+    user = session.exec(
+        select(User).where(User.auth_subject == auth_subject)
+    ).first()
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -137,6 +153,11 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User account is deactivated",
+        )
+    if token_version != user.token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has expired",
         )
     return user
 
@@ -226,6 +247,7 @@ def contract_read_for_user(
 ) -> dict[str, object]:
     """Serialize a contract with the caller's effective capabilities."""
     data = ContractRead.model_validate(contract).model_dump()
+    data["business_timezone"] = BUSINESS_TIMEZONE_NAME
     if assigned_level is _PERMISSION_NOT_LOADED:
         assigned_level = (
             contract_permission_level(user, contract.id, session)

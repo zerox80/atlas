@@ -9,6 +9,7 @@ import {
 } from "react-icons/fi";
 import type { Contract } from "../types";
 import { formatGermanNumber } from "../utils/formatUtils";
+import { formatContractDate } from "../utils/contractPresentation";
 
 interface ContractDetailsModalProps {
   contract: Contract | null;
@@ -17,8 +18,8 @@ interface ContractDetailsModalProps {
   onEdit?: (contract: Contract) => void;
 }
 
-const formatDate = (value?: string | null) =>
-  value ? new Date(value).toLocaleDateString("de-DE") : "Nicht hinterlegt";
+const formatDate = (value?: string | null, timeZone?: string) =>
+  value ? formatContractDate(value, timeZone) : "Nicht hinterlegt";
 const formatMoney = (value?: number | null) =>
   value != null ? `${formatGermanNumber(value)} €` : "Nicht hinterlegt";
 
@@ -31,10 +32,10 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
   if (!contract) return null;
 
   const fields = [
-    { label: "Startdatum", value: formatDate(contract.start_date) },
+    { label: "Startdatum", value: formatDate(contract.start_date, contract.business_timezone) },
     {
       label: "Enddatum",
-      value: contract.end_date ? formatDate(contract.end_date) : "Unbefristet",
+      value: contract.end_date ? formatDate(contract.end_date, contract.business_timezone) : "Unbefristet",
     },
     {
       label: "Kündigungsfrist",
@@ -45,7 +46,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
     },
     { label: "Gesamtwert", value: formatMoney(contract.value) },
     { label: "Jährlicher Preis", value: formatMoney(contract.annual_value) },
-    { label: "Hochgeladen am", value: formatDate(contract.uploaded_at) },
+    { label: "Hochgeladen am", value: formatDate(contract.uploaded_at, contract.business_timezone) },
   ];
 
   return (

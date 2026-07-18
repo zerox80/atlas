@@ -1,33 +1,37 @@
 import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  addDays,
   addMonths,
   eachDayOfInterval,
   endOfMonth,
   endOfWeek,
   format,
   isSameMonth,
-  isToday,
-  parseISO,
   startOfMonth,
   startOfWeek,
-  subDays,
   subMonths,
 } from "date-fns";
 import { de } from "date-fns/locale";
 import {
+  FiAlertCircle,
   FiCalendar,
   FiChevronLeft,
   FiChevronRight,
   FiClock,
 } from "react-icons/fi";
-import { fetchAllContracts } from "../api";
-import type { Contract } from "../types";
+import { fetchCalendarData } from "../api";
+import type { CalendarData, Contract } from "../types";
 import UploadModal from "../components/UploadModal";
 import ContractDetailsModal from "../components/ContractDetailsModal";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import { downloadDocument } from "../features/documents/downloadDocument";
 import { queryKeys } from "../queryKeys";
+import {
+  businessDateKey,
+  DEFAULT_BUSINESS_TIMEZONE,
+  getCancellationDeadline,
+} from "../utils/contractPresentation";
 
 interface CalendarEvent {
   type: "start" | "end" | "notice";
@@ -47,13 +51,6 @@ const Calendar: React.FC = () => {
     null,
   );
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
-  const { data: contracts = [], isLoading } = useQuery<Contract[]>(
-    queryKeys.activeContracts,
-    async () => {
-      return fetchAllContracts({ status: "active" });
-    },
-  );
-
   const days = useMemo(() => {
     const monthStart = startOfMonth(currentDate);
     return eachDayOfInterval({
@@ -61,36 +58,61 @@ const Calendar: React.FC = () => {
       end: endOfWeek(endOfMonth(monthStart), { weekStartsOn: 1 }),
     });
   }, [currentDate]);
+  const rangeStart = `${format(days[0], "yyyy-MM-dd")}T00:00:00`;
+  const rangeEnd = `${format(addDays(days[days.length - 1], 1), "yyyy-MM-dd")}T00:00:00`;
+  const { data, isError, isLoading } = useQuery<CalendarData>(
+    queryKeys.calendar(rangeStart, rangeEnd),
+    () => fetchCalendarData(rangeStart, rangeEnd),
+  );
+  const contracts = data?.items ?? [];
+  const businessTimezone =
+    data?.business_timezone ?? DEFAULT_BUSINESS_TIMEZONE;
 
   const eventsByDay = useMemo(() => {
     const events = new Map<string, CalendarEvent[]>();
-    const addEvent = (date: Date, event: CalendarEvent) => {
-      const key = format(date, "yyyy-MM-dd");
+    const addEvent = (key: string, event: CalendarEvent) => {
       events.set(key, [...(events.get(key) ?? []), event]);
     };
 
     contracts.forEach((contract) => {
-      if (contract.start_date)
-        addEvent(parseISO(contract.start_date), {
-          type: "start",
-          label: "Start",
-          contract,
-        });
+      if (contract.start_date) {
+        addEvent(
+          businessDateKey(
+            contract.start_date,
+            contract.business_timezone ?? businessTimezone,
+          ),
+          {
+            type: "start",
+            label: "Start",
+            contract,
+          },
+        );
+      }
       if (contract.end_date) {
-        const endDate = parseISO(contract.end_date);
-        addEvent(endDate, { type: "end", label: "Ende", contract });
-        addEvent(subDays(endDate, contract.notice_period ?? 30), {
-          type: "notice",
-          label: "Kündigen",
-          contract,
-        });
+        const contractTimezone =
+          contract.business_timezone ?? businessTimezone;
+        const endDateKey = businessDateKey(
+          contract.end_date,
+          contractTimezone,
+        );
+        addEvent(endDateKey, { type: "end", label: "Ende", contract });
+        const cancellationDeadline = getCancellationDeadline(contract);
+        if (cancellationDeadline) {
+          addEvent(businessDateKey(cancellationDeadline, contractTimezone), {
+            type: "notice",
+            label: "Kündigen",
+            contract,
+          });
+        }
       }
     });
     return events;
-  }, [contracts]);
+  }, [businessTimezone, contracts]);
 
   const getEventsForDay = (day: Date): CalendarEvent[] =>
     eventsByDay.get(format(day, "yyyy-MM-dd")) ?? [];
+
+  const todayKey = businessDateKey(new Date(), businessTimezone);
 
   const monthEvents = useMemo(
     () => days.flatMap(getEventsForDay),
@@ -107,6 +129,16 @@ const Calendar: React.FC = () => {
   };
 
   if (isLoading) return <LoadingState label="Kalender wird geladen" />;
+  if (isError)
+    return (
+      <div className="app-page">
+        <EmptyState
+          icon={FiAlertCircle}
+          title="Kalender konnte nicht geladen werden"
+          description="Bitte versuche es erneut."
+        />
+      </div>
+    );
 
   return (
     <div className="app-page">
@@ -156,6 +188,13 @@ const Calendar: React.FC = () => {
           </span>
         ))}
       </section>
+      {data?.truncated && (
+        <div className="mb-4 rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] px-4 py-3 text-sm text-amber-100">
+          In diesem Zeitraum gibt es mehr als 1.000 Dokumente. Die Ansicht zeigt
+          nur die ersten 1.000; bitte öffne eine Listenansicht für den Gesamtbestand.
+        </div>
+      )}
+
 
       {contracts.length ? (
         <section className="surface overflow-hidden">
@@ -182,13 +221,13 @@ const Calendar: React.FC = () => {
                     currentMonth
                       ? "hover:bg-white/[0.025]"
                       : "bg-black/20 opacity-38",
-                    isToday(day) ? "bg-[#b8f15a]/[0.035]" : "",
+                    format(day, "yyyy-MM-dd") === todayKey ? "bg-[#b8f15a]/[0.035]" : "",
                   ].join(" ")}
                 >
                   <span
                     className={[
                       "flex h-7 w-7 items-center justify-center rounded-xl text-xs font-semibold",
-                      isToday(day)
+                      format(day, "yyyy-MM-dd") === todayKey
                         ? "bg-[#b8f15a] text-[#11150b]"
                         : "text-white/52",
                     ].join(" ")}

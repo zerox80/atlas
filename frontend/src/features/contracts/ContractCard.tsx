@@ -147,8 +147,8 @@ const ContractCard: React.FC<ContractCardProps> = ({
         ].join(" ")}
       >
         {[
-          ["Beginn", formatContractDate(contract.start_date)],
-          ["Ende", formatContractDate(contract.end_date)],
+          ["Beginn", formatContractDate(contract.start_date, contract.business_timezone)],
+          ["Ende", formatContractDate(contract.end_date, contract.business_timezone)],
           ["Kündigungsfenster", status.deadline],
           [
             "Vertragswert",

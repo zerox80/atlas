@@ -10,6 +10,7 @@ import {
 } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
+import { parseApiDate } from "../utils/apiDate";
 import ListModal from "../components/ListModal";
 import { useUser } from "../App";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
@@ -177,7 +178,7 @@ const Lists: React.FC = () => {
                   <FiFileText /> {list.contract_count} Dokumente
                 </span>
                 <span>
-                  {new Date(list.created_at).toLocaleDateString("de-DE")}
+                  {parseApiDate(list.created_at).toLocaleDateString("de-DE")}
                 </span>
               </div>
               <button

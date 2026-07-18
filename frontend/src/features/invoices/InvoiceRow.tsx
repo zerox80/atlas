@@ -2,6 +2,7 @@ import React from "react";
 import { FiDownload, FiEdit3, FiFileText, FiTrash2 } from "react-icons/fi";
 import type { Contract } from "../../types";
 import { formatGermanNumber } from "../../utils/formatUtils";
+import { formatContractDate } from "../../utils/contractPresentation";
 
 interface InvoiceRowProps {
   invoice: Contract;
@@ -56,7 +57,7 @@ const InvoiceRow: React.FC<InvoiceRowProps> = ({
           Datum
         </span>
         {invoice.start_date
-          ? new Date(invoice.start_date).toLocaleDateString("de-DE")
+          ? formatContractDate(invoice.start_date, invoice.business_timezone)
           : "–"}
       </p>
       <div className="flex items-center justify-between gap-2 xl:block">

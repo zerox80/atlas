@@ -33,6 +33,7 @@ const InvoiceArchive: React.FC<InvoiceArchiveProps> = ({
         <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#657080]" />
         <input
           value={searchQuery}
+          maxLength={200}
           onChange={(event) => onSearchChange(event.target.value)}
           className="field py-2.5 pl-10"
           placeholder="Lieferant oder Tag…"

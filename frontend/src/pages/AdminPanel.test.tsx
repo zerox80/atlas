@@ -15,7 +15,20 @@ vi.mock("../api", () => ({
     put: vi.fn(),
     delete: mockDelete,
   },
-  fetchAllContracts: () => mockGet().then((response) => response.data),
+  fetchContractPage: async () => ({
+    items: [],
+    summary: {
+      all: 0,
+      active: 0,
+      attention: 0,
+      expired: 0,
+      total_value: 0,
+      current_month_value: 0,
+    },
+    has_more: false,
+    next_cursor_uploaded_at: null,
+    next_cursor_id: null,
+  }),
 }));
 
 const users = [
