@@ -69,11 +69,28 @@ export const formatContractDate = (
       )
     : "Offen";
 
-export const getCancellationDeadline = (contract: Contract): Date | null => {
+const dateKeyToCalendarDay = (dateKey: string): number => {
+  const year = Number(dateKey.slice(0, 4));
+  const month = Number(dateKey.slice(5, 7));
+  const day = Number(dateKey.slice(8, 10));
+  return Date.UTC(year, month - 1, day) / DAY_MS;
+};
+
+const calendarDayToDateKey = (calendarDayValue: number): string =>
+  new Date(calendarDayValue * DAY_MS).toISOString().slice(0, 10);
+
+export const formatBusinessDateKey = (dateKey: string): string =>
+  new Date(`${dateKey}T00:00:00Z`).toLocaleDateString("de-DE", {
+    timeZone: "UTC",
+  });
+
+export const getCancellationDeadline = (contract: Contract): string | null => {
   if (!contract.end_date) return null;
-  return new Date(
-    parseApiDate(contract.end_date).getTime() -
-      (contract.notice_period ?? DEFAULT_NOTICE_PERIOD) * DAY_MS,
+  const timeZone = contract.business_timezone || DEFAULT_BUSINESS_TIMEZONE;
+  const endDateKey = businessDateKey(contract.end_date, timeZone);
+  return calendarDayToDateKey(
+    dateKeyToCalendarDay(endDateKey) -
+      (contract.notice_period ?? DEFAULT_NOTICE_PERIOD),
   );
 };
 
@@ -81,7 +98,7 @@ export const getDaysUntilCancellation = (contract: Contract): number => {
   const deadline = getCancellationDeadline(contract);
   if (!deadline) return Number.POSITIVE_INFINITY;
   const timeZone = contract.business_timezone || DEFAULT_BUSINESS_TIMEZONE;
-  return calendarDay(deadline, timeZone) - calendarDay(new Date(), timeZone);
+  return dateKeyToCalendarDay(deadline) - calendarDay(new Date(), timeZone);
 };
 
 export const getContractState = (contract: Contract): ContractState => {
@@ -116,7 +133,7 @@ export const getContractState = (contract: Contract): ContractState => {
     return {
       key: "attention",
       label: days < 0 ? "Frist verpasst" : `${days} Tage`,
-      deadline: `Kündbar bis ${formatContractDate(deadline.toISOString(), timeZone)}`,
+      deadline: `Kündbar bis ${formatBusinessDateKey(deadline)}`,
       tone: "text-amber-200 bg-amber-300/10 border-amber-300/20",
       icon: FiAlertTriangle,
     };
@@ -125,7 +142,7 @@ export const getContractState = (contract: Contract): ContractState => {
   return {
     key: "active",
     label: "Aktiv",
-    deadline: `Kündbar bis ${formatContractDate(deadline.toISOString(), timeZone)}`,
+    deadline: `Kündbar bis ${formatBusinessDateKey(deadline)}`,
     tone: "text-[#b8f15a] bg-[#b8f15a]/10 border-[#b8f15a]/15",
     icon: FiCheckCircle,
   };

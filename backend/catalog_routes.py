@@ -8,7 +8,13 @@ from sqlmodel import Session, col, delete, select
 from api_core import check_contract_permission, get_current_user, require_admin
 from database import get_session
 from models import AuditLog, Contract, ContractTagLink, Tag, User
-from schemas import AuditLogRead, TagCreate, TagRead, TagUpdate
+from schemas import (
+    AuditLogRead,
+    ContractAuditLogRead,
+    TagCreate,
+    TagRead,
+    TagUpdate,
+)
 from security_utils import log_audit
 
 router = APIRouter()
@@ -144,7 +150,10 @@ def get_audit_logs(current_user: User = Depends(get_current_user), session: Sess
         logs.append(l_dict)
     return logs
 
-@router.get("/contracts/{contract_id}/audit", response_model=List[AuditLogRead])
+@router.get(
+    "/contracts/{contract_id}/audit",
+    response_model=List[ContractAuditLogRead],
+)
 def get_contract_audit_logs(
     contract_id: int, 
     current_user: User = Depends(get_current_user), 
@@ -165,11 +174,18 @@ def get_contract_audit_logs(
         .limit(CONTRACT_AUDIT_LOG_LIMIT)
     ).all()
     
-    logs = []
+    logs: list[dict[str, object]] = []
     for log, user in results:
-        l_dict = log.model_dump()
-        l_dict["username"] = user.username if user else "Unknown"
-        logs.append(l_dict)
+        logs.append(
+            {
+                "id": log.id,
+                "user_id": log.user_id,
+                "username": user.username if user else "Unknown",
+                "action": log.action,
+                "details": log.details,
+                "timestamp": log.timestamp,
+            }
+        )
     return logs
 
 

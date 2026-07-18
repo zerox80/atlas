@@ -1,7 +1,7 @@
 """Business-timezone boundaries and SQL date expressions."""
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -46,8 +46,49 @@ def business_month_bounds_utc(now: datetime) -> tuple[datetime, datetime]:
 def cancellation_day(end_date_column, notice_period_column):
     notice_period = func.coalesce(notice_period_column, 30)
     if IS_SQLITE:
-        return func.julianday(end_date_column) - notice_period
+        return func.business_cancellation_julianday(
+            end_date_column,
+            notice_period_column,
+        )
     return end_date_column - (notice_period * literal(timedelta(days=1)))
+
+
+def sqlite_business_cancellation_julianday(
+    end_date_value: object,
+    notice_period_value: object,
+) -> float | None:
+    """Return the UTC Julian day for a local-calendar cancellation deadline."""
+    if end_date_value is None:
+        return None
+
+    if isinstance(end_date_value, datetime):
+        end_date = end_date_value
+    else:
+        try:
+            end_date = datetime.fromisoformat(
+                str(end_date_value).replace("Z", "+00:00")
+            )
+        except ValueError:
+            return None
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
+
+    try:
+        notice_period = (
+            int(notice_period_value) if notice_period_value is not None else 30
+        )
+    except (TypeError, ValueError, OverflowError):
+        notice_period = 30
+
+    local_end_date = end_date.astimezone(BUSINESS_TIMEZONE).date()
+    local_deadline_date = local_end_date - timedelta(days=notice_period)
+    local_deadline = datetime.combine(
+        local_deadline_date,
+        time.min,
+        tzinfo=BUSINESS_TIMEZONE,
+    )
+    deadline_utc = local_deadline.astimezone(timezone.utc)
+    return deadline_utc.timestamp() / 86_400 + 2_440_587.5
 
 
 def cancellation_boundary(value):

@@ -1,6 +1,7 @@
 """Authentication, session, CSRF token, and two-factor routes."""
 
 import io
+import os
 from datetime import timedelta
 from typing import Annotated
 
@@ -27,6 +28,31 @@ from security_utils import log_audit
 
 router = APIRouter()
 
+
+def _reject_cross_site_login(request: Request) -> None:
+    """Prevent browsers from replacing a user's session through login CSRF."""
+    origin = request.headers.get("origin")
+    normalized_origin = origin.rstrip("/").lower() if origin else None
+    request_origin = str(request.base_url).rstrip("/").lower()
+    configured_origins = {
+        value.strip().rstrip("/").lower()
+        for value in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+        if value.strip()
+    }
+    allowed_origins = configured_origins | {request_origin}
+
+    if normalized_origin and normalized_origin not in allowed_origins:
+        raise HTTPException(
+            status_code=403,
+            detail="Cross-site login is not allowed",
+        )
+    if not origin and request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+        raise HTTPException(
+            status_code=403,
+            detail="Cross-site login is not allowed",
+        )
+
+
 @router.post("/token")
 @limiter.limit(RATE_LIMIT_LOGIN)
 def login_for_access_token(
@@ -35,6 +61,7 @@ def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()], 
     session: Session = Depends(get_session)
 ):
+    _reject_cross_site_login(request)
     user = session.exec(select(User).where(User.username == form_data.username)).first()
     
     # Mitigation against Timing Attacks:

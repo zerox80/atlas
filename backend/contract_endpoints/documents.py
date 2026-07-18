@@ -99,7 +99,13 @@ async def create_contract(
     )
 
     try:
-        contract.tags.extend(resolve_tags(session, contract_data.tags or []))
+        contract.tags.extend(
+            resolve_tags(
+                session,
+                contract_data.tags or [],
+                allow_create=current_user.role == "admin",
+            )
+        )
         session.add(contract)
         session.flush()
         if current_user.id is None or contract.id is None:
@@ -275,7 +281,11 @@ async def update_contract(
             new_tags = update_data.tags or []
             if set(old_tags) != set(new_tags):
                 changes.append(f"tags: {old_tags} -> {new_tags}")
-                contract.tags = resolve_tags(session, new_tags)
+                contract.tags = resolve_tags(
+                    session,
+                    new_tags,
+                    allow_create=current_user.role == "admin",
+                )
 
         if changes:
             claim_result = session.exec(

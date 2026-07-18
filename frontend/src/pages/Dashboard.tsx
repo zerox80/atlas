@@ -28,6 +28,7 @@ import { queryKeys } from "../queryKeys";
 import { formatGermanNumber } from "../utils/formatUtils";
 import {
   DEFAULT_BUSINESS_TIMEZONE,
+  formatBusinessDateKey,
   formatContractDate,
   getCancellationDeadline,
   getDaysUntilCancellation,
@@ -258,7 +259,7 @@ const Dashboard: React.FC = () => {
                         {contract.title}
                       </strong>
                       <small className="mt-1 block text-xs muted">
-                        Kündbar bis {dateLabel(cancellationDeadline.toISOString(), contract.business_timezone ?? businessTimezone)}
+                        Kündbar bis {formatBusinessDateKey(cancellationDeadline)}
                       </small>
                     </span>
                     <FiArrowRight className="text-[#505a69]" />

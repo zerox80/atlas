@@ -98,7 +98,7 @@ const Calendar: React.FC = () => {
         addEvent(endDateKey, { type: "end", label: "Ende", contract });
         const cancellationDeadline = getCancellationDeadline(contract);
         if (cancellationDeadline) {
-          addEvent(businessDateKey(cancellationDeadline, contractTimezone), {
+          addEvent(cancellationDeadline, {
             type: "notice",
             label: "Kündigen",
             contract,
