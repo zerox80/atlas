@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, render } from "../test/utils";
+import type { Contract } from "../types";
 import Invoices from "./Invoices";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn() }));
@@ -7,7 +8,7 @@ const mocks = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("../api", () => ({
   default: { get: mocks.get },
   fetchContractPage: () =>
-    mocks.get().then((response) => {
+    mocks.get().then((response: { data: Contract[] }) => {
       const items = response.data;
       const totalValue = items.reduce(
         (sum: number, item: { value?: number | null }) =>

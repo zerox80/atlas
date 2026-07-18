@@ -496,6 +496,5 @@ def main() -> None:
         print(f"Lokale CA für die Client-Vertrauensstellung: {ca_cert}")
         print("Den privaten CA-Schlüssel niemals vom Server kopieren.")
 
-
 if __name__ == "__main__":
     main()
