@@ -71,6 +71,10 @@ const PermissionModal: React.FC<PermissionModalProps> = ({
   );
 
   useEffect(() => {
+    if (!isOpen) setContractSearch("");
+  }, [isOpen]);
+
+  useEffect(() => {
     if (contractId !== 0 && !contracts.some((contract) => contract.id === contractId)) {
       setContractId(0);
     }

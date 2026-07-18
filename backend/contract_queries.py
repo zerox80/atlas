@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func, literal, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
 
@@ -138,7 +138,14 @@ def _business_month_bounds_utc(now: datetime) -> tuple[datetime, datetime]:
 
 
 def _cancellation_day(end_date_column, notice_period_column):
-    return func.julianday(end_date_column) - func.coalesce(notice_period_column, 30)
+    notice_period = func.coalesce(notice_period_column, 30)
+    if IS_SQLITE:
+        return func.julianday(end_date_column) - notice_period
+    return end_date_column - (notice_period * literal(timedelta(days=1)))
+
+
+def _cancellation_boundary(value):
+    return func.julianday(value) if IS_SQLITE else value
 
 
 def _contract_state_condition(
@@ -156,11 +163,11 @@ def _contract_state_condition(
         return (
             end_date_column.is_not(None)
             & (end_date_column >= today_start)
-            & (cancellation_day < func.julianday(attention_end_exclusive))
+            & (cancellation_day < _cancellation_boundary(attention_end_exclusive))
         )
     return end_date_column.is_(None) | (
         (end_date_column >= today_start)
-        & (cancellation_day >= func.julianday(attention_end_exclusive))
+        & (cancellation_day >= _cancellation_boundary(attention_end_exclusive))
     )
 
 
@@ -483,8 +490,8 @@ def read_contract_dashboard(
                             is_contract
                             & scope.c.end_date.is_not(None)
                             & (scope.c.end_date >= today_start)
-                            & (cancellation_day >= func.julianday(today_start))
-                            & (cancellation_day < func.julianday(deadline_end_exclusive)),
+                            & (cancellation_day >= _cancellation_boundary(today_start))
+                            & (cancellation_day < _cancellation_boundary(deadline_end_exclusive)),
                             1,
                         ),
                         else_=0,
@@ -566,8 +573,8 @@ def read_contract_dashboard(
         .where(
             col(Contract.end_date).is_not(None),
             col(Contract.end_date) >= today_start,
-            upcoming_cancellation_day >= func.julianday(today_start),
-            upcoming_cancellation_day < func.julianday(deadline_end_exclusive),
+            upcoming_cancellation_day >= _cancellation_boundary(today_start),
+            upcoming_cancellation_day < _cancellation_boundary(deadline_end_exclusive),
         )
         .order_by(upcoming_cancellation_day.asc(), col(Contract.id).asc())
         .limit(5)
@@ -635,8 +642,8 @@ def read_contract_calendar(
                 (col(Contract.end_date) >= start) & (col(Contract.end_date) < end),
                 (
                     col(Contract.end_date).is_not(None)
-                    & (cancellation_day >= func.julianday(start))
-                    & (cancellation_day < func.julianday(end))
+                    & (cancellation_day >= _cancellation_boundary(start))
+                    & (cancellation_day < _cancellation_boundary(end))
                 ),
             )
         )
@@ -799,7 +806,7 @@ def parse_date_form(val: Optional[str]) -> Optional[datetime]:
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid date format")
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=BUSINESS_TIMEZONE)
     return parsed.astimezone(timezone.utc)
 
 def parse_float_form(val: Optional[str]) -> Optional[float]:

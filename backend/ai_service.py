@@ -19,6 +19,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Any
 
+from ai_errors import InvalidStructuredAIResponse
 from ai_prompts import (
     CONTRACT_ANALYSIS_SYSTEM_PROMPT,
     CONTRACT_ANALYSIS_PROMPT,
@@ -388,21 +389,31 @@ async def analyze_contract_pdf(pdf_bytes: bytes, document_type: str = "contract"
             value,
             parse_constant=reject_json_constant,
         )
-        return parsed if isinstance(parsed, dict) else {}
+        if not isinstance(parsed, dict):
+            raise InvalidStructuredAIResponse(
+                "AI analysis response must be a JSON object"
+            )
+        return parsed
 
     # Parse JSON response
     try:
         result = parse_json_object(response_content)
-    except (json.JSONDecodeError, ValueError):
+    except InvalidStructuredAIResponse:
+        raise
+    except (json.JSONDecodeError, ValueError) as parse_error:
         # Try to extract JSON from response if wrapped in markdown
         json_match = re.search(r'\{[\s\S]*\}', response_content)
         if json_match:
             try:
                 result = parse_json_object(json_match.group())
-            except (json.JSONDecodeError, ValueError):
-                result = {}
+            except (json.JSONDecodeError, ValueError) as fallback_error:
+                raise InvalidStructuredAIResponse(
+                    "AI analysis returned invalid structured data"
+                ) from fallback_error
         else:
-            result = {}
+            raise InvalidStructuredAIResponse(
+                "AI analysis returned invalid structured data"
+            ) from parse_error
     
     # Ensure all expected keys exist
     defaults: dict = {

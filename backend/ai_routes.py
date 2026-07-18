@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
+from ai_errors import InvalidStructuredAIResponse
 from api_core import (
     MISTRAL_DOCUMENT_PROCESSING_ENABLED,
     check_contract_permission,
@@ -171,7 +172,7 @@ async def analyze_contract_pdf(
 
         result = await analyze_pdf(pdf_bytes, document_type=document_type)
         return ContractAnalysisResult(**result)
-    except ValidationError:
+    except (ValidationError, InvalidStructuredAIResponse):
         logger.warning("AI contract analysis returned invalid structured data")
         raise HTTPException(
             status_code=502,

@@ -10,7 +10,7 @@ import type {
   DocumentType,
 } from "../types";
 import { getApiErrorMessage } from "../utils/errorUtils";
-import { dateInputToUtcIso } from "../utils/apiDate";
+import { dateInputToApiDate } from "../utils/apiDate";
 import { businessDateKey } from "../utils/contractPresentation";
 import { invalidateDocumentAndTagQueries } from "../queryKeys";
 import { formatGermanNumber, parseGermanNumber } from "../utils/formatUtils";
@@ -27,8 +27,12 @@ interface UploadModalProps {
   documentType?: DocumentType;
 }
 
-const dateForInput = (value?: string | null, timeZone?: string) =>
-  value ? businessDateKey(value, timeZone) : "";
+const dateForInput = (value?: string | null, timeZone?: string) => {
+  if (!value) return "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : businessDateKey(value, timeZone);
+};
 
 const UploadModal: React.FC<UploadModalProps> = ({
   isOpen,
@@ -193,11 +197,11 @@ const UploadModal: React.FC<UploadModalProps> = ({
       formData.append("tags", tags || "");
       formData.append(
         "start_date",
-        dateInputToUtcIso(startDate),
+        dateInputToApiDate(startDate),
       );
       formData.append(
         "end_date",
-        dateInputToUtcIso(endDate),
+        dateInputToApiDate(endDate),
       );
       if (!initialData)
         formData.append("document_type", isInvoice ? "invoice" : "contract");

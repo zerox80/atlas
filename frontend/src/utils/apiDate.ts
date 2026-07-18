@@ -15,5 +15,8 @@ export const parseApiDate = (value: string): Date => {
   return new Date(normalized);
 };
 
-export const dateInputToUtcIso = (value: string): string =>
-  value ? `${value}T00:00:00.000Z` : "";
+/**
+ * Keep an HTML date input as a calendar date. The API resolves timezone-less
+ * values against the configured business timezone before storing UTC.
+ */
+export const dateInputToApiDate = (value: string): string => value;
