@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FiX, FiActivity, FiUser } from "react-icons/fi";
 import api from "../api";
+import { parseApiDate } from "../utils/apiDate";
 
 interface AuditLog {
   id: number;
@@ -115,7 +116,7 @@ export default function AuditModal({
                         className="transition-colors hover:bg-white/[0.025]"
                       >
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {new Date(log.timestamp).toLocaleString("de-DE")}
+                          {parseApiDate(log.timestamp).toLocaleString("de-DE")}
                         </td>
                         <td className="flex items-center gap-2 px-6 py-4 text-white">
                           <div className="rounded-full bg-white/[0.07] p-1">

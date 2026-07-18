@@ -1,5 +1,5 @@
-import React from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import React, { useMemo } from "react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   FiAlertCircle,
@@ -8,11 +8,16 @@ import {
   FiShield,
   FiUnlock,
 } from "react-icons/fi";
-import { fetchAllContracts, toggleContractProtection } from "../api";
-import type { Contract } from "../types";
+import {
+  fetchContractPage,
+  type ContractCursor,
+  toggleContractProtection,
+} from "../api";
+import type { Contract, ContractPage } from "../types";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import { getApiErrorMessage } from "../utils/errorUtils";
 import { invalidateDocumentQueries, queryKeys } from "../queryKeys";
+import { formatContractDate } from "../utils/contractPresentation";
 
 const money = (value?: number | null) =>
   value == null
@@ -23,12 +28,36 @@ const ProtectedContracts: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const {
-    data: contracts = [],
+    data: contractPages,
     error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
     isLoading,
-  } = useQuery<Contract[], unknown>(queryKeys.protectedContracts, () =>
-    fetchAllContracts({ is_protected: true }),
+  } = useInfiniteQuery<ContractPage, unknown>(
+    queryKeys.protectedContractPage,
+    ({ pageParam }) =>
+      fetchContractPage(
+        { is_protected: true, limit: 48 },
+        pageParam as ContractCursor | undefined,
+      ),
+    {
+      getNextPageParam: (lastPage) =>
+        lastPage.has_more &&
+        lastPage.next_cursor_uploaded_at &&
+        lastPage.next_cursor_id
+          ? {
+              uploadedAt: lastPage.next_cursor_uploaded_at,
+              id: lastPage.next_cursor_id,
+            }
+          : undefined,
+    },
   );
+  const contracts = useMemo(
+    () => contractPages?.pages.flatMap((page) => page.items) ?? [],
+    [contractPages],
+  );
+  const protectedCount = contractPages?.pages[0]?.summary?.all ?? 0;
 
   const errorMessage = error
     ? getApiErrorMessage(
@@ -38,10 +67,14 @@ const ProtectedContracts: React.FC = () => {
     : null;
 
   const handleUnprotect = async (contract: Contract) => {
+    if (contract.version === undefined) {
+      alert("Die Dokumentversion fehlt. Bitte lade die Ansicht neu.");
+      return;
+    }
     if (!window.confirm(`Schutz für „${contract.title}“ wirklich aufheben?`))
       return;
     try {
-      await toggleContractProtection(contract.id);
+      await toggleContractProtection(contract.id, contract.version);
       await invalidateDocumentQueries(queryClient);
     } catch (mutationError: unknown) {
       alert(
@@ -64,7 +97,7 @@ const ProtectedContracts: React.FC = () => {
         description="Ein kontrollierter Bereich für Dokumente mit Löschschutz und erhöhten Zugriffsanforderungen."
         actions={
           <span className="chip border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-200">
-            <FiShield /> {contracts.length} geschützt
+            <FiShield /> {protectedCount} geschützt
           </span>
         }
       />
@@ -128,7 +161,7 @@ const ProtectedContracts: React.FC = () => {
                   <dt className="eyebrow">Laufzeitende</dt>
                   <dd className="mt-2 text-sm font-semibold">
                     {contract.end_date
-                      ? new Date(contract.end_date).toLocaleDateString("de-DE")
+                      ? formatContractDate(contract.end_date, contract.business_timezone)
                       : "Unbefristet"}
                   </dd>
                 </div>
@@ -155,7 +188,7 @@ const ProtectedContracts: React.FC = () => {
             </article>
           ))}
         </section>
-      ) : (
+      ) : errorMessage ? null : (
         <EmptyState
           icon={FiShield}
           title="Der Vault ist leer"
@@ -169,6 +202,18 @@ const ProtectedContracts: React.FC = () => {
             </button>
           }
         />
+      )}
+
+      {hasNextPage && (
+        <div className="mt-5 flex justify-center">
+          <button
+            className="btn-secondary"
+            disabled={isFetchingNextPage}
+            onClick={() => void fetchNextPage()}
+          >
+            {isFetchingNextPage ? "Weitere Dokumente werden geladen…" : "Mehr Dokumente laden"}
+          </button>
+        </div>
       )}
     </div>
   );

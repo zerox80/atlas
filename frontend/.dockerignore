@@ -1,0 +1,29 @@
+# Version control and local tooling
+.git
+.gitignore
+.dockerignore
+.idea
+.vscode
+
+# Host dependencies and generated output
+node_modules
+dist
+coverage
+.vite
+.eslintcache
+*.tsbuildinfo
+*.log
+
+# Keep Vite mode files such as .env.production as explicit build inputs.
+# Local override files can contain machine-specific credentials.
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Local operating-system metadata
+.DS_Store
+Thumbs.db

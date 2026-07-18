@@ -1,20 +1,17 @@
 import React, { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { FiPlus } from "react-icons/fi";
-import api, { fetchAllContracts } from "../api";
+import { FiFileText, FiPlus } from "react-icons/fi";
+import api, { fetchContractPage, type ContractCursor } from "../api";
 import UploadModal from "../components/UploadModal";
-import { LoadingState, PageHeader } from "../components/ui";
+import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import InvoiceArchive from "../features/invoices/InvoiceArchive";
 import InvoiceStats from "../features/invoices/InvoiceStats";
-import { getInvoiceStats } from "../features/invoices/invoiceStats";
 import { downloadDocument } from "../features/documents/downloadDocument";
-import {
-  getListIdFromSearchParams,
-  matchesDocumentSearch,
-} from "../features/documents/documentUtils";
+import { getListIdFromSearchParams } from "../features/documents/documentUtils";
 import { invalidateListAndDocumentQueries, queryKeys } from "../queryKeys";
-import type { Contract } from "../types";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import type { Contract, ContractPage } from "../types";
 
 const Invoices: React.FC = () => {
   const queryClient = useQueryClient();
@@ -24,22 +21,48 @@ const Invoices: React.FC = () => {
   const [editingInvoice, setEditingInvoice] = useState<Contract | null>(null);
   const [search, setSearch] = useState("");
 
-  const { data: invoices = [], isLoading } = useQuery<Contract[]>(
-    queryKeys.invoicesForList(listId),
-    () =>
-      fetchAllContracts({
-        document_type: "invoice",
-        sort_by: "uploaded_at",
-        sort_order: "desc",
-        ...(listId ? { list_id: listId } : {}),
-      }),
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const {
+    data: invoicePages,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isError,
+    isLoading,
+  } = useInfiniteQuery<ContractPage, unknown>(
+    queryKeys.invoicePage(listId, debouncedSearch),
+    ({ pageParam }) =>
+      fetchContractPage(
+        {
+          document_type: "invoice",
+          limit: 50,
+          ...(debouncedSearch ? { q: debouncedSearch } : {}),
+          ...(listId ? { list_id: listId } : {}),
+        },
+        pageParam as ContractCursor | undefined,
+      ),
+    {
+      getNextPageParam: (lastPage) =>
+        lastPage.has_more &&
+        lastPage.next_cursor_uploaded_at &&
+        lastPage.next_cursor_id
+          ? {
+              uploadedAt: lastPage.next_cursor_uploaded_at,
+              id: lastPage.next_cursor_id,
+            }
+          : undefined,
+    },
   );
 
-  const filteredInvoices = useMemo(
-    () => invoices.filter((invoice) => matchesDocumentSearch(invoice, search)),
-    [invoices, search],
+  const invoices = useMemo(
+    () => invoicePages?.pages.flatMap((page) => page.items) ?? [],
+    [invoicePages],
   );
-  const stats = getInvoiceStats(invoices);
+  const summary = invoicePages?.pages[0]?.summary;
+  const stats = {
+    total: summary?.total_value ?? 0,
+    currentMonthTotal: summary?.current_month_value ?? 0,
+  };
 
   const openUpload = (invoice: Contract | null = null) => {
     setEditingInvoice(invoice);
@@ -47,6 +70,10 @@ const Invoices: React.FC = () => {
   };
 
   const handleDelete = async (invoice: Contract) => {
+    if (invoice.version === undefined) {
+      alert("Die Dokumentversion fehlt. Bitte lade die Ansicht neu.");
+      return;
+    }
     if (invoice.is_protected) {
       alert(
         "Diese Rechnung ist geschützt. Bitte heben Sie zuerst den Schutz auf.",
@@ -58,7 +85,9 @@ const Invoices: React.FC = () => {
     }
 
     try {
-      await api.delete(`/contracts/${invoice.id}`);
+      await api.delete(`/contracts/${invoice.id}`, {
+        params: { version: invoice.version },
+      });
       await invalidateListAndDocumentQueries(queryClient);
     } catch {
       alert("Die Rechnung konnte nicht gelöscht werden.");
@@ -74,6 +103,16 @@ const Invoices: React.FC = () => {
   };
 
   if (isLoading) return <LoadingState label="Rechnungen werden geladen" />;
+  if (isError)
+    return (
+      <div className="app-page">
+        <EmptyState
+          icon={FiFileText}
+          title="Rechnungen konnten nicht geladen werden"
+          description="Bitte versuche es erneut."
+        />
+      </div>
+    );
 
   return (
     <div className="app-page">
@@ -88,9 +127,9 @@ const Invoices: React.FC = () => {
         }
       />
 
-      <InvoiceStats invoiceCount={invoices.length} stats={stats} />
+      <InvoiceStats invoiceCount={summary?.all ?? 0} stats={stats} />
       <InvoiceArchive
-        invoices={filteredInvoices}
+        invoices={invoices}
         onCreate={() => openUpload()}
         onDelete={handleDelete}
         onDownload={handleDownload}
@@ -98,6 +137,20 @@ const Invoices: React.FC = () => {
         onSearchChange={setSearch}
         searchQuery={search}
       />
+
+      {hasNextPage && (
+        <div className="mt-5 flex justify-center">
+          <button
+            className="btn-secondary"
+            disabled={isFetchingNextPage}
+            onClick={() => void fetchNextPage()}
+          >
+            {isFetchingNextPage
+              ? "Weitere Rechnungen werden geladen…"
+              : "Mehr Rechnungen laden"}
+          </button>
+        </div>
+      )}
 
       <UploadModal
         isOpen={isUploadOpen}

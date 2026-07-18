@@ -32,7 +32,7 @@ from contract_queries import router as contract_query_router
 from contract_routes import router as contract_router
 from database import create_db_and_tables, get_session
 from list_routes import router as list_router
-from migrate_db import migrate
+from migrate_db import get_default_db_path, migrate
 from models import Contract, Tag, User
 from security_utils import log_audit
 
@@ -87,11 +87,15 @@ async def csrf_protection_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 def on_startup():
-    # Docker runs this before Uvicorn as well; migration records make the second
-    # invocation a no-op.  Calling it here keeps local Uvicorn deployments from
-    # serving an outdated SQLite schema.
-    if os.getenv("DATABASE_URL", "sqlite:///./data/ze_dashboard.db").startswith("sqlite:///"):
-        migrate()
+    database_url = os.getenv("DATABASE_URL", "sqlite:///./data/ze_dashboard.db")
+    if database_url.startswith("sqlite:///"):
+        database_path = get_default_db_path()
+        # A genuinely fresh database needs the current tables before the
+        # migration ledger can backfill indexes. Existing schemas must migrate
+        # before create_all sees columns introduced by those migrations.
+        if not os.path.exists(database_path) or os.path.getsize(database_path) == 0:
+            create_db_and_tables()
+        migrate(database_path)
     create_db_and_tables()
     with next(get_session()) as session:
         bootstrap_admin_user(session)

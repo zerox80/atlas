@@ -23,6 +23,22 @@ from security_utils import log_audit
 
 router = APIRouter()
 
+
+def _increment_token_version(session: Session, user: User) -> None:
+    """Atomically revoke the user's issued JWTs and expire stale ORM state."""
+    if user.id is None:
+        raise RuntimeError("Cannot revoke sessions for a user without an ID")
+
+    session.flush()
+    session.exec(
+        update(User)
+        .where(User.id == user.id)
+        .values(token_version=User.token_version + 1)
+        .execution_options(synchronize_session=False)
+    )
+    session.expire(user, ["token_version"])
+
+
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user)):
     """Get current authenticated user info"""
@@ -114,6 +130,7 @@ def update_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     changes = []
+    password_changed = False
 
     if user.id == admin.id:
         if user_data.role is not None and user_data.role != "admin":
@@ -138,6 +155,7 @@ def update_user(
     
     if user_data.password is not None:
         user.hashed_password = get_password_hash(user_data.password)
+        password_changed = True
         changes.append("password: updated")
     
     if user_data.role is not None and user_data.role != user.role:
@@ -151,6 +169,8 @@ def update_user(
     
     if changes:
         session.add(user)
+        if password_changed:
+            _increment_token_version(session, user)
         log_audit(
             session,
             admin.id,
@@ -228,6 +248,7 @@ def update_user_password(
 
     user.hashed_password = get_password_hash(password_data.password)
     session.add(user)
+    _increment_token_version(session, user)
     log_audit(
         session,
         admin.id,
@@ -378,14 +399,19 @@ def delete_permission(
     contract = session.get(Contract, perm.contract_id)
     
     session.delete(perm)
+    log_audit(
+        session,
+        admin.id,
+        "DELETE_PERMISSION",
+        (
+            f"Revoked permission from '{user.username if user else 'Unknown'}' "
+            f"for contract '{contract.title if contract else 'Unknown'}'"
+        ),
+        request.client.host if request.client else "unknown",
+        request.headers.get("user-agent"),
+        commit=False,
+    )
     session.commit()
-    
-    log_audit(session, admin.id, "DELETE_PERMISSION", 
-              (
-                  f"Revoked permission from '{user.username if user else 'Unknown'}' "
-                  f"for contract '{contract.title if contract else 'Unknown'}'"
-              ),
-              request.client.host if request.client else "unknown", request.headers.get("user-agent"))
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

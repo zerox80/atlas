@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
+from uuid import uuid4
 
 from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
@@ -21,12 +22,20 @@ class Tag(SQLModel, table=True):
 
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    auth_subject: str = Field(
+        default_factory=lambda: str(uuid4()),
+        index=True,
+        unique=True,
+        nullable=False,
+    )
     username: str = Field(index=True, unique=True)
     hashed_password: str
     role: str = Field(default="user") # 'admin' or 'user'
     totp_secret: Optional[str] = None # Active 2FA secret
     pending_totp_secret: Optional[str] = None # Secret waiting for first OTP verification
     is_active: bool = Field(default=True)  # Account status managed through user editing
+    # Incrementing this value invalidates every JWT issued with the previous value.
+    token_version: int = Field(default=0, nullable=False)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

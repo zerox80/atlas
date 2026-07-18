@@ -11,16 +11,24 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Request,
     Response,
     UploadFile,
     status,
 )
 from fastapi.responses import FileResponse
+from limits import parse
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, col, delete, select
+from slowapi.util import get_remote_address
+from sqlmodel import Session, col, delete, select, update
 
-from api_core import check_contract_permission, contract_read_for_user, get_current_user
+from api_core import (
+    check_contract_permission,
+    contract_read_for_user,
+    get_current_user,
+    limiter,
+)
 from contract_queries import (
     parse_date_form,
     parse_float_form,
@@ -36,7 +44,19 @@ from security_utils import log_audit
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+UPLOAD_RATE_LIMIT = os.getenv("RATE_LIMIT_UPLOAD", "20/hour")
+UPLOAD_RATE_ITEM = parse(UPLOAD_RATE_LIMIT)
 
+
+def _enforce_upload_rate_limit(request: Request) -> None:
+    """Consume one shared upload quota unit for the trusted client address."""
+    client_address = get_remote_address(request)
+    if not limiter.limiter.hit(
+        UPLOAD_RATE_ITEM,
+        client_address,
+        "contract-upload",
+    ):
+        raise HTTPException(status_code=429, detail="Upload rate limit exceeded")
 
 def _resolve_tags(session: Session, tag_names: list[str]) -> list[Tag]:
     """Resolve tags without committing the caller's transaction."""
@@ -75,11 +95,12 @@ async def create_contract(
     annual_value: Annotated[Optional[str], Form()] = None,
     notice_period: Annotated[Optional[str], Form()] = "30",
     description: Annotated[Optional[str], Form()] = None,
-    tags: Annotated[Optional[str], Form()] = "",
+    tags: Annotated[Optional[str], Form(max_length=2_550)] = "",
     document_type: Annotated[str, Form()] = "contract",
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
+    _enforce_upload_rate_limit(request)
     parsed_notice_period = parse_int_form(notice_period)
     contract_data = validate_contract_form(
         ContractCreate,
@@ -141,12 +162,14 @@ async def create_contract(
             commit=False,
         )
         session.commit()
-        session.refresh(contract)
     except Exception:
         session.rollback()
         delete_upload_file(file_path)
         raise
 
+    # A refresh failure after a successful commit must never delete the file
+    # that the committed row now references.
+    session.refresh(contract)
     return contract_read_for_user(contract, current_user, session)
 
 @router.get("/contracts/{contract_id}/download")
@@ -204,6 +227,7 @@ def download_contract(
 async def update_contract(
     contract_id: int, 
     request: Request,
+    version: Annotated[int, Form(ge=1)],
     title: Annotated[Optional[str], Form()] = None,
     description: Annotated[Optional[str], Form()] = None,
     start_date: Annotated[Optional[str], Form()] = None,
@@ -211,7 +235,7 @@ async def update_contract(
     value: Annotated[Optional[str], Form()] = None,
     annual_value: Annotated[Optional[str], Form()] = None,
     notice_period: Annotated[Optional[str], Form()] = None,
-    tags: Annotated[Optional[str], Form()] = None,
+    tags: Annotated[Optional[str], Form(max_length=2_550)] = None,
     file: UploadFile = File(None),
     current_user: User = Depends(get_current_user), 
     session: Session = Depends(get_session)
@@ -223,6 +247,14 @@ async def update_contract(
     # Check permission (need at least "write" level)
     if not check_contract_permission(current_user, contract_id, "write", session):
         raise HTTPException(status_code=403, detail="You don't have permission to edit this contract")
+
+    expected_version = version
+    if expected_version != contract.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Contract was changed by another request; reload and retry",
+        )
+    session.autoflush = False
 
     parsed_value = parse_float_form(value)
     update_data = validate_contract_form(
@@ -260,10 +292,14 @@ async def update_contract(
 
     # Handle File Update
     if file:
+        _enforce_upload_rate_limit(request)
         # Validate and Save
         try:
             await validate_file(file)
-            new_file_path = await save_upload_file(file)
+            new_file_path = await save_upload_file(
+                file,
+                replaced_file_path=contract.file_path,
+            )
         except HTTPException:
             raise
         except Exception as error:
@@ -285,6 +321,21 @@ async def update_contract(
                 contract.tags = _resolve_tags(session, new_tags)
 
         if changes:
+            claim_result = session.exec(
+                update(Contract)
+                .where(
+                    col(Contract.id) == contract_id,
+                    col(Contract.version) == expected_version,
+                )
+                .values(version=expected_version + 1)
+                .execution_options(synchronize_session=False)
+            )
+            if claim_result.rowcount != 1:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Contract was changed by another request; reload and retry",
+                )
+            contract.version = expected_version + 1
             session.add(contract)
             diff_summary = "; ".join(changes)
             log_audit(
@@ -298,13 +349,16 @@ async def update_contract(
                 commit=False,
             )
             session.commit()
-            session.refresh(contract)
     except Exception:
         session.rollback()
         if new_file_path:
             delete_upload_file(new_file_path)
         raise
 
+    # Keep post-commit reads outside the rollback/file-cleanup path. A failed
+    # refresh cannot undo the transaction and the new file is now authoritative.
+    if changes:
+        session.refresh(contract)
     if old_file_path and old_file_path != contract.file_path:
         delete_upload_file(old_file_path)
     
@@ -314,6 +368,7 @@ async def update_contract(
 def delete_contract(
     contract_id: int, 
     request: Request,
+    version: Annotated[int, Query(ge=1)],
     current_user: User = Depends(get_current_user), 
     session: Session = Depends(get_session)
 ):
@@ -334,26 +389,55 @@ def delete_contract(
             ),
         )
     
-    # Save file path before deleting record
+    expected_version = version
+    if expected_version != contract.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Contract was changed by another request; reload and retry",
+        )
+
+    # Save immutable values from the version that the conditional delete claims.
     file_path_to_delete = contract.file_path
     contract_title = contract.title
 
-    session.exec(delete(ContractTagLink).where(col(ContractTagLink.contract_id) == contract_id))
-    session.exec(delete(ContractListLink).where(col(ContractListLink.contract_id) == contract_id))
-    session.exec(delete(ContractPermission).where(col(ContractPermission.contract_id) == contract_id))
-    client_host = request.client.host if request.client else "unknown"
-    log_audit(
-        session,
-        current_user.id,
-        "DELETE_CONTRACT",
-        f"[CID:{contract_id}] Deleted contract {contract_title}",
-        client_host,
-        request.headers.get("user-agent"),
-        contract_id=contract_id,
-        commit=False,
-    )
-    session.delete(contract)
-    session.commit()
+    try:
+        session.exec(delete(ContractTagLink).where(col(ContractTagLink.contract_id) == contract_id))
+        session.exec(delete(ContractListLink).where(col(ContractListLink.contract_id) == contract_id))
+        session.exec(delete(ContractPermission).where(col(ContractPermission.contract_id) == contract_id))
+        client_host = request.client.host if request.client else "unknown"
+        log_audit(
+            session,
+            current_user.id,
+            "DELETE_CONTRACT",
+            f"[CID:{contract_id}] Deleted contract {contract_title}",
+            client_host,
+            request.headers.get("user-agent"),
+            contract_id=contract_id,
+            commit=False,
+        )
+        session.exec(
+            update(Contract)
+            .where(col(Contract.parent_id) == contract_id)
+            .values(parent_id=None)
+        )
+        delete_result = session.exec(
+            delete(Contract)
+            .where(
+                col(Contract.id) == contract_id,
+                col(Contract.version) == expected_version,
+                col(Contract.is_protected).is_(False),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if delete_result.rowcount != 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Contract was changed or protected by another request; reload and retry",
+            )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
 
     # Delete file if exists (After commit checks pass)
     if file_path_to_delete:
@@ -367,6 +451,8 @@ def delete_contract(
 @router.put("/contracts/{contract_id}/toggle-protection", response_model=ContractRead)
 def toggle_contract_protection(
     contract_id: int,
+    request: Request,
+    version: Annotated[int, Query(ge=1)],
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
@@ -380,21 +466,47 @@ def toggle_contract_protection(
     # So "full" permission or Admin is fine, but the UI flow prevents accidental delete.
     if not check_contract_permission(current_user, contract_id, "full", session):
         raise HTTPException(status_code=403, detail="You don't have permission to modify protection status")
-        
-    contract.is_protected = not contract.is_protected
-    action = "PROTECTED" if contract.is_protected else "UNPROTECTED"
-    log_audit(
-        session, 
-        current_user.id, 
-        f"CONTRACT_{action}", 
-        f"[CID:{contract_id}] Contract {action}", 
-        "unknown",
-        "unknown",
-        contract_id=contract_id,
-        commit=False,
-    )
-    session.add(contract)
-    session.commit()
+
+    expected_version = version
+    if expected_version != contract.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Contract was changed by another request; reload and retry",
+        )
+    next_protection = not contract.is_protected
+    try:
+        claim_result = session.exec(
+            update(Contract)
+            .where(
+                col(Contract.id) == contract_id,
+                col(Contract.version) == expected_version,
+            )
+            .values(
+                is_protected=next_protection,
+                version=expected_version + 1,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if claim_result.rowcount != 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Contract was changed by another request; reload and retry",
+            )
+        action = "PROTECTED" if next_protection else "UNPROTECTED"
+        log_audit(
+            session,
+            current_user.id,
+            f"CONTRACT_{action}",
+            f"[CID:{contract_id}] Contract {action}",
+            request.client.host if request.client else "unknown",
+            request.headers.get("user-agent", "unknown"),
+            contract_id=contract_id,
+            commit=False,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     session.refresh(contract)
     
     return contract_read_for_user(contract, current_user, session)

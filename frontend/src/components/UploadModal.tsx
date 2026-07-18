@@ -10,6 +10,8 @@ import type {
   DocumentType,
 } from "../types";
 import { getApiErrorMessage } from "../utils/errorUtils";
+import { dateInputToUtcIso } from "../utils/apiDate";
+import { businessDateKey } from "../utils/contractPresentation";
 import { invalidateDocumentAndTagQueries } from "../queryKeys";
 import { formatGermanNumber, parseGermanNumber } from "../utils/formatUtils";
 import UploadSourcePanel, {
@@ -25,14 +27,8 @@ interface UploadModalProps {
   documentType?: DocumentType;
 }
 
-const dateForInput = (value?: string | null) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-};
+const dateForInput = (value?: string | null, timeZone?: string) =>
+  value ? businessDateKey(value, timeZone) : "";
 
 const UploadModal: React.FC<UploadModalProps> = ({
   isOpen,
@@ -71,8 +67,12 @@ const UploadModal: React.FC<UploadModalProps> = ({
     );
     setTags(initialData?.tags.map((tag) => tag.name).join(", ") || "");
     setNoticePeriod(initialData?.notice_period?.toString() || "");
-    setStartDate(dateForInput(initialData?.start_date));
-    setEndDate(dateForInput(initialData?.end_date));
+    setStartDate(
+      dateForInput(initialData?.start_date, initialData?.business_timezone),
+    );
+    setEndDate(
+      dateForInput(initialData?.end_date, initialData?.business_timezone),
+    );
     setFile(null);
     setFileError("");
   }, [isOpen, initialData]);
@@ -125,8 +125,8 @@ const UploadModal: React.FC<UploadModalProps> = ({
       if (data.value != null) setValue(formatGermanNumber(data.value));
       if (data.annual_value != null)
         setAnnualValue(formatGermanNumber(data.annual_value));
-      if (data.start_date) setStartDate(data.start_date);
-      if (data.end_date) setEndDate(data.end_date);
+      if (data.start_date) setStartDate(dateForInput(data.start_date));
+      if (data.end_date) setEndDate(dateForInput(data.end_date));
       setNoticePeriod(
         data.notice_period != null ? data.notice_period.toString() : "",
       );
@@ -193,14 +193,20 @@ const UploadModal: React.FC<UploadModalProps> = ({
       formData.append("tags", tags || "");
       formData.append(
         "start_date",
-        startDate ? new Date(startDate).toISOString() : "",
+        dateInputToUtcIso(startDate),
       );
       formData.append(
         "end_date",
-        endDate ? new Date(endDate).toISOString() : "",
+        dateInputToUtcIso(endDate),
       );
       if (!initialData)
         formData.append("document_type", isInvoice ? "invoice" : "contract");
+      if (initialData) {
+        if (initialData.version === undefined)
+          throw new Error("Die Dokumentversion fehlt. Bitte lade die Ansicht neu.");
+        formData.append("version", initialData.version.toString());
+      }
+
 
       if (initialData)
         await api.put(`/contracts/${initialData.id}`, formData, {

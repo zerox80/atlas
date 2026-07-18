@@ -1,9 +1,13 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { fetchContractPage, type ContractCursor } from "../../api";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { queryKeys } from "../../queryKeys";
+import type { ContractPage } from "../../types";
 import ModalFrame from "./ModalFrame";
-import type { Contract, User } from "./types";
+import type { User } from "./types";
 
 interface PermissionModalProps {
-  contracts: Contract[];
   isOpen: boolean;
   level: string;
   onClose: () => void;
@@ -18,7 +22,6 @@ interface PermissionModalProps {
 
 const PermissionModal: React.FC<PermissionModalProps> = ({
   contractId,
-  contracts,
   isOpen,
   level,
   onClose,
@@ -28,8 +31,53 @@ const PermissionModal: React.FC<PermissionModalProps> = ({
   setUserId,
   userId,
   users,
-}) => (
-  <ModalFrame isOpen={isOpen} onClose={onClose}>
+}) => {
+  const [contractSearch, setContractSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(contractSearch.trim());
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading: isFetching,
+    isError,
+  } = useInfiniteQuery<ContractPage, unknown>(
+    queryKeys.contractOptions(debouncedSearch),
+    ({ pageParam }) =>
+      fetchContractPage(
+        {
+          include_summary: false,
+          limit: 50,
+          ...(debouncedSearch ? { q: debouncedSearch } : {}),
+        },
+        pageParam as ContractCursor | undefined,
+      ),
+    {
+      enabled: isOpen,
+      getNextPageParam: (lastPage) =>
+        lastPage.has_more &&
+        lastPage.next_cursor_uploaded_at &&
+        lastPage.next_cursor_id
+          ? {
+              uploadedAt: lastPage.next_cursor_uploaded_at,
+              id: lastPage.next_cursor_id,
+            }
+          : undefined,
+    },
+  );
+  const contracts = useMemo(
+    () => data?.pages.flatMap((page) => page.items) ?? [],
+    [data],
+  );
+
+  useEffect(() => {
+    if (contractId !== 0 && !contracts.some((contract) => contract.id === contractId)) {
+      setContractId(0);
+    }
+  }, [contractId, contracts, setContractId]);
+
+  return (
+    <ModalFrame isOpen={isOpen} onClose={onClose}>
     <h2 className="mb-4 text-xl font-bold text-white">
       Berechtigung hinzufügen
     </h2>
@@ -61,8 +109,19 @@ const PermissionModal: React.FC<PermissionModalProps> = ({
         <label className="mb-1 block text-sm font-medium text-gray-400">
           Vertrag
         </label>
+        <input
+          value={contractSearch}
+          maxLength={200}
+          onChange={(event) => {
+            setContractId(0);
+            setContractSearch(event.target.value);
+          }}
+          className="mb-2 w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-white focus:border-blue-500 focus:outline-none"
+          placeholder="Dokument suchen…"
+          type="search"
+        />
         <select
-          value={contractId}
+          value={contractId || ""}
           onChange={(event) => setContractId(Number(event.target.value))}
           className={[
             "w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2",
@@ -70,13 +129,30 @@ const PermissionModal: React.FC<PermissionModalProps> = ({
           ].join(" ")}
           required
         >
-          <option value={0}>Vertrag wählen...</option>
+          <option value="">
+            {isFetching ? "Dokumente werden geladen…" : "Dokument wählen..."}
+          </option>
           {contracts.map((contract) => (
             <option key={contract.id} value={contract.id}>
               {contract.title}
             </option>
           ))}
         </select>
+        {isError && (
+          <p className="mt-2 text-sm text-red-300" role="alert">
+            Laden der Dokumente fehlgeschlagen.
+          </p>
+        )}
+        {hasNextPage && (
+          <button
+            type="button"
+            className="mt-2 w-full rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isFetchingNextPage}
+            onClick={() => void fetchNextPage()}
+          >
+            {isFetchingNextPage ? "Weitere Dokumente werden geladen..." : "Mehr Dokumente laden"}
+          </button>
+        )}
       </div>
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-400">
@@ -115,7 +191,8 @@ const PermissionModal: React.FC<PermissionModalProps> = ({
         </button>
       </div>
     </form>
-  </ModalFrame>
-);
+    </ModalFrame>
+  );
+};
 
 export default PermissionModal;

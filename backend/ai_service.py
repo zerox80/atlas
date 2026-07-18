@@ -379,17 +379,27 @@ async def analyze_contract_pdf(pdf_bytes: bytes, document_type: str = "contract"
     # helper for mypy/safety
     if not isinstance(response_content, str):
         response_content = "" if response_content is None else str(response_content)
-    
+
+    def reject_json_constant(constant: str) -> None:
+        raise ValueError(f"Invalid JSON constant: {constant}")
+
+    def parse_json_object(value: str) -> dict[str, Any]:
+        parsed = json.loads(
+            value,
+            parse_constant=reject_json_constant,
+        )
+        return parsed if isinstance(parsed, dict) else {}
+
     # Parse JSON response
     try:
-        result = json.loads(response_content)
-    except json.JSONDecodeError:
+        result = parse_json_object(response_content)
+    except (json.JSONDecodeError, ValueError):
         # Try to extract JSON from response if wrapped in markdown
         json_match = re.search(r'\{[\s\S]*\}', response_content)
         if json_match:
             try:
-                result = json.loads(json_match.group())
-            except json.JSONDecodeError:
+                result = parse_json_object(json_match.group())
+            except (json.JSONDecodeError, ValueError):
                 result = {}
         else:
             result = {}

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -20,13 +20,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchAllContracts } from "../api";
-import type { Contract } from "../types";
-import { LoadingState, MetricCard, PageHeader } from "../components/ui";
+import { fetchDashboardData } from "../api";
+import type { Contract, DashboardData } from "../types";
+import { EmptyState, LoadingState, MetricCard, PageHeader } from "../components/ui";
 import { getListIdFromSearchParams } from "../features/documents/documentUtils";
 import { queryKeys } from "../queryKeys";
 import { formatGermanNumber } from "../utils/formatUtils";
-import { getCancellationDeadline } from "../utils/contractPresentation";
+import {
+  DEFAULT_BUSINESS_TIMEZONE,
+  formatContractDate,
+  getCancellationDeadline,
+  getDaysUntilCancellation,
+} from "../utils/contractPresentation";
 
 const money = (value: number) =>
   value.toLocaleString("de-DE", {
@@ -34,9 +39,9 @@ const money = (value: number) =>
     currency: "EUR",
     maximumFractionDigits: 0,
   });
-const dateLabel = (value?: string | null) =>
+const dateLabel = (value?: string | null, timeZone?: string) =>
   value
-    ? new Date(value).toLocaleDateString("de-DE", {
+    ? formatContractDate(value, timeZone, {
         day: "2-digit",
         month: "short",
         year: "numeric",
@@ -48,74 +53,29 @@ const Dashboard: React.FC = () => {
   const [searchParams] = useSearchParams();
   const listId = getListIdFromSearchParams(searchParams);
 
-  const { data = [], isLoading } = useQuery<Contract[]>(
-    queryKeys.workspaceDocumentsForList(listId),
-    async () => {
-      return fetchAllContracts(
-        listId
-          ? { list_id: listId, sort_by: "uploaded_at", sort_order: "desc" }
-          : { sort_by: "uploaded_at", sort_order: "desc" },
-      );
-    },
+  const { data, isError, isLoading } = useQuery<DashboardData>(
+    queryKeys.dashboard(listId),
+    () => fetchDashboardData(listId),
   );
 
-  const stats = useMemo(() => {
-    const contracts = data.filter((item) => item.document_type !== "invoice");
-    const invoices = data.filter((item) => item.document_type === "invoice");
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const activeContracts = contracts.filter(
-      (item) => !item.end_date || new Date(item.end_date) >= now,
-    );
-    const inSixtyDays = new Date(now);
-    inSixtyDays.setDate(now.getDate() + 60);
-    const deadlines = contracts.filter((item) => {
-      const deadline = getCancellationDeadline(item);
-      return deadline && deadline >= now && deadline <= inSixtyDays;
-    });
-    const protectedCount = data.filter((item) => item.is_protected).length;
-    return {
-      contracts,
-      activeContracts,
-      invoices,
-      deadlines,
-      protectedCount,
-      totalValue: data.reduce((sum, item) => sum + (item.value || 0), 0),
-    };
-  }, [data]);
-
-  const chartData = useMemo(() => {
-    const months = Array.from({ length: 6 }, (_, offset) => {
-      const date = new Date();
-      date.setMonth(date.getMonth() - (5 - offset));
-      return {
-        key: `${date.getFullYear()}-${date.getMonth()}`,
-        name: date.toLocaleDateString("de-DE", { month: "short" }),
-        contracts: 0,
-        invoices: 0,
-      };
-    });
-    data.forEach((item) => {
-      const date = new Date(item.start_date || item.uploaded_at);
-      const bucket = months.find(
-        (month) => month.key === `${date.getFullYear()}-${date.getMonth()}`,
-      );
-      if (bucket)
-        bucket[item.document_type === "invoice" ? "invoices" : "contracts"] +=
-          item.value || 0;
-    });
-    return months;
-  }, [data]);
-
-  const upcoming = [...stats.deadlines]
-    .sort(
-      (a, b) =>
-        getCancellationDeadline(a)!.getTime() -
-        getCancellationDeadline(b)!.getTime(),
-    )
-    .slice(0, 5);
-  const recent = data.slice(0, 6);
-  const displayedDocuments = listId ? data : recent;
+  const summary = data?.summary ?? {
+    document_count: 0,
+    total_value: 0,
+    active_contract_count: 0,
+    deadline_count: 0,
+    protected_count: 0,
+    invoice_count: 0,
+  };
+  const chartData = (data?.chart ?? []).map((point) => ({
+    ...point,
+    name: new Date(`${point.month}-01T12:00:00Z`).toLocaleDateString("de-DE", {
+      month: "short",
+    }),
+  }));
+  const upcoming = data?.upcoming ?? [];
+  const displayedDocuments = data?.recent ?? [];
+  const businessTimezone =
+    data?.business_timezone ?? DEFAULT_BUSINESS_TIMEZONE;
   const documentRoute = (document: Contract) => {
     const path =
       document.document_type === "invoice" ? "/invoices" : "/contracts";
@@ -123,6 +83,16 @@ const Dashboard: React.FC = () => {
   };
 
   if (isLoading) return <LoadingState label="Dashboard wird geladen" />;
+  if (isError)
+    return (
+      <div className="app-page">
+        <EmptyState
+          icon={FiAlertCircle}
+          title="Dashboard konnte nicht geladen werden"
+          description="Bitte versuche es erneut."
+        />
+      </div>
+    );
 
   return (
     <div className="app-page">
@@ -139,23 +109,23 @@ const Dashboard: React.FC = () => {
         <MetricCard
           icon={FiTrendingUp}
           label="Dokumentenwert"
-          value={money(stats.totalValue)}
-          meta={`${data.length} Dokumente insgesamt`}
+          value={money(summary.total_value)}
+          meta={`${summary.document_count} Dokumente insgesamt`}
           tone="lime"
         />
         <MetricCard
           icon={FiFileText}
           label="Aktive Verträge"
-          value={stats.activeContracts.length}
+          value={summary.active_contract_count}
           meta="inklusive unbefristeter Verträge"
           tone="blue"
         />
         <MetricCard
           icon={FiAlertCircle}
           label="Fristen · 60 Tage"
-          value={stats.deadlines.length}
+          value={summary.deadline_count}
           meta={
-            stats.deadlines.length
+            summary.deadline_count
               ? "Aufmerksamkeit erforderlich"
               : "Alles entspannt"
           }
@@ -164,8 +134,8 @@ const Dashboard: React.FC = () => {
         <MetricCard
           icon={FiShield}
           label="Geschützt"
-          value={stats.protectedCount}
-          meta={`${stats.invoices.length} Rechnungen im Archiv`}
+          value={summary.protected_count}
+          meta={`${summary.invoice_count} Rechnungen im Archiv`}
           tone="violet"
         />
       </section>
@@ -255,12 +225,7 @@ const Dashboard: React.FC = () => {
             <div className="border-t border-white/[0.06]">
               {upcoming.map((contract) => {
                 const cancellationDeadline = getCancellationDeadline(contract)!;
-                const days = Math.max(
-                  0,
-                  Math.ceil(
-                    (cancellationDeadline.getTime() - Date.now()) / 86400000,
-                  ),
-                );
+                const days = Math.max(0, getDaysUntilCancellation(contract));
                 return (
                   <button
                     key={contract.id}
@@ -293,7 +258,7 @@ const Dashboard: React.FC = () => {
                         {contract.title}
                       </strong>
                       <small className="mt-1 block text-xs muted">
-                        Kündbar bis {dateLabel(cancellationDeadline.toISOString())}
+                        Kündbar bis {dateLabel(cancellationDeadline.toISOString(), contract.business_timezone ?? businessTimezone)}
                       </small>
                     </span>
                     <FiArrowRight className="text-[#505a69]" />
@@ -327,7 +292,9 @@ const Dashboard: React.FC = () => {
               {listId ? "Sammlung" : "Zuletzt bearbeitet"}
             </p>
             <h2 className="section-title mt-1">
-              {listId ? `Alle ${data.length} Dokumente` : "Dokumentenstrom"}
+              {listId
+                ? `Neueste ${displayedDocuments.length} von ${summary.document_count} Dokumenten`
+                : "Dokumentenstrom"}
             </h2>
           </div>
           {listId ? (
@@ -396,7 +363,7 @@ const Dashboard: React.FC = () => {
               </span>
               <span className="text-sm muted">
                 <FiClock className="mr-1.5 inline" />
-                {dateLabel(item.start_date || item.uploaded_at)}
+                {dateLabel(item.start_date || item.uploaded_at, item.business_timezone ?? businessTimezone)}
               </span>
               <span className="text-sm font-semibold text-[#dbe2eb]">
                 {item.value != null

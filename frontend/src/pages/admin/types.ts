@@ -7,11 +7,6 @@ export interface User {
   has_2fa: boolean;
 }
 
-export interface Contract {
-  id: number;
-  title: string;
-}
-
 export interface Permission {
   id: number;
   user_id: number;
@@ -63,7 +58,6 @@ export interface AdminModalsProps {
   permLevel: string;
   setPermLevel: (value: string) => void;
   users: User[];
-  contracts: Contract[];
   handleAddPermission: React.FormEventHandler<HTMLFormElement>;
   isAddTagModalOpen: boolean;
   setIsAddTagModalOpen: (isOpen: boolean) => void;
