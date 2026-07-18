@@ -5,6 +5,10 @@ import { FiX, FiCheck, FiFolder } from "react-icons/fi";
 import api from "../api";
 import type { Contract, ContractList } from "../types";
 import { getApiErrorMessage } from "../utils/errorUtils";
+import {
+  invalidateListAndDocumentQueries,
+  queryKeys,
+} from "../queryKeys";
 
 interface AddToListModalProps {
   isOpen: boolean;
@@ -23,7 +27,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
   const contractId = contract?.id ?? null;
 
   const { data: lists } = useQuery<ContractList[]>(
-    ["lists"],
+    queryKeys.lists,
     async () => {
       const res = await api.get<ContractList[]>("/lists");
       return res.data;
@@ -50,13 +54,8 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
         await api.post(`/lists/${listId}/contracts/${contractId}`);
         setContractLists((prev) => [...prev, listId]);
       }
-      await Promise.all([
-        queryClient.invalidateQueries(["lists"]),
-        queryClient.invalidateQueries(["contracts"]),
-        queryClient.invalidateQueries(["workspace-documents"]),
-      ]);
+      await invalidateListAndDocumentQueries(queryClient);
     } catch (error: unknown) {
-      console.error("Failed to update list assignment", error);
       alert(
         getApiErrorMessage(
           error,

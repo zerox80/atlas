@@ -23,6 +23,8 @@ import {
 import { fetchAllContracts } from "../api";
 import type { Contract } from "../types";
 import { LoadingState, MetricCard, PageHeader } from "../components/ui";
+import { getListIdFromSearchParams } from "../features/documents/documentUtils";
+import { queryKeys } from "../queryKeys";
 import { formatGermanNumber } from "../utils/formatUtils";
 import { getCancellationDeadline } from "../utils/contractPresentation";
 
@@ -44,12 +46,10 @@ const dateLabel = (value?: string | null) =>
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const listIdParam = searchParams.get("list_id");
-  const listId =
-    listIdParam && /^\d+$/.test(listIdParam) ? Number(listIdParam) : null;
+  const listId = getListIdFromSearchParams(searchParams);
 
   const { data = [], isLoading } = useQuery<Contract[]>(
-    ["workspace-documents", listId],
+    queryKeys.workspaceDocumentsForList(listId),
     async () => {
       return fetchAllContracts(
         listId

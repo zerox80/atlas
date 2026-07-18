@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   FiAlertCircle,
@@ -10,6 +11,8 @@ import {
 import { fetchAllContracts, toggleContractProtection } from "../api";
 import type { Contract } from "../types";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
+import { getApiErrorMessage } from "../utils/errorUtils";
+import { invalidateDocumentQueries, queryKeys } from "../queryKeys";
 
 const money = (value?: number | null) =>
   value == null
@@ -17,36 +20,36 @@ const money = (value?: number | null) =>
     : value.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
 
 const ProtectedContracts: React.FC = () => {
-  const [contracts, setContracts] = useState<Contract[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const {
+    data: contracts = [],
+    error,
+    isLoading,
+  } = useQuery<Contract[], unknown>(queryKeys.protectedContracts, () =>
+    fetchAllContracts({ is_protected: true }),
+  );
 
-  const fetchProtectedContracts = async () => {
-    setIsLoading(true);
-    try {
-      const documents = await fetchAllContracts({ is_protected: true });
-      setContracts(documents);
-      setError(null);
-    } catch {
-      setError("Geschützte Dokumente konnten nicht geladen werden.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void fetchProtectedContracts();
-  }, []);
+  const errorMessage = error
+    ? getApiErrorMessage(
+        error,
+        "Geschützte Dokumente konnten nicht geladen werden.",
+      )
+    : null;
 
   const handleUnprotect = async (contract: Contract) => {
     if (!window.confirm(`Schutz für „${contract.title}“ wirklich aufheben?`))
       return;
     try {
       await toggleContractProtection(contract.id);
-      void fetchProtectedContracts();
-    } catch {
-      alert("Der Schutzstatus konnte nicht geändert werden.");
+      await invalidateDocumentQueries(queryClient);
+    } catch (mutationError: unknown) {
+      alert(
+        getApiErrorMessage(
+          mutationError,
+          "Der Schutzstatus konnte nicht geändert werden.",
+        ),
+      );
     }
   };
 
@@ -80,9 +83,9 @@ const ProtectedContracts: React.FC = () => {
         </div>
       </section>
 
-      {error && (
+      {errorMessage && (
         <div className="mb-5 rounded-2xl border border-rose-400/20 bg-rose-400/[0.07] px-4 py-3 text-sm text-rose-200">
-          {error}
+          {errorMessage}
         </div>
       )}
 

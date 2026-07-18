@@ -21,12 +21,13 @@ import {
   FiChevronRight,
   FiClock,
 } from "react-icons/fi";
-import api, { fetchAllContracts } from "../api";
+import { fetchAllContracts } from "../api";
 import type { Contract } from "../types";
 import UploadModal from "../components/UploadModal";
 import ContractDetailsModal from "../components/ContractDetailsModal";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
-import { triggerBlobDownload } from "../utils/downloadUtils";
+import { downloadDocument } from "../features/documents/downloadDocument";
+import { queryKeys } from "../queryKeys";
 
 interface CalendarEvent {
   type: "start" | "end" | "notice";
@@ -47,7 +48,7 @@ const Calendar: React.FC = () => {
   );
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const { data: contracts = [], isLoading } = useQuery<Contract[]>(
-    ["contracts", "all"],
+    queryKeys.activeContracts,
     async () => {
       return fetchAllContracts({ status: "active" });
     },
@@ -99,14 +100,7 @@ const Calendar: React.FC = () => {
 
   const handleDownload = async (contract: Contract) => {
     try {
-      const response = await api.get<Blob>(
-        `/contracts/${contract.id}/download`,
-        { responseType: "blob" },
-      );
-      const extension = contract.file_extension?.startsWith(".")
-        ? contract.file_extension
-        : `.${contract.file_extension || "pdf"}`;
-      triggerBlobDownload(response.data, `${contract.title}${extension}`);
+      await downloadDocument(contract);
     } catch {
       alert("Das Dokument konnte nicht heruntergeladen werden.");
     }

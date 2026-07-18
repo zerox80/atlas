@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { FiShield } from "react-icons/fi";
 import api, { fetchAllContracts } from "../api";
 import {
@@ -11,6 +12,7 @@ import { triggerBlobDownload } from "../utils/downloadUtils";
 import AdminModals from "./admin/AdminModals";
 import AdminSections from "./admin/AdminSections";
 import type { AdminTab, Contract, Permission, Tag, User } from "./admin/types";
+import { invalidateDocumentQueries, queryKeys } from "../queryKeys";
 
 const safeBackupFilename = (candidate?: string): string => {
   const filename = candidate
@@ -68,6 +70,7 @@ const backupErrorMessage = async (error: unknown): Promise<string> => {
 };
 
 const AdminPanel: React.FC = () => {
+  const queryClient = useQueryClient();
   const [users, setUsers] = useState<User[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -306,7 +309,10 @@ const AdminPanel: React.FC = () => {
       setNewTagName("");
       setNewTagColor("#3b82f6");
       setIsAddTagModalOpen(false);
-      loadData();
+      await Promise.all([
+        queryClient.invalidateQueries(queryKeys.tags),
+        loadData(),
+      ]);
     } catch (error: unknown) {
       alert(getApiErrorMessage(error, "Fehler beim Erstellen"));
     }
@@ -322,7 +328,11 @@ const AdminPanel: React.FC = () => {
       });
       setIsEditTagModalOpen(false);
       setSelectedTag(null);
-      loadData();
+      await Promise.all([
+        queryClient.invalidateQueries(queryKeys.tags),
+        invalidateDocumentQueries(queryClient),
+        loadData(),
+      ]);
     } catch (error: unknown) {
       alert(getApiErrorMessage(error, "Fehler beim Aktualisieren"));
     }
@@ -333,7 +343,11 @@ const AdminPanel: React.FC = () => {
       return;
     try {
       await api.delete(`/tags/${tagId}`);
-      loadData();
+      await Promise.all([
+        queryClient.invalidateQueries(queryKeys.tags),
+        invalidateDocumentQueries(queryClient),
+        loadData(),
+      ]);
     } catch (error: unknown) {
       alert(getApiErrorMessage(error, "Fehler beim Löschen"));
     }

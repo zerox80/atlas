@@ -15,6 +15,10 @@ import { useUser } from "../App";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import type { ContractList } from "../types";
 import { getApiErrorMessage } from "../utils/errorUtils";
+import {
+  invalidateListAndDocumentQueries,
+  queryKeys,
+} from "../queryKeys";
 
 const Lists: React.FC = () => {
   const navigate = useNavigate();
@@ -25,7 +29,7 @@ const Lists: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   const { data: lists = [], isLoading } = useQuery<ContractList[]>(
-    ["lists"],
+    queryKeys.lists,
     async () => (await api.get<ContractList[]>("/lists")).data,
   );
 
@@ -43,7 +47,7 @@ const Lists: React.FC = () => {
     try {
       if (editingList) await api.put(`/lists/${editingList.id}`, data);
       else await api.post("/lists", data);
-      void queryClient.invalidateQueries(["lists"]);
+      await invalidateListAndDocumentQueries(queryClient);
       setIsModalOpen(false);
       setEditingList(null);
     } catch (error: unknown) {
@@ -64,7 +68,7 @@ const Lists: React.FC = () => {
       return;
     try {
       await api.delete(`/lists/${list.id}`);
-      void queryClient.invalidateQueries(["lists"]);
+      await invalidateListAndDocumentQueries(queryClient);
     } catch (error: unknown) {
       alert(getApiErrorMessage(error, "Fehler beim Löschen der Sammlung"));
     }

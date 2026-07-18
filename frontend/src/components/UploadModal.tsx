@@ -10,6 +10,7 @@ import type {
   DocumentType,
 } from "../types";
 import { getApiErrorMessage } from "../utils/errorUtils";
+import { invalidateDocumentAndTagQueries } from "../queryKeys";
 import { formatGermanNumber, parseGermanNumber } from "../utils/formatUtils";
 import UploadSourcePanel, {
   ACCEPTED_UPLOAD_TYPES,
@@ -210,11 +211,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
           headers: { "Content-Type": "multipart/form-data" },
         });
 
-      await Promise.all([
-        queryClient.invalidateQueries(["contracts"]),
-        queryClient.invalidateQueries(["invoices"]),
-        queryClient.invalidateQueries(["workspace-documents"]),
-      ]);
+      await invalidateDocumentAndTagQueries(queryClient);
       resetAndClose();
     } catch (error: unknown) {
       alert(

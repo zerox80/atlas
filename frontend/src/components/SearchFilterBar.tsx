@@ -17,6 +17,7 @@ import {
 } from "../utils/filterParams";
 import { triggerBlobDownload } from "../utils/downloadUtils";
 import { getApiErrorMessage } from "../utils/errorUtils";
+import { queryKeys } from "../queryKeys";
 
 interface SearchFilterBarProps {
   onFiltersChange: (filters: FilterState) => void;
@@ -41,13 +42,13 @@ const SearchFilterBar: React.FC<SearchFilterBarProps> = ({
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   // Fetch tags
-  const { data: tags } = useQuery<Tag[]>(["tags"], async () => {
+  const { data: tags } = useQuery<Tag[]>(queryKeys.tags, async () => {
     const res = await api.get<Tag[]>("/tags");
     return res.data;
   });
 
   // Fetch lists
-  const { data: lists } = useQuery<ContractList[]>(["lists"], async () => {
+  const { data: lists } = useQuery<ContractList[]>(queryKeys.lists, async () => {
     const res = await api.get<ContractList[]>("/lists");
     return res.data;
   });
