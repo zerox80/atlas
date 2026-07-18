@@ -1,5 +1,6 @@
 """FastAPI application assembly for Atlas."""
 
+import logging
 import os
 import secrets
 
@@ -36,6 +37,7 @@ from models import Contract, Tag, User
 from security_utils import log_audit
 
 app = FastAPI()
+logger = logging.getLogger(__name__)
 app.state.limiter = limiter
 app.add_exception_handler(
     RateLimitExceeded,
@@ -140,7 +142,7 @@ def create_admin_document_backup(
     except Exception as error:
         if backup is not None:
             cleanup_backup_file(backup.path)
-        print(f"Admin document backup failed: {error}")
+        logger.exception("Admin document backup failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Datensicherung konnte nicht erstellt werden",

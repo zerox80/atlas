@@ -1,5 +1,6 @@
 """Contract creation, update, download, deletion, and protection routes."""
 
+import logging
 import mimetypes
 import os
 from typing import Annotated, Optional
@@ -34,6 +35,7 @@ from schemas import ContractCreate, ContractRead, ContractUpdate
 from security_utils import log_audit
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _resolve_tags(session: Session, tag_names: list[str]) -> list[Tag]:
@@ -92,20 +94,17 @@ async def create_contract(
         document_type=document_type,
     )
 
-    # 1. Validate File
+    # Validate before persisting an upload. ``validate_file`` already returns
+    # client-safe HTTP errors for expected validation failures.
     try:
         await validate_file(file)
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        print(f"Validation error: {e}")
-        raise HTTPException(status_code=400, detail="Invalid file")
+    except HTTPException:
+        raise
+    except Exception as error:
+        logger.exception("Could not validate contract upload")
+        raise HTTPException(status_code=400, detail="Invalid file") from error
 
-    # 2. Save File
-    try:
-        file_path = await save_upload_file(file)
-    except HTTPException as e:
-        raise e
+    file_path = await save_upload_file(file)
         
     contract = Contract(
         title=contract_data.title,
@@ -150,7 +149,6 @@ async def create_contract(
 
     return contract_read_for_user(contract, current_user, session)
 
-# Removed unused StreamingResponse import
 @router.get("/contracts/{contract_id}/download")
 def download_contract(
     contract_id: int,
@@ -169,7 +167,7 @@ def download_contract(
     try:
         resolved_path = resolve_file_path(contract.file_path)
     except FileNotFoundError:
-        print(f"[ERROR] File not found on disk: {contract.file_path}")
+        logger.warning("Contract file is missing on disk: %s", contract.file_path)
         raise HTTPException(status_code=404, detail="File not found on server")
     except PermissionError:
         raise HTTPException(status_code=403, detail="Stored file path is outside the upload directory")
@@ -187,8 +185,6 @@ def download_contract(
     )
     
     # Determine basic mime types to avoid browser confusion
-    # Determine basic mime types to avoid browser confusion
-    import mimetypes
     media_type, _ = mimetypes.guess_type(resolved_path)
     
     # Check explicitly for pdf to be sure
@@ -202,7 +198,6 @@ def download_contract(
     # Ensure extension is in filename
     filename = f"{contract.title}{ext}"
     
-    from fastapi.responses import FileResponse
     return FileResponse(resolved_path, media_type=media_type, filename=filename)
 
 @router.put("/contracts/{contract_id}", response_model=ContractRead)
@@ -242,7 +237,7 @@ async def update_contract(
         tags=parse_tags_form(tags) if tags is not None else None,
     )
 
-    changes = []
+    changes: list[str] = []
     
     # helper to check and update
     def check_and_update(field_name, new_val, provided):
@@ -269,10 +264,11 @@ async def update_contract(
         try:
             await validate_file(file)
             new_file_path = await save_upload_file(file)
-        except HTTPException as e:
-            raise e
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except HTTPException:
+            raise
+        except Exception as error:
+            logger.exception("Could not replace file for contract %s", contract_id)
+            raise HTTPException(status_code=500, detail="File upload failed") from error
             
         # Mark old file for deletion AFTER commit
         old_file_path = contract.file_path
@@ -363,8 +359,8 @@ def delete_contract(
     if file_path_to_delete:
         try:
             delete_upload_file(file_path_to_delete)
-        except Exception as e:
-            print(f"Error deleting file: {e}")
+        except Exception:
+            logger.exception("Could not delete file for contract %s", contract_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
