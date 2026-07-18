@@ -42,7 +42,6 @@ const AdminModals: React.FC<AdminModalsProps> = ({
   permLevel,
   setPermLevel,
   users,
-  contracts,
   handleAddPermission,
   isAddTagModalOpen,
   setIsAddTagModalOpen,
@@ -102,7 +101,6 @@ const AdminModals: React.FC<AdminModalsProps> = ({
       level={permLevel}
       setLevel={setPermLevel}
       users={users}
-      contracts={contracts}
     />
     <AddTagModal
       isOpen={isAddTagModalOpen}

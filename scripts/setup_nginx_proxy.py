@@ -237,7 +237,8 @@ def proxy_block(port: int, scheme: str) -> str:
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Public trust boundary: never append a client-controlled forwarding chain.
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto {scheme};
         proxy_buffering off;
         proxy_read_timeout 300s;
@@ -254,6 +255,7 @@ def http_site(host: str, port: int, acme: bool = False) -> str:
     return f"""server {{
     listen 80;
     server_name {host};
+    client_max_body_size 11M;
 {challenge}
 {proxy_block(port, '$scheme')}
 }}
@@ -276,7 +278,8 @@ server {{
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_session_cache shared:AtlasTLS:10m;
     ssl_session_tickets off;
-    client_max_body_size 10M;
+    client_max_body_size 11M;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
 {proxy_block(port, 'https')}
 }}
@@ -492,7 +495,6 @@ def main() -> None:
     if ca_cert is not None:
         print(f"Lokale CA für die Client-Vertrauensstellung: {ca_cert}")
         print("Den privaten CA-Schlüssel niemals vom Server kopieren.")
-
 
 if __name__ == "__main__":
     main()

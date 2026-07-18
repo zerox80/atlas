@@ -49,6 +49,7 @@ const ContractToolbar: React.FC<ContractToolbarProps> = ({
       <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#667181]" />
       <input
         value={searchQuery}
+        maxLength={200}
         onChange={(event) => onSearchChange(event.target.value)}
         placeholder="Verträge durchsuchen…"
         className="field py-2.5 pl-10"

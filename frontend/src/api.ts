@@ -3,7 +3,12 @@ import {
   buildContractQueryParams,
   type ContractFilterState,
 } from "./utils/filterParams";
-import type { Contract } from "./types";
+import type {
+  CalendarData,
+  ContractPage,
+  DashboardData,
+  DocumentType,
+} from "./types";
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
 const CSRF_COOKIE_NAME = "csrf_token";
@@ -76,34 +81,56 @@ api.interceptors.response.use(
   },
 );
 
-export const toggleContractProtection = (id: number) =>
-  api.put(`/contracts/${id}/toggle-protection`);
+export const toggleContractProtection = (id: number, version: number) =>
+  api.put(`/contracts/${id}/toggle-protection`, null, {
+    params: { version },
+  });
 
-export const fetchAllContracts = async (
-  params: Record<string, unknown> = {},
-): Promise<Contract[]> => {
-  const pageSize = 200;
-  const contracts: Contract[] = [];
-  let cursor: Pick<Contract, "id" | "uploaded_at"> | null = null;
+export interface ContractPageParams {
+  document_type?: DocumentType;
+  include_summary?: boolean;
+  is_protected?: boolean;
+  limit?: number;
+  list_id?: number;
+  q?: string;
+  state?: "active" | "attention" | "expired";
+}
 
-  for (;;) {
-    const response = await api.get<Contract[]>("/contracts", {
-      params: {
-        ...params,
-        limit: pageSize,
-        ...(cursor
-          ? {
-              cursor_uploaded_at: cursor.uploaded_at,
-              cursor_id: cursor.id,
-            }
-          : {}),
-      },
-    });
-    contracts.push(...response.data);
-    if (response.data.length < pageSize) return contracts;
-    cursor = response.data[response.data.length - 1];
-  }
+export interface ContractCursor {
+  uploadedAt: string;
+  id: number;
+}
+
+export const fetchContractPage = async (
+  params: ContractPageParams = {},
+  cursor?: ContractCursor,
+): Promise<ContractPage> => {
+  const response = await api.get<ContractPage>("/contracts/page", {
+    params: {
+      ...params,
+      ...(cursor
+        ? {
+            cursor_uploaded_at: cursor.uploadedAt,
+            cursor_id: cursor.id,
+          }
+        : {}),
+    },
+  });
+  return response.data;
 };
+
+export const fetchDashboardData = async (
+  listId: number | null,
+): Promise<DashboardData> =>
+  (await api.get<DashboardData>("/contracts/dashboard", {
+    params: listId ? { list_id: listId } : undefined,
+  })).data;
+
+export const fetchCalendarData = async (
+  start: string,
+  end: string,
+): Promise<CalendarData> =>
+  (await api.get<CalendarData>("/contracts/calendar", { params: { start, end } })).data;
 
 export const exportContracts = (
   filters: ContractFilterState,

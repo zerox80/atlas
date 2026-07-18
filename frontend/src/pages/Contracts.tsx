@@ -1,22 +1,23 @@
 import React, { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { FiFileText, FiPlus } from "react-icons/fi";
-import api, { fetchAllContracts, toggleContractProtection } from "../api";
+import api, {
+  fetchContractPage,
+  type ContractCursor,
+  toggleContractProtection,
+} from "../api";
 import { useUser } from "../App";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import ContractCard from "../features/contracts/ContractCard";
 import ContractModals from "../features/contracts/ContractModals";
 import ContractToolbar from "../features/contracts/ContractToolbar";
-import {
-  filterContracts,
-  getContractFilterCounts,
-} from "../features/contracts/contractFilters";
 import type { ContractViewFilter } from "../features/contracts/types";
 import { downloadDocument } from "../features/documents/downloadDocument";
 import { getListIdFromSearchParams } from "../features/documents/documentUtils";
 import { invalidateDocumentQueries, invalidateListAndDocumentQueries, queryKeys } from "../queryKeys";
-import type { Contract } from "../types";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import type { Contract, ContractPage } from "../types";
 
 const Contracts: React.FC = () => {
   const { isAdmin } = useUser();
@@ -33,22 +34,50 @@ const Contracts: React.FC = () => {
   const [search, setSearch] = useState("");
   const [openMenu, setOpenMenu] = useState<number | null>(null);
 
-  const { data = [], isLoading } = useQuery<Contract[]>(
-    queryKeys.contractsForList(listId),
-    () =>
-      fetchAllContracts({
-        document_type: "contract",
-        sort_by: "uploaded_at",
-        sort_order: "desc",
-        ...(listId ? { list_id: listId } : {}),
-      }),
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const {
+    data: contractPages,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isError,
+    isLoading,
+  } = useInfiniteQuery<ContractPage, unknown>(
+    queryKeys.contractPage(listId, filter, debouncedSearch),
+    ({ pageParam }) =>
+      fetchContractPage(
+        {
+          document_type: "contract",
+          limit: 40,
+          ...(debouncedSearch ? { q: debouncedSearch } : {}),
+          ...(filter !== "all" ? { state: filter } : {}),
+          ...(listId ? { list_id: listId } : {}),
+        },
+        pageParam as ContractCursor | undefined,
+      ),
+    {
+      getNextPageParam: (lastPage) =>
+        lastPage.has_more &&
+        lastPage.next_cursor_uploaded_at &&
+        lastPage.next_cursor_id
+          ? {
+              uploadedAt: lastPage.next_cursor_uploaded_at,
+              id: lastPage.next_cursor_id,
+            }
+          : undefined,
+    },
   );
 
-  const filteredContracts = useMemo(
-    () => filterContracts(data, filter, search),
-    [data, filter, search],
+  const contracts = useMemo(
+    () => contractPages?.pages.flatMap((page) => page.items) ?? [],
+    [contractPages],
   );
-  const counts = useMemo(() => getContractFilterCounts(data), [data]);
+  const counts = contractPages?.pages[0]?.summary ?? {
+    all: 0,
+    attention: 0,
+    active: 0,
+    expired: 0,
+  };
 
   const openUpload = (contract: Contract | null = null) => {
     setEditingContract(contract);
@@ -58,6 +87,10 @@ const Contracts: React.FC = () => {
 
   const handleDelete = async (contract: Contract) => {
     setOpenMenu(null);
+    if (contract.version === undefined) {
+      alert("Die Dokumentversion fehlt. Bitte lade die Ansicht neu.");
+      return;
+    }
     if (contract.is_protected) {
       alert(
         "Dieser Vertrag ist geschützt. Bitte heben Sie zuerst den Schutz auf.",
@@ -69,7 +102,9 @@ const Contracts: React.FC = () => {
     }
 
     try {
-      await api.delete(`/contracts/${contract.id}`);
+      await api.delete(`/contracts/${contract.id}`, {
+        params: { version: contract.version },
+      });
       await invalidateListAndDocumentQueries(queryClient);
     } catch {
       alert("Der Vertrag konnte nicht gelöscht werden.");
@@ -86,8 +121,12 @@ const Contracts: React.FC = () => {
 
   const handleProtection = async (contract: Contract) => {
     setOpenMenu(null);
+    if (contract.version === undefined) {
+      alert("Die Dokumentversion fehlt. Bitte lade die Ansicht neu.");
+      return;
+    }
     try {
-      await toggleContractProtection(contract.id);
+      await toggleContractProtection(contract.id, contract.version);
       await invalidateDocumentQueries(queryClient);
     } catch {
       alert("Der Schutzstatus konnte nicht geändert werden.");
@@ -100,6 +139,16 @@ const Contracts: React.FC = () => {
   };
 
   if (isLoading) return <LoadingState label="Verträge werden geladen" />;
+  if (isError)
+    return (
+      <div className="app-page">
+        <EmptyState
+          icon={FiFileText}
+          title="Verträge konnten nicht geladen werden"
+          description="Bitte versuche es erneut."
+        />
+      </div>
+    );
 
   return (
     <div className="app-page">
@@ -122,9 +171,9 @@ const Contracts: React.FC = () => {
         onSearchChange={setSearch}
       />
 
-      {filteredContracts.length ? (
+      {contracts.length ? (
         <div className="grid gap-4 xl:grid-cols-2">
-          {filteredContracts.map((contract) => (
+          {contracts.map((contract) => (
             <ContractCard
               key={contract.id}
               contract={contract}
@@ -173,6 +222,18 @@ const Contracts: React.FC = () => {
             ) : undefined
           }
         />
+      )}
+
+      {hasNextPage && (
+        <div className="mt-5 flex justify-center">
+          <button
+            className="btn-secondary"
+            disabled={isFetchingNextPage}
+            onClick={() => void fetchNextPage()}
+          >
+            {isFetchingNextPage ? "Weitere Verträge werden geladen…" : "Mehr Verträge laden"}
+          </button>
+        </div>
       )}
 
       <ContractModals

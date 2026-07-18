@@ -1,4 +1,5 @@
 import type { Contract } from "../../types";
+import { businessDateKey } from "../../utils/contractPresentation";
 
 export interface InvoiceStats {
   currentMonthTotal: number;
@@ -12,11 +13,12 @@ export const getInvoiceStats = (
   total: invoices.reduce((sum, invoice) => sum + (invoice.value || 0), 0),
   currentMonthTotal: invoices
     .filter((invoice) => {
-      const invoiceDate = new Date(invoice.start_date || invoice.uploaded_at);
-      return (
-        invoiceDate.getMonth() === currentDate.getMonth() &&
-        invoiceDate.getFullYear() === currentDate.getFullYear()
-      );
+      const timeZone = invoice.business_timezone;
+      const invoiceMonth = businessDateKey(
+        invoice.start_date || invoice.uploaded_at,
+        timeZone,
+      ).slice(0, 7);
+      return invoiceMonth === businessDateKey(currentDate, timeZone).slice(0, 7);
     })
     .reduce((sum, invoice) => sum + (invoice.value || 0), 0),
 });

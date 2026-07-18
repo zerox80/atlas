@@ -19,7 +19,7 @@ from api_core import (
     request_is_https,
     set_csrf_cookie,
 )
-from auth import create_access_token, verify_password
+from auth import TOKEN_VERSION_CLAIM, create_access_token, verify_password
 from database import get_session
 from models import User
 from schemas import OTPVerify, TwoFactorSetup
@@ -29,7 +29,7 @@ router = APIRouter()
 
 @router.post("/token")
 @limiter.limit(RATE_LIMIT_LOGIN)
-async def login_for_access_token(
+def login_for_access_token(
     response: Response,
     request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()], 
@@ -91,7 +91,12 @@ async def login_for_access_token(
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     # Add role to token claims
     access_token = create_access_token(
-        data={"sub": user.username, "role": user.role}, expires_delta=access_token_expires
+        data={
+            "sub": user.auth_subject,
+            "role": user.role,
+            TOKEN_VERSION_CLAIM: user.token_version,
+        },
+        expires_delta=access_token_expires,
     )
     
     # Set HttpOnly Cookie

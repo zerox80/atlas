@@ -1,12 +1,35 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, render } from "../test/utils";
+import type { Contract } from "../types";
 import Invoices from "./Invoices";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn() }));
 
 vi.mock("../api", () => ({
   default: { get: mocks.get },
-  fetchAllContracts: () => mocks.get().then((response) => response.data),
+  fetchContractPage: () =>
+    mocks.get().then((response: { data: Contract[] }) => {
+      const items = response.data;
+      const totalValue = items.reduce(
+        (sum: number, item: { value?: number | null }) =>
+          sum + (item.value ?? 0),
+        0,
+      );
+      return {
+        items,
+        summary: {
+          all: items.length,
+          active: items.length,
+          attention: 0,
+          expired: 0,
+          total_value: totalValue,
+          current_month_value: totalValue,
+        },
+        has_more: false,
+        next_cursor_uploaded_at: null,
+        next_cursor_id: null,
+      };
+    }),
 }));
 
 vi.mock("../components/UploadModal", () => ({

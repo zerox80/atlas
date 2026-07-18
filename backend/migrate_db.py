@@ -1,7 +1,9 @@
+import math
 import os
 import re
 import sqlite3
 from collections.abc import Callable, Iterable
+from uuid import UUID, uuid4
 
 
 def get_default_db_path() -> str:
@@ -254,12 +256,123 @@ def migration_005_contract_query_indexes(cursor: sqlite3.Cursor) -> None:
         )
 
 
+def migration_006_user_token_version(cursor: sqlite3.Cursor) -> None:
+    """Add the server-side session generation used to revoke issued JWTs."""
+    add_missing_columns(
+        cursor,
+        "user",
+        (("token_version", "token_version INTEGER NOT NULL DEFAULT 0"),),
+    )
+
+
+def migration_007_user_auth_subject(cursor: sqlite3.Cursor) -> None:
+    """Give every user an immutable random identity for JWT subject lookup."""
+    if not table_exists(cursor, "user"):
+        return
+
+    add_missing_columns(
+        cursor,
+        "user",
+        (("auth_subject", "auth_subject VARCHAR"),),
+    )
+
+    rows = cursor.execute(
+        'SELECT id, auth_subject FROM "user" ORDER BY id'
+    ).fetchall()
+
+    def is_uuid4(subject: object) -> bool:
+        if not isinstance(subject, str) or not subject:
+            return False
+        try:
+            parsed_subject = UUID(subject)
+        except ValueError:
+            return False
+        return parsed_subject.version == 4 and str(parsed_subject) == subject.lower()
+
+    reserved_subjects = {
+        subject.lower()
+        for _, subject in rows
+        if isinstance(subject, str) and subject
+    }
+    assigned_subjects: set[str] = set()
+    for user_id, current_subject in rows:
+        normalized_subject = (
+            current_subject.lower() if isinstance(current_subject, str) else ""
+        )
+        if is_uuid4(current_subject) and normalized_subject not in assigned_subjects:
+            assigned_subjects.add(normalized_subject)
+            continue
+
+        auth_subject = str(uuid4())
+        while auth_subject in reserved_subjects or auth_subject in assigned_subjects:
+            auth_subject = str(uuid4())
+        cursor.execute(
+            'UPDATE "user" SET auth_subject = ? WHERE id = ?',
+            (auth_subject, user_id),
+        )
+        assigned_subjects.add(auth_subject)
+
+    cursor.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_auth_subject '
+        'ON "user" (auth_subject)'
+    )
+
+
+def migration_008_sanitize_contract_numeric_values(cursor: sqlite3.Cursor) -> None:
+    """Normalize legacy numeric values that cannot be represented safely in JSON."""
+    if not table_exists(cursor, "contract"):
+        return
+
+    def normalize_financial(value: object, fallback: float | None) -> float | None:
+        if value is None:
+            return fallback
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return fallback
+        if not math.isfinite(parsed) or parsed < 0:
+            return fallback
+        return min(parsed, 1_000_000_000_000_000.0)
+
+    rows = cursor.execute(
+        "SELECT id, value, annual_value, notice_period FROM contract"
+    ).fetchall()
+    for (
+        contract_id,
+        value,
+        annual_value,
+        notice_period,
+    ) in rows:
+        clean_value = normalize_financial(value, 0.0)
+        clean_annual_value = normalize_financial(annual_value, None)
+        if isinstance(notice_period, int) and 0 <= notice_period <= 36_500:
+            clean_notice_period = notice_period
+        else:
+            clean_notice_period = 30
+        cursor.execute(
+            """
+            UPDATE contract
+            SET value = ?, annual_value = ?, notice_period = ?
+            WHERE id = ?
+            """,
+            (
+                clean_value,
+                clean_annual_value,
+                clean_notice_period,
+                contract_id,
+            ),
+        )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     ("001_legacy_columns_and_permission_index", migration_001_legacy_columns),
     ("002_contract_document_type", migration_002_document_type),
     ("003_contract_end_date_nullable", migration_003_contract_end_date_nullable),
     ("004_audit_contract_id", migration_004_audit_contract_id),
     ("005_contract_query_indexes", migration_005_contract_query_indexes),
+    ("006_user_token_version", migration_006_user_token_version),
+    ("007_user_auth_subject", migration_007_user_auth_subject),
+    ("008_sanitize_contract_numeric_values", migration_008_sanitize_contract_numeric_values),
 )
 
 

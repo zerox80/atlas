@@ -14,7 +14,7 @@ import { useAdminUsers } from "./admin/useAdminUsers";
 
 const AdminPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminTab>("users");
-  const { contracts, isLoading, loadData, permissions, tags, users } = useAdminData();
+  const { isLoading, loadData, permissions, tags, users } = useAdminData();
   const backup = useAdminBackup();
   const userManagement = useAdminUsers(loadData);
   const permissionManagement = useAdminPermissions(loadData);
@@ -100,7 +100,6 @@ const AdminPanel: React.FC = () => {
         permLevel={permissionManagement.permLevel}
         setPermLevel={permissionManagement.setPermLevel}
         users={users}
-        contracts={contracts}
         handleAddPermission={permissionManagement.handleAddPermission}
         isAddTagModalOpen={tagManagement.isAddTagModalOpen}
         setIsAddTagModalOpen={tagManagement.setIsAddTagModalOpen}

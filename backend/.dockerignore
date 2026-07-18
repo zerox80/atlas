@@ -1,0 +1,42 @@
+# Version control and local tooling
+.git
+.gitignore
+.dockerignore
+.idea
+.vscode
+
+# Local Python environments and generated caches
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+coverage.xml
+htmlcov
+
+# Runtime data must never become part of an image layer
+uploads
+data
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+
+# Local secrets and credentials
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+secrets
+secrets.*
+
+# Development-only files
+tests
+.DS_Store
+Thumbs.db

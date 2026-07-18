@@ -1,10 +1,13 @@
 import re
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+MAX_FINANCIAL_VALUE = 1_000_000_000_000_000.0
+MAX_CONTRACT_TAGS = 50
+MAX_NOTICE_PERIOD_DAYS = 36_500
 
 
 def validate_username_pattern(v: str) -> str:
@@ -17,7 +20,7 @@ class Token(BaseModel):
     token_type: str
 
 class TokenData(BaseModel):
-    username: Optional[str] = None
+    auth_subject: Optional[str] = None
 
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=32)
@@ -63,10 +66,10 @@ class ContractCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=2000)
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    value: Optional[float] = Field(default=None, ge=0)
-    annual_value: Optional[float] = Field(default=None, ge=0)
-    tags: List[str] = Field(default_factory=list)
-    notice_period: Optional[int] = Field(default=30, ge=0, description="Notice period in days")
+    value: Optional[float] = Field(default=None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
+    annual_value: Optional[float] = Field(default=None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
+    tags: List[str] = Field(default_factory=list, max_length=MAX_CONTRACT_TAGS)
+    notice_period: Optional[int] = Field(default=30, ge=0, le=MAX_NOTICE_PERIOD_DAYS, description="Notice period in days")
     document_type: Literal["contract", "invoice"] = "contract"
 
     @field_validator('title')
@@ -87,10 +90,10 @@ class ContractUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=2000)
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    value: Optional[float] = Field(None, ge=0)
-    annual_value: Optional[float] = Field(None, ge=0)
-    tags: Optional[List[str]] = None
-    notice_period: Optional[int] = Field(None, ge=0)
+    value: Optional[float] = Field(None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
+    annual_value: Optional[float] = Field(None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
+    tags: Optional[List[str]] = Field(default=None, max_length=MAX_CONTRACT_TAGS)
+    notice_period: Optional[int] = Field(None, ge=0, le=MAX_NOTICE_PERIOD_DAYS)
 
     @field_validator('title')
     @classmethod
@@ -128,6 +131,7 @@ class ContractRead(BaseModel):
     is_protected: bool
     file_extension: str
     document_type: Literal["contract", "invoice"] = "contract"
+    business_timezone: str = "Europe/Berlin"
     can_read: bool = True
     can_write: bool = False
     can_delete: bool = False
@@ -233,14 +237,37 @@ class ContractListUpdate(BaseModel):
 # AI Feature Schemas
 class ContractAnalysisResult(BaseModel):
     """Result from AI contract analysis."""
-    title: Optional[str] = None
-    description: Optional[str] = None
-    value: Optional[float] = None
-    annual_value: Optional[float] = None
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    notice_period: Optional[int] = None
-    tags: List[str] = Field(default_factory=list)
+    title: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = Field(None, max_length=2000)
+    value: Optional[float] = Field(
+        None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False
+    )
+    annual_value: Optional[float] = Field(
+        None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False
+    )
+    start_date: Optional[str] = Field(None, max_length=64)
+    end_date: Optional[str] = Field(None, max_length=64)
+    notice_period: Optional[int] = Field(None, ge=0, le=MAX_NOTICE_PERIOD_DAYS)
+    tags: List[Annotated[str, Field(min_length=1, max_length=50)]] = Field(
+        default_factory=list,
+        max_length=MAX_CONTRACT_TAGS,
+    )
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def dates_are_iso8601(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ValueError("Date suggestions must use ISO 8601") from error
+        return value
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_analysis_tags(cls, values: List[str]) -> List[str]:
+        return normalize_tag_names(values)
 
 
 class ChatRequest(BaseModel):
