@@ -19,11 +19,16 @@ interface AdminSectionsProps {
   openEditTag: (tag: Tag) => void;
   openEditUser: (user: User) => void;
   openPasswordModal: (user: User) => void;
+  permissionPage: number;
+  permissionPageSize: number;
+  permissionTotal: number;
   permissions: Permission[];
+  permissionsLoading: boolean;
   setActiveTab: (tab: AdminTab) => void;
   setIsAddTagModalOpen: (isOpen: boolean) => void;
   setIsAddUserModalOpen: (isOpen: boolean) => void;
   setIsPermissionModalOpen: (isOpen: boolean) => void;
+  setPermissionPage: (page: number) => void;
   tags: Tag[];
   users: User[];
 }
@@ -41,11 +46,16 @@ const AdminSections: React.FC<AdminSectionsProps> = ({
   openEditTag,
   openEditUser,
   openPasswordModal,
+  permissionPage,
+  permissionPageSize,
+  permissionTotal,
   permissions,
+  permissionsLoading,
   setActiveTab,
   setIsAddTagModalOpen,
   setIsAddUserModalOpen,
   setIsPermissionModalOpen,
+  setPermissionPage,
   tags,
   users,
 }) => (
@@ -54,7 +64,7 @@ const AdminSections: React.FC<AdminSectionsProps> = ({
       activeTab={activeTab}
       setActiveTab={setActiveTab}
       userCount={users.length}
-      permissionCount={permissions.length}
+      permissionCount={permissionTotal}
       tagCount={tags.length}
     />
     {activeTab === "users" && (
@@ -69,10 +79,15 @@ const AdminSections: React.FC<AdminSectionsProps> = ({
     {activeTab === "permissions" && (
       <PermissionsSection
         permissions={permissions}
+        loading={permissionsLoading}
+        page={permissionPage}
+        pageSize={permissionPageSize}
+        total={permissionTotal}
         getLevelColor={getLevelColor}
         getLevelLabel={getLevelLabel}
         onAddPermission={() => setIsPermissionModalOpen(true)}
         onDeletePermission={handleDeletePermission}
+        onPageChange={setPermissionPage}
       />
     )}
     {activeTab === "tags" && (

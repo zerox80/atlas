@@ -129,8 +129,17 @@ export const fetchDashboardData = async (
 export const fetchCalendarData = async (
   start: string,
   end: string,
+  listId: number | null = null,
 ): Promise<CalendarData> =>
-  (await api.get<CalendarData>("/contracts/calendar", { params: { start, end } })).data;
+  (
+    await api.get<CalendarData>("/contracts/calendar", {
+      params: {
+        start,
+        end,
+        ...(listId !== null ? { list_id: listId } : {}),
+      },
+    })
+  ).data;
 
 export const exportContracts = (
   filters: ContractFilterState,

@@ -14,11 +14,26 @@ import { useAdminUsers } from "./admin/useAdminUsers";
 
 const AdminPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminTab>("users");
-  const { isLoading, loadData, permissions, tags, users } = useAdminData();
+  const {
+    isLoading,
+    loadData,
+    loadError,
+    loadPermissions,
+    loadTags,
+    loadUsers,
+    permissionPage,
+    permissionPageSize,
+    permissionTotal,
+    permissions,
+    permissionsLoading,
+    setPermissionPage,
+    tags,
+    users,
+  } = useAdminData();
   const backup = useAdminBackup();
-  const userManagement = useAdminUsers(loadData);
-  const permissionManagement = useAdminPermissions(loadData);
-  const tagManagement = useAdminTags(loadData);
+  const userManagement = useAdminUsers(loadUsers);
+  const permissionManagement = useAdminPermissions(loadPermissions);
+  const tagManagement = useAdminTags(loadTags);
 
   if (isLoading) {
     return <LoadingState label="Administration wird geladen" />;
@@ -37,10 +52,26 @@ const AdminPanel: React.FC = () => {
         }
       />
 
+      {loadError && (
+        <div
+          role="alert"
+          className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-400/20 bg-rose-400/[0.07] px-4 py-3 text-sm text-rose-200"
+        >
+          <span>{loadError}</span>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => void loadData()}
+          >
+            Erneut versuchen
+          </button>
+        </div>
+      )}
+
       <AdminStats
         userCount={users.length}
         activeUserCount={users.filter((user) => user.is_active).length}
-        permissionCount={permissions.length}
+        permissionCount={permissionTotal}
         tagCount={tags.length}
       />
 
@@ -49,6 +80,11 @@ const AdminPanel: React.FC = () => {
         setActiveTab={setActiveTab}
         users={users}
         permissions={permissions}
+        permissionsLoading={permissionsLoading}
+        permissionPage={permissionPage}
+        permissionPageSize={permissionPageSize}
+        permissionTotal={permissionTotal}
+        setPermissionPage={setPermissionPage}
         tags={tags}
         setIsAddUserModalOpen={userManagement.setIsAddUserModalOpen}
         openEditUser={userManagement.openEditUser}

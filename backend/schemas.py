@@ -158,6 +158,13 @@ class ContractAuditLogRead(BaseModel):
     timestamp: datetime
 
 
+class ContractAuditLogPage(BaseModel):
+    items: List[ContractAuditLogRead]
+    has_more: bool
+    next_cursor_timestamp: Optional[datetime] = None
+    next_cursor_id: Optional[int] = None
+
+
 class OTPVerify(BaseModel):
     otp: str = Field(..., min_length=6, max_length=6)
 
@@ -228,6 +235,13 @@ class PermissionRead(BaseModel):
     permission_level: str
     username: Optional[str] = None
     contract_title: Optional[str] = None
+
+
+class PermissionPage(BaseModel):
+    items: List[PermissionRead]
+    total: int
+    offset: int
+    limit: int
 
 
 # Contract List Schemas

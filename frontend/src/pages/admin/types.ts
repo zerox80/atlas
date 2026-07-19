@@ -16,6 +16,13 @@ export interface Permission {
   contract_title: string;
 }
 
+export interface PermissionPage {
+  items: Permission[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
 export interface Tag {
   id: number;
   name: string;

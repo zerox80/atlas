@@ -49,6 +49,11 @@ describe("AdminPanel user deletion", () => {
     mockDelete.mockReset();
     mockGet.mockImplementation((url: string) => {
       if (url === "/admin/users") return Promise.resolve({ data: users });
+      if (url === "/admin/permissions") {
+        return Promise.resolve({
+          data: { items: [], total: 0, offset: 0, limit: 50 },
+        });
+      }
       return Promise.resolve({ data: [] });
     });
     mockPost.mockResolvedValue({ data: undefined });
@@ -90,6 +95,11 @@ describe("AdminPanel document backup", () => {
     mockDelete.mockReset();
     mockGet.mockImplementation((url: string) => {
       if (url === "/admin/users") return Promise.resolve({ data: users });
+      if (url === "/admin/permissions") {
+        return Promise.resolve({
+          data: { items: [], total: 0, offset: 0, limit: 50 },
+        });
+      }
       return Promise.resolve({ data: [] });
     });
     Object.defineProperty(URL, "createObjectURL", {

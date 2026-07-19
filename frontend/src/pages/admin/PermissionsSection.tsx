@@ -1,22 +1,37 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { FiPlus, FiTrash2 } from "react-icons/fi";
+import {
+  FiChevronLeft,
+  FiChevronRight,
+  FiPlus,
+  FiTrash2,
+} from "react-icons/fi";
 import type { Permission } from "./types";
 
 interface PermissionsSectionProps {
   getLevelColor: (level: string) => string;
   getLevelLabel: (level: string) => string;
+  loading: boolean;
   onAddPermission: () => void;
   onDeletePermission: (permissionId: number) => void;
+  onPageChange: (page: number) => void;
+  page: number;
+  pageSize: number;
   permissions: Permission[];
+  total: number;
 }
 
 const PermissionsSection: React.FC<PermissionsSectionProps> = ({
   getLevelColor,
   getLevelLabel,
+  loading,
   onAddPermission,
   onDeletePermission,
+  onPageChange,
+  page,
+  pageSize,
   permissions,
+  total,
 }) => (
   <motion.div
     initial={{ opacity: 0, y: 10 }}
@@ -42,7 +57,13 @@ const PermissionsSection: React.FC<PermissionsSectionProps> = ({
           </tr>
         </thead>
         <tbody>
-          {permissions.length === 0 ? (
+          {loading ? (
+            <tr>
+              <td colSpan={4} className="p-8 text-center text-gray-500">
+                Berechtigungen werden geladen …
+              </td>
+            </tr>
+          ) : permissions.length === 0 ? (
             <tr>
               <td colSpan={4} className="p-8 text-center text-gray-500">
                 Keine Berechtigungen vorhanden
@@ -77,6 +98,33 @@ const PermissionsSection: React.FC<PermissionsSectionProps> = ({
           )}
         </tbody>
       </table>
+      <div className="flex items-center justify-between gap-4 border-t border-gray-700 px-4 py-3 text-sm text-gray-400">
+        <span>
+          {total === 0
+            ? "0 Berechtigungen"
+            : `${page * pageSize + 1}–${Math.min(total, (page + 1) * pageSize)} von ${total}`}
+        </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Vorherige Berechtigungsseite"
+            disabled={loading || page === 0}
+            onClick={() => onPageChange(page - 1)}
+          >
+            <FiChevronLeft />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Nächste Berechtigungsseite"
+            disabled={loading || (page + 1) * pageSize >= total}
+            onClick={() => onPageChange(page + 1)}
+          >
+            <FiChevronRight />
+          </button>
+        </div>
+      </div>
     </div>
   </motion.div>
 );

@@ -1,8 +1,10 @@
 """Tag and audit-log routes."""
 
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import or_
 from sqlmodel import Session, col, delete, select
 
 from api_core import check_contract_permission, get_current_user, require_admin
@@ -10,6 +12,7 @@ from database import get_session
 from models import AuditLog, Contract, ContractTagLink, Tag, User
 from schemas import (
     AuditLogRead,
+    ContractAuditLogPage,
     ContractAuditLogRead,
     TagCreate,
     TagRead,
@@ -18,7 +21,6 @@ from schemas import (
 from security_utils import log_audit
 
 router = APIRouter()
-CONTRACT_AUDIT_LOG_LIMIT = 100
 
 @router.get("/tags", response_model=List[TagRead])
 def get_tags(
@@ -152,12 +154,15 @@ def get_audit_logs(current_user: User = Depends(get_current_user), session: Sess
 
 @router.get(
     "/contracts/{contract_id}/audit",
-    response_model=List[ContractAuditLogRead],
+    response_model=ContractAuditLogPage,
 )
 def get_contract_audit_logs(
-    contract_id: int, 
-    current_user: User = Depends(get_current_user), 
-    session: Session = Depends(get_session)
+    contract_id: int,
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor_timestamp: Optional[datetime] = None,
+    cursor_id: Optional[int] = Query(default=None, ge=1),
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
     contract = session.get(Contract, contract_id)
     if not contract:
@@ -166,16 +171,34 @@ def get_contract_audit_logs(
     if not check_contract_permission(current_user, contract_id, "read", session):
         raise HTTPException(status_code=403, detail="You don't have permission to access this contract")
 
-    results = session.exec(
+    if (cursor_timestamp is None) != (cursor_id is None):
+        raise HTTPException(
+            status_code=422,
+            detail="cursor_timestamp and cursor_id must be provided together",
+        )
+
+    statement = (
         select(AuditLog, User)
         .join(User, isouter=True)
         .where(col(AuditLog.contract_id) == contract_id)
-        .order_by(col(AuditLog.timestamp).desc())
-        .limit(CONTRACT_AUDIT_LOG_LIMIT)
-    ).all()
-    
+    )
+    if cursor_timestamp is not None and cursor_id is not None:
+        statement = statement.where(
+            or_(
+                col(AuditLog.timestamp) < cursor_timestamp,
+                (col(AuditLog.timestamp) == cursor_timestamp)
+                & (col(AuditLog.id) < cursor_id),
+            )
+        )
+    statement = statement.order_by(
+        col(AuditLog.timestamp).desc(), col(AuditLog.id).desc()
+    )
+    results = list(session.exec(statement.limit(limit + 1)).all())
+    has_more = len(results) > limit
+    visible_results = results[:limit]
+
     logs: list[dict[str, object]] = []
-    for log, user in results:
+    for log, user in visible_results:
         logs.append(
             {
                 "id": log.id,
@@ -186,7 +209,13 @@ def get_contract_audit_logs(
                 "timestamp": log.timestamp,
             }
         )
-    return logs
+    last_log = visible_results[-1][0] if has_more and visible_results else None
+    return {
+        "items": logs,
+        "has_more": has_more,
+        "next_cursor_timestamp": last_log.timestamp if last_log else None,
+        "next_cursor_id": last_log.id if last_log else None,
+    }
 
 
 # ========================================

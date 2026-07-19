@@ -20,12 +20,14 @@ import {
   FiChevronRight,
   FiClock,
 } from "react-icons/fi";
+import { useSearchParams } from "react-router-dom";
 import { fetchCalendarData } from "../api";
 import type { CalendarData, Contract } from "../types";
 import UploadModal from "../components/UploadModal";
 import ContractDetailsModal from "../components/ContractDetailsModal";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import { downloadDocument } from "../features/documents/downloadDocument";
+import { getListIdFromSearchParams } from "../features/documents/documentUtils";
 import { queryKeys } from "../queryKeys";
 import {
   businessDateKey,
@@ -46,6 +48,8 @@ const eventStyle: Record<CalendarEvent["type"], string> = {
 };
 
 const Calendar: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const listId = getListIdFromSearchParams(searchParams);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedContract, setSelectedContract] = useState<Contract | null>(
     null,
@@ -61,8 +65,8 @@ const Calendar: React.FC = () => {
   const rangeStart = `${format(days[0], "yyyy-MM-dd")}T00:00:00`;
   const rangeEnd = `${format(addDays(days[days.length - 1], 1), "yyyy-MM-dd")}T00:00:00`;
   const { data, isError, isLoading } = useQuery<CalendarData>(
-    queryKeys.calendar(rangeStart, rangeEnd),
-    () => fetchCalendarData(rangeStart, rangeEnd),
+    queryKeys.calendar(rangeStart, rangeEnd, listId),
+    () => fetchCalendarData(rangeStart, rangeEnd, listId),
   );
   const contracts = data?.items ?? [];
   const businessTimezone =
@@ -143,7 +147,9 @@ const Calendar: React.FC = () => {
   return (
     <div className="app-page">
       <PageHeader
-        eyebrow="Operations / Timeline"
+        eyebrow={
+          listId ? "Gefilterter Workspace / Timeline" : "Operations / Timeline"
+        }
         title="Fristenkalender"
         description="Vertragsstarts, Laufzeitenden und Kündigungsfenster in einer operativen Monatsansicht."
         actions={

@@ -3,8 +3,8 @@
 from datetime import datetime, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import update
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import func, update
 from sqlmodel import Session, col, delete, select
 
 from api_core import ensure_active_admin_remains, get_current_user, require_admin
@@ -13,6 +13,7 @@ from database import get_session
 from models import AuditLog, Contract, ContractPermission, User
 from schemas import (
     PermissionCreate,
+    PermissionPage,
     PermissionRead,
     UserCreate,
     UserPasswordUpdate,
@@ -264,16 +265,26 @@ def update_user_password(
 
 
 # --- Permission Management Endpoints ---
-@router.get("/admin/permissions", response_model=List[PermissionRead])
+@router.get("/admin/permissions", response_model=PermissionPage)
 def list_permissions(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
     admin: User = Depends(require_admin),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
-    """List all contract permissions (Admin only)"""
+    """List one stable page of contract permissions (Admin only)."""
+    total = session.exec(
+        select(func.count(col(ContractPermission.id)))
+        .join(User, col(User.id) == col(ContractPermission.user_id))
+        .join(Contract, col(Contract.id) == col(ContractPermission.contract_id))
+    ).one()
     rows = session.exec(
         select(ContractPermission, User, Contract)
         .join(User, col(User.id) == col(ContractPermission.user_id))
         .join(Contract, col(Contract.id) == col(ContractPermission.contract_id))
+        .order_by(col(ContractPermission.id).desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
     result = []
     for permission, user, contract in rows:
@@ -285,7 +296,12 @@ def list_permissions(
             "username": user.username,
             "contract_title": contract.title,
         })
-    return result
+    return {
+        "items": result,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
 
 
 @router.get("/admin/users/{user_id}/permissions", response_model=List[PermissionRead])

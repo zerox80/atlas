@@ -142,7 +142,7 @@ class TestContractPermissions:
         grant_permission(session, test_user, contract, "read")
         response = client.get(f"/contracts/{contract.id}/audit")
         assert response.status_code == 200
-        assert response.json()[0]["action"] == "UPDATE_CONTRACT"
+        assert response.json()["items"][0]["action"] == "UPDATE_CONTRACT"
 
 
 class TestListPermissions:

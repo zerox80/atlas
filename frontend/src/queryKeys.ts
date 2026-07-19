@@ -13,8 +13,8 @@ export const queryKeys = {
     ["contracts", "page", listId, state, query] as const,
   contractOptions: (query: string) =>
     ["contracts", "options", query] as const,
-  calendar: (start: string, end: string) =>
-    ["contracts", "calendar", start, end] as const,
+  calendar: (start: string, end: string, listId: number | null) =>
+    ["contracts", "calendar", start, end, listId] as const,
   invoices: ["invoices"] as const,
   invoicesForList: (listId: number | null) => ["invoices", listId] as const,
   invoicePage: (listId: number | null, query: string) =>

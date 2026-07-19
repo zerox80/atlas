@@ -13,6 +13,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from setup_transaction import proxy_configuration_snapshot, recover_proxy_setup
+
 
 SITE = Path("/etc/nginx/sites-available/atlas")
 SITE_LINK = Path("/etc/nginx/sites-enabled/atlas")
@@ -426,7 +428,7 @@ def main() -> None:
     print("Vorhandene Projekt- und Nginx-Dateien werden vorher gesichert.")
     if not confirm("Jetzt anwenden?"):
         fail("Keine Änderungen vorgenommen.")
-
+    rollback = proxy_configuration_snapshot(compose, env_file, SITE, SITE_LINK, TLS_DIR)
     try:
         backup(compose)
         backup(env_file)
@@ -438,7 +440,6 @@ def main() -> None:
             "SECURE_COOKIES": "true" if tls != "none" else "false",
             "CORS_ALLOWED_ORIGINS": origin,
         })
-
         packages = ["nginx"]
         if tls == "local":
             packages.append("openssl")
@@ -446,10 +447,6 @@ def main() -> None:
             packages.extend(["certbot", "python3-certbot-nginx"])
         command(["apt-get", "update"])
         command(["apt-get", "install", "-y", *packages])
-
-        if firewall_state == "aktiv":
-            allow_ufw_ports(public_ports, firewall_source, firewall_interface)
-
         ca_cert: Path | None = None
         if tls == "local":
             cert, key, ca_cert = local_certificate(host)
@@ -472,7 +469,6 @@ def main() -> None:
                 "#!/bin/sh\nsystemctl reload nginx\n",
                 0o755,
             )
-
         if tls == "none":
             write(SITE, http_site(host, port))
         else:
@@ -485,8 +481,12 @@ def main() -> None:
             ["docker", "compose", "up", "-d", "--force-recreate", "backend", "frontend"],
             cwd=project,
         )
-    except subprocess.CalledProcessError as error:
-        fail(f"Befehl fehlgeschlagen (Exit-Code {error.returncode}); Sicherungen bleiben erhalten.")
+        if firewall_state == "aktiv":
+            allow_ufw_ports(public_ports, firewall_source, firewall_interface)
+    except Exception as error:
+        fail(recover_proxy_setup(rollback, project, command, firewall_state == "aktiv", error))
+    finally:
+        rollback.close()
 
     print(f"\nFertig: {origin}")
     print(f"Atlas-Docker-Port bleibt intern: 127.0.0.1:{port}")

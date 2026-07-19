@@ -1,9 +1,11 @@
 """High-level AI analysis and contract chat operations."""
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
+from collections import OrderedDict
 from typing import Any
 
 from ai_client import (
@@ -49,6 +51,99 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+DocumentPayload = str | list[str]
+_DOCUMENT_CACHE_MAX_ENTRIES = 16
+_DOCUMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
+_document_cache: OrderedDict[str, tuple[DocumentPayload, int]] = OrderedDict()
+_document_cache_bytes = 0
+_document_processing_tasks: dict[str, asyncio.Task[DocumentPayload]] = {}
+
+
+def _copy_document_payload(payload: DocumentPayload) -> DocumentPayload:
+    return payload if isinstance(payload, str) else list(payload)
+
+
+def _document_payload_size(payload: DocumentPayload) -> int:
+    if isinstance(payload, str):
+        return len(payload.encode("utf-8"))
+    return sum(len(image) for image in payload)
+
+
+def _cache_document_payload(key: str, payload: DocumentPayload) -> None:
+    global _document_cache_bytes
+
+    payload_size = _document_payload_size(payload)
+    if payload_size > _DOCUMENT_CACHE_MAX_BYTES:
+        return
+
+    previous = _document_cache.pop(key, None)
+    if previous is not None:
+        _document_cache_bytes -= previous[1]
+    _document_cache[key] = (_copy_document_payload(payload), payload_size)
+    _document_cache_bytes += payload_size
+
+    while (
+        len(_document_cache) > _DOCUMENT_CACHE_MAX_ENTRIES
+        or _document_cache_bytes > _DOCUMENT_CACHE_MAX_BYTES
+    ):
+        _, (_, evicted_size) = _document_cache.popitem(last=False)
+        _document_cache_bytes -= evicted_size
+
+
+async def _process_document_payload(
+    pdf_bytes: bytes, processing_mode: str
+) -> DocumentPayload:
+    if processing_mode == "ocr":
+        return await process_pdf_with_ocr(pdf_bytes)
+    return await process_pdf_to_images(pdf_bytes)
+
+
+def _finish_document_processing(
+    key: str, task: asyncio.Future[DocumentPayload]
+) -> None:
+    if _document_processing_tasks.get(key) is task:
+        _document_processing_tasks.pop(key, None)
+    if task.cancelled():
+        return
+    try:
+        payload = task.result()
+    except Exception:
+        return
+    _cache_document_payload(key, payload)
+
+
+async def _processed_document_payload(
+    pdf_bytes: bytes,
+) -> tuple[str, DocumentPayload]:
+    processing_mode = "ocr" if use_ocr_mode() else "images"
+    processing_options = (
+        json.dumps(_build_ocr_options(), sort_keys=True)
+        if processing_mode == "ocr"
+        else "max_pages=8"
+    )
+    digest = hashlib.sha256(pdf_bytes).hexdigest()
+    cache_key = f"{processing_mode}:{processing_options}:{digest}"
+
+    cached = _document_cache.pop(cache_key, None)
+    if cached is not None:
+        _document_cache[cache_key] = cached
+        return processing_mode, _copy_document_payload(cached[0])
+
+    task = _document_processing_tasks.get(cache_key)
+    if task is None:
+        task = asyncio.create_task(
+            _process_document_payload(pdf_bytes, processing_mode)
+        )
+        _document_processing_tasks[cache_key] = task
+        task.add_done_callback(
+            lambda completed, key=cache_key: _finish_document_processing(
+                key, completed
+            )
+        )
+
+    payload = await asyncio.shield(task)
+    return processing_mode, _copy_document_payload(payload)
+
 
 def _parse_analysis_response(response_content: str) -> dict[str, Any]:
     def reject_json_constant(constant: str) -> None:
@@ -89,9 +184,12 @@ async def analyze_contract_pdf(
 
     await validate_pdf_for_ai(pdf_bytes)
     client = get_client()
-    if use_ocr_mode():
+    processing_mode, document_payload = await _processed_document_payload(pdf_bytes)
+    if processing_mode == "ocr":
         logger.info("Using OCR mode for contract analysis")
-        document_text = await process_pdf_with_ocr(pdf_bytes)
+        if not isinstance(document_payload, str):
+            raise RuntimeError("Invalid cached OCR payload")
+        document_text = document_payload
         if not document_text:
             raise ValueError("OCR konnte keinen Text aus dem PDF extrahieren")
         content = [
@@ -99,7 +197,9 @@ async def analyze_contract_pdf(
         ]
     else:
         logger.info("Using image mode for contract analysis")
-        images_base64 = await process_pdf_to_images(pdf_bytes)
+        if isinstance(document_payload, str):
+            raise RuntimeError("Invalid cached image payload")
+        images_base64 = document_payload
         content = [
             {"type": "image_url", "image_url": image} for image in images_base64
         ]
@@ -141,8 +241,11 @@ async def analyze_contract_pdf(
 async def _question_content(
     pdf_bytes: bytes, question: str
 ) -> list[dict[str, str]]:
-    if use_ocr_mode():
-        document_text = await process_pdf_with_ocr(pdf_bytes)
+    processing_mode, document_payload = await _processed_document_payload(pdf_bytes)
+    if processing_mode == "ocr":
+        if not isinstance(document_payload, str):
+            raise RuntimeError("Invalid cached OCR payload")
+        document_text = document_payload
         if not document_text:
             raise ValueError("OCR konnte keinen Text aus dem PDF extrahieren.")
         return [
@@ -152,7 +255,9 @@ async def _question_content(
             }
         ]
 
-    images_base64 = await process_pdf_to_images(pdf_bytes)
+    if isinstance(document_payload, str):
+        raise RuntimeError("Invalid cached image payload")
+    images_base64 = document_payload
     content = [
         {"type": "image_url", "image_url": image} for image in images_base64
     ]

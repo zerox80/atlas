@@ -218,7 +218,12 @@ const Dashboard: React.FC = () => {
               <p className="eyebrow">Nächste Schritte</p>
               <h2 className="section-title mt-1">Anstehende Fristen</h2>
             </div>
-            <button onClick={() => navigate("/calendar")} className="icon-btn">
+            <button
+              onClick={() =>
+                navigate(listId ? `/calendar?list_id=${listId}` : "/calendar")
+              }
+              className="icon-btn"
+            >
               <FiCalendar />
             </button>
           </div>

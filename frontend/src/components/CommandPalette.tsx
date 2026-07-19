@@ -15,6 +15,9 @@ const CommandPalette = () => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -33,12 +36,46 @@ const CommandPalette = () => {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
-    api
-      .get<Contract[]>("/contracts", { params: { limit: 50 } })
-      .then((response) => setContracts(response.data))
-      .catch(() => setContracts([]));
-  }, [open]);
+    if (!open) {
+      setContracts([]);
+      setQuery("");
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const normalizedQuery = query.trim();
+    setContracts([]);
+    setError(null);
+    setLoading(true);
+    const timer = window.setTimeout(() => {
+      void api
+        .get<Contract[]>("/contracts", {
+          params: {
+            limit: 50,
+            ...(normalizedQuery ? { q: normalizedQuery } : {}),
+          },
+          signal: controller.signal,
+        })
+        .then((response) => {
+          if (!controller.signal.aborted) setContracts(response.data);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setError("Dokumente konnten nicht durchsucht werden.");
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, normalizedQuery ? 250 : 0);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [open, query]);
 
   const go = (path: string) => {
     navigate(path);
@@ -81,6 +118,8 @@ const CommandPalette = () => {
           <FiSearch className="mr-3 text-[#b8f15a]" />
           <Command.Input
             autoFocus
+            value={query}
+            onValueChange={setQuery}
             placeholder="Dokument, Sammlung oder Aktion suchen …"
             className="w-full bg-transparent py-4 text-base text-white placeholder:text-[#606b7b] focus:outline-none"
           />
@@ -88,9 +127,16 @@ const CommandPalette = () => {
             ESC
           </kbd>
         </div>
+        {error && (
+          <p className="px-4 pt-3 text-xs text-rose-300" role="alert">
+            {error}
+          </p>
+        )}
         <Command.List className="max-h-[55vh] overflow-y-auto p-2">
           <Command.Empty className="py-12 text-center text-sm text-[#727d8d]">
-            Keine passenden Ergebnisse.
+            {loading
+              ? "Suche läuft …"
+              : error || "Keine passenden Ergebnisse."}
           </Command.Empty>
           <Command.Group heading="Schnellzugriff" className={groupClass}>
             {[
@@ -127,7 +173,9 @@ const CommandPalette = () => {
               {contracts.map((contract) => (
                 <Command.Item
                   key={contract.id}
-                  value={`${contract.title} ${contract.description || ""}`}
+                  value={`${contract.title} ${contract.description || ""} ${contract.tags
+                    .map((tag) => tag.name)
+                    .join(" ")}`}
                   onSelect={() =>
                     go(
                       contract.document_type === "invoice"
