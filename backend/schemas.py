@@ -149,6 +149,15 @@ class AuditLogRead(BaseModel):
     user_agent: Optional[str] = None
 
 
+class ContractAuditLogRead(BaseModel):
+    id: int
+    user_id: Optional[int]
+    username: Optional[str] = None
+    action: str
+    details: str
+    timestamp: datetime
+
+
 class OTPVerify(BaseModel):
     otp: str = Field(..., min_length=6, max_length=6)
 

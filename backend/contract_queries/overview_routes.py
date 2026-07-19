@@ -154,6 +154,7 @@ def read_contract_page(
     if include_summary and cursor_uploaded_at is None and cursor_id is None:
         summary_statement = build_contract_query(
             current_user=current_user,
+            q=q,
             list_id=list_id,
             document_type=document_type,
             is_protected=is_protected,

@@ -173,7 +173,8 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
           </p>
         )}
         <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-200">
-          Bereits aktive Sitzungen bleiben bis zu ihrem Ablauf angemeldet.
+          Mit der Passwortänderung werden alle bereits aktiven Sitzungen
+          ungültig.
         </p>
         <div className="flex gap-3 pt-2">
           <button

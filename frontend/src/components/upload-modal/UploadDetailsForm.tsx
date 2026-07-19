@@ -87,7 +87,8 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
           className="field"
         />
         <span className="mt-2 block text-[11px] text-white/28">
-          Mehrere Tags mit Komma trennen.
+          Mehrere Tags mit Komma trennen. Unbekannte Tags können nur
+          Administratoren anlegen.
         </span>
       </label>
       <div
