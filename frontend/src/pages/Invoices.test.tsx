@@ -65,7 +65,7 @@ describe("Invoices", () => {
     expect(screen.getAllByText("Datum")).toHaveLength(2);
     expect(screen.getAllByText("Status")).toHaveLength(2);
     expect(screen.getAllByText("Betrag")).toHaveLength(2);
-    expect(screen.getAllByText("50 €")).toHaveLength(3);
+    expect(screen.getAllByText("50 €")).toHaveLength(4);
     expect(screen.getByTitle("Herunterladen")).toBeEnabled();
     expect(screen.getByTitle("Bearbeiten")).toBeEnabled();
     expect(screen.getByTitle("Löschen")).toBeEnabled();

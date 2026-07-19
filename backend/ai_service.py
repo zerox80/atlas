@@ -35,6 +35,18 @@ from ai_prompts import (
 )
 
 
+__all__ = [
+    "OCR_MODEL",
+    "Mistral",
+    "SDKError",
+    "_build_ocr_options",
+    "_format_ocr_text",
+    "analyze_contract_pdf",
+    "chat_about_contract",
+    "chat_about_contract_stream",
+]
+
+
 logger = logging.getLogger(__name__)
 
 
