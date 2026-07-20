@@ -1,6 +1,7 @@
 import React from "react";
 import {
   FiActivity,
+  FiCheck,
   FiDownload,
   FiFileText,
   FiFolder,
@@ -20,6 +21,8 @@ interface ContractCardProps {
   contract: Contract;
   isAdmin: boolean;
   isMenuOpen: boolean;
+  isSelected: boolean;
+  isSelectionMode: boolean;
   onAssignToList: (contract: Contract) => void;
   onDelete: (contract: Contract) => void | Promise<void>;
   onDownload: (contract: Contract) => void | Promise<void>;
@@ -29,12 +32,15 @@ interface ContractCardProps {
   onOpenDetails: (contract: Contract) => void;
   onToggleMenu: () => void;
   onToggleProtection: (contract: Contract) => void | Promise<void>;
+  onToggleSelection: (contract: Contract) => void;
 }
 
 const ContractCard: React.FC<ContractCardProps> = ({
   contract,
   isAdmin,
   isMenuOpen,
+  isSelected,
+  isSelectionMode,
   onAssignToList,
   onDelete,
   onDownload,
@@ -44,13 +50,38 @@ const ContractCard: React.FC<ContractCardProps> = ({
   onOpenDetails,
   onToggleMenu,
   onToggleProtection,
+  onToggleSelection,
 }) => {
   const status = getContractState(contract);
   const StatusIcon = status.icon;
 
   return (
-    <article className="surface surface-interactive relative overflow-visible p-5 sm:p-6">
+    <article
+      className={[
+        "surface surface-interactive relative overflow-visible p-5 sm:p-6",
+        isSelected ? "ring-2 ring-[#b8f15a]/70" : "",
+      ].join(" ")}
+    >
       <div className="mb-5 flex items-start gap-4">
+        {isSelectionMode && (
+          <button
+            type="button"
+            aria-label={`${contract.title} ${
+              isSelected ? "abwählen" : "auswählen"
+            }`}
+            aria-pressed={isSelected}
+            onClick={() => onToggleSelection(contract)}
+            className={[
+              "mt-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border",
+              "transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b8f15a]",
+              isSelected
+                ? "border-[#b8f15a] bg-[#b8f15a] text-[#111700]"
+                : "border-white/[0.18] bg-white/[0.04] text-transparent hover:border-[#b8f15a]/70",
+            ].join(" ")}
+          >
+            <FiCheck size={16} />
+          </button>
+        )}
         <span
           className={[
             "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border",
@@ -87,57 +118,59 @@ const ContractCard: React.FC<ContractCardProps> = ({
             {contract.description || "Keine Beschreibung hinterlegt."}
           </p>
         </div>
-        <div className="relative">
-          <button
-            onClick={onToggleMenu}
-            className="icon-btn"
-            aria-label="Weitere Aktionen"
-          >
-            <FiMoreHorizontal />
-          </button>
-          {isMenuOpen && (
-            <div className="surface-raised absolute right-0 top-11 z-20 w-56 p-1.5">
-              <button
-                onClick={() => onEdit(contract)}
-                disabled={!contract.can_write}
-                className="btn-ghost w-full justify-start disabled:hidden"
-              >
-                Bearbeiten
-              </button>
-              {isAdmin && (
+        {!isSelectionMode && (
+          <div className="relative">
+            <button
+              onClick={onToggleMenu}
+              className="icon-btn"
+              aria-label="Weitere Aktionen"
+            >
+              <FiMoreHorizontal />
+            </button>
+            {isMenuOpen && (
+              <div className="surface-raised absolute right-0 top-11 z-20 w-56 p-1.5">
                 <button
-                  onClick={() => onAssignToList(contract)}
+                  onClick={() => onEdit(contract)}
+                  disabled={!contract.can_write}
+                  className="btn-ghost w-full justify-start disabled:hidden"
+                >
+                  Bearbeiten
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => onAssignToList(contract)}
+                    className="btn-ghost w-full justify-start"
+                  >
+                    <FiFolder /> Sammlung zuweisen
+                  </button>
+                )}
+                <button
+                  onClick={() => onOpenAudit(contract)}
                   className="btn-ghost w-full justify-start"
                 >
-                  <FiFolder /> Sammlung zuweisen
+                  <FiActivity /> Aktivitäten
                 </button>
-              )}
-              <button
-                onClick={() => onOpenAudit(contract)}
-                className="btn-ghost w-full justify-start"
-              >
-                <FiActivity /> Aktivitäten
-              </button>
-              {contract.can_manage_protection && (
-                <button
-                  onClick={() => onToggleProtection(contract)}
-                  className="btn-ghost w-full justify-start"
-                >
-                  <FiShield /> Schutz{" "}
-                  {contract.is_protected ? "aufheben" : "aktivieren"}
-                </button>
-              )}
-              {contract.can_delete && (
-                <button
-                  onClick={() => onDelete(contract)}
-                  className="btn-ghost w-full justify-start text-red-300 hover:text-red-200"
-                >
-                  <FiTrash2 /> Löschen
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+                {contract.can_manage_protection && (
+                  <button
+                    onClick={() => onToggleProtection(contract)}
+                    className="btn-ghost w-full justify-start"
+                  >
+                    <FiShield /> Schutz{" "}
+                    {contract.is_protected ? "aufheben" : "aktivieren"}
+                  </button>
+                )}
+                {contract.can_delete && (
+                  <button
+                    onClick={() => onDelete(contract)}
+                    className="btn-ghost w-full justify-start text-red-300 hover:text-red-200"
+                  >
+                    <FiTrash2 /> Löschen
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div

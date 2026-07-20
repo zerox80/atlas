@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { FiX, FiCheck, FiFolder } from "react-icons/fi";
+import { FiX, FiCheck, FiFolder, FiMinus } from "react-icons/fi";
 import api from "../api";
 import type { Contract, ContractList } from "../types";
 import { getApiErrorMessage } from "../utils/errorUtils";
@@ -13,24 +13,44 @@ import {
 interface AddToListModalProps {
   isOpen: boolean;
   onClose: () => void;
-  contract: Contract | null;
+  contract?: Contract | null;
+  contracts?: Contract[];
 }
 
 interface ListAssignmentResponse {
   list_ids: number[];
 }
 
+interface BulkListAssignmentResponse {
+  assignments: Array<{
+    contract_id: number;
+    list_ids: number[];
+  }>;
+  changed_count: number;
+  operation: "add" | "remove";
+}
+
 const AddToListModal: React.FC<AddToListModalProps> = ({
   isOpen,
   onClose,
   contract,
+  contracts,
 }) => {
   const queryClient = useQueryClient();
-  const [contractLists, setContractLists] = useState<number[]>([]);
+  const activeContracts = useMemo(
+    () => (contracts?.length ? contracts : contract ? [contract] : []),
+    [contract, contracts],
+  );
+  const contractIds = useMemo(
+    () => activeContracts.map((item) => item.id),
+    [activeContracts],
+  );
+  const [contractLists, setContractLists] = useState<
+    Record<number, number[]>
+  >({});
   const [isLoading, setIsLoading] = useState(false);
-  const contractId = contract?.id ?? null;
 
-  const { data: lists } = useQuery<ContractList[]>(
+  const { data: lists, isLoading: areListsLoading } = useQuery<ContractList[]>(
     queryKeys.lists,
     async () => {
       const res = await api.get<ContractList[]>("/lists");
@@ -41,26 +61,57 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    setContractLists(contract?.lists?.map((list) => list.id) ?? []);
-  }, [isOpen, contract]);
+    setContractLists(
+      Object.fromEntries(
+        activeContracts.map((item) => [
+          item.id,
+          item.lists?.map((list) => list.id) ?? [],
+        ]),
+      ),
+    );
+  }, [activeContracts, isOpen]);
+
+  const assignableLists = useMemo(
+    () => lists?.filter((list) => !list.is_default) ?? [],
+    [lists],
+  );
 
   const handleToggleList = async (listId: number) => {
-    if (!contractId) return;
+    if (!contractIds.length) return;
     setIsLoading(true);
 
     try {
-      if (contractLists.includes(listId)) {
-        // Remove from list
-        const response = await api.delete<ListAssignmentResponse>(
-          `/lists/${listId}/contracts/${contractId}`,
-        );
-        setContractLists(response.data.list_ids);
+      const assignedCount = contractIds.filter((contractId) =>
+        contractLists[contractId]?.includes(listId),
+      ).length;
+      const operation =
+        assignedCount === contractIds.length ? "remove" : "add";
+
+      if (contractIds.length === 1) {
+        const contractId = contractIds[0];
+        if (!contractId) return;
+        const response =
+          operation === "remove"
+            ? await api.delete<ListAssignmentResponse>(
+                `/lists/${listId}/contracts/${contractId}`,
+              )
+            : await api.post<ListAssignmentResponse>(
+                `/lists/${listId}/contracts/${contractId}`,
+              );
+        setContractLists({ [contractId]: response.data.list_ids });
       } else {
-        // Add to list
-        const response = await api.post<ListAssignmentResponse>(
-          `/lists/${listId}/contracts/${contractId}`,
+        const response = await api.post<BulkListAssignmentResponse>(
+          `/lists/${listId}/contract-assignments`,
+          { contract_ids: contractIds, operation },
         );
-        setContractLists(response.data.list_ids);
+        setContractLists(
+          Object.fromEntries(
+            response.data.assignments.map((assignment) => [
+              assignment.contract_id,
+              assignment.list_ids,
+            ]),
+          ),
+        );
       }
       await invalidateListAndDocumentQueries(queryClient);
     } catch (error: unknown) {
@@ -97,10 +148,12 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                 <div>
                   <p className="eyebrow">Organisation</p>
                   <h3 className="mt-2 text-xl font-semibold text-white">
-                    Sammlungen zuweisen
+                    Workspaces zuweisen
                   </h3>
                   <p className="mt-1 max-w-[320px] truncate text-sm muted">
-                    {contract?.title ?? ""}
+                    {activeContracts.length === 1
+                      ? (activeContracts[0]?.title ?? "")
+                      : `${activeContracts.length} Verträge ausgewählt`}
                   </p>
                 </div>
                 <button
@@ -113,23 +166,41 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
               </div>
 
               <div className="max-h-[430px] overflow-y-auto p-4 sm:p-6">
-                {lists && lists.length > 0 ? (
+                {activeContracts.length > 1 && (
+                  <p className="mb-4 rounded-xl border border-white/[0.07] bg-white/[0.025] p-3 text-xs leading-5 muted">
+                    Bei einer gemischten Auswahl wird der Workspace beim
+                    Anklicken allen ausgewählten Verträgen hinzugefügt. Sind
+                    bereits alle enthalten, entfernt der Klick sie gemeinsam.
+                  </p>
+                )}
+                {areListsLoading ? (
+                  <div className="py-10 text-center text-sm muted">
+                    Workspaces werden geladen…
+                  </div>
+                ) : assignableLists.length > 0 ? (
                   <div className="space-y-2">
-                    {lists.map((list) => {
-                      const isAssigned = contractLists.includes(list.id);
+                    {assignableLists.map((list) => {
+                      const assignedCount = contractIds.filter((contractId) =>
+                        contractLists[contractId]?.includes(list.id),
+                      ).length;
+                      const isAssigned =
+                        contractIds.length > 0 &&
+                        assignedCount === contractIds.length;
+                      const isPartlyAssigned =
+                        assignedCount > 0 && !isAssigned;
                       return (
                         <button
                           key={list.id}
-                          onClick={() => {
-                            if (!list.is_default) void handleToggleList(list.id);
-                          }}
-                          disabled={isLoading || list.is_default}
+                          onClick={() => void handleToggleList(list.id)}
+                          disabled={isLoading}
                           className={[
                             "flex w-full items-center gap-3 rounded-2xl border p-3.5 text-left",
                             "transition-all disabled:opacity-50",
                             isAssigned
                               ? "border-[#b8f15a]/25 bg-[#b8f15a]/[0.08]"
-                              : "border-white/[0.07] bg-white/[0.025] hover:border-white/[0.14] hover:bg-white/[0.045]",
+                              : isPartlyAssigned
+                                ? "border-[#77a7ff]/25 bg-[#77a7ff]/[0.07]"
+                                : "border-white/[0.07] bg-white/[0.025] hover:border-white/[0.14] hover:bg-white/[0.045]",
                           ].join(" ")}
                         >
                           <div
@@ -145,9 +216,6 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                             {list.owner_username && (
                               <p className="text-xs muted">
                                 Eigentümer: {list.owner_username}
-                                {list.is_default
-                                  ? " · persönliche Ablage (automatisch)"
-                                  : ""}
                               </p>
                             )}
                             {list.description && (
@@ -158,11 +226,24 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-xs muted">
-                              {list.contract_count} Verträge
+                              {activeContracts.length > 1
+                                ? `${assignedCount}/${activeContracts.length} ausgewählt`
+                                : `${list.contract_count} Verträge`}
                             </span>
-                            {isAssigned && (
-                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#b8f15a]">
-                                <FiCheck size={14} className="text-[#111700]" />
+                            {(isAssigned || isPartlyAssigned) && (
+                              <div
+                                className={[
+                                  "flex h-6 w-6 items-center justify-center rounded-full",
+                                  isAssigned
+                                    ? "bg-[#b8f15a] text-[#111700]"
+                                    : "bg-[#77a7ff] text-[#07111f]",
+                                ].join(" ")}
+                              >
+                                {isAssigned ? (
+                                  <FiCheck size={14} />
+                                ) : (
+                                  <FiMinus size={14} />
+                                )}
                               </div>
                             )}
                           </div>
@@ -177,10 +258,12 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                       className="mx-auto mb-3 text-[#596474]"
                     />
                     <p className="font-semibold text-white">
-                      Noch keine Sammlungen
+                      Noch keine Team-Workspaces
                     </p>
                     <p className="mt-1 text-sm muted">
-                      Erstelle zuerst eine Sammlung im Bereich „Sammlungen“.
+                      Erstelle zuerst einen benannten Workspace im Bereich
+                      „Sammlungen“. Persönliche Defaults werden automatisch
+                      verwaltet.
                     </p>
                   </div>
                 )}

@@ -13,7 +13,7 @@ interface ContractModalsProps {
   editingContract: Contract | null;
   isUploadOpen: boolean;
   initialListId?: number | null;
-  listContract: Contract | null;
+  listContracts: Contract[];
   onAuditClose: () => void;
   onChatClose: () => void;
   onDetailsClose: () => void;
@@ -30,7 +30,7 @@ const ContractModals: React.FC<ContractModalsProps> = ({
   editingContract,
   isUploadOpen,
   initialListId,
-  listContract,
+  listContracts,
   onAuditClose,
   onChatClose,
   onDetailsClose,
@@ -54,9 +54,9 @@ const ContractModals: React.FC<ContractModalsProps> = ({
       contractTitle={chatContract?.title || ""}
     />
     <AddToListModal
-      isOpen={Boolean(listContract)}
+      isOpen={listContracts.length > 0}
       onClose={onListClose}
-      contract={listContract}
+      contracts={listContracts}
     />
     <AuditModal
       isOpen={Boolean(auditContract)}

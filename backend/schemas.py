@@ -287,6 +287,31 @@ class ContractListUpdate(BaseModel):
     color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
 
 
+class ContractListBulkUpdate(BaseModel):
+    contract_ids: List[Annotated[int, Field(gt=0)]] = Field(
+        ...,
+        min_length=1,
+        max_length=10_000,
+    )
+    operation: Literal["add", "remove"]
+
+    @field_validator("contract_ids")
+    @classmethod
+    def deduplicate_contract_ids(cls, values: List[int]) -> List[int]:
+        return list(dict.fromkeys(values))
+
+
+class ContractListAssignmentRead(BaseModel):
+    contract_id: int
+    list_ids: List[int]
+
+
+class ContractListBulkResult(BaseModel):
+    operation: Literal["add", "remove"]
+    changed_count: int
+    assignments: List[ContractListAssignmentRead]
+
+
 # AI Feature Schemas
 class ContractAnalysisResult(BaseModel):
     """Result from AI contract analysis."""
