@@ -29,7 +29,14 @@ from models import (
     ContractPermission,
     User,
 )
-from schemas import ContractListCreate, ContractListRead, ContractListUpdate, ContractRead
+from schemas import (
+    ContractListBulkResult,
+    ContractListBulkUpdate,
+    ContractListCreate,
+    ContractListRead,
+    ContractListUpdate,
+    ContractRead,
+)
 
 router = APIRouter()
 
@@ -290,6 +297,137 @@ def delete_list(
             )
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/lists/{list_id}/contract-assignments",
+    response_model=ContractListBulkResult,
+)
+def update_contract_list_assignments(
+    list_id: int,
+    assignment_data: ContractListBulkUpdate,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """Add or remove many contracts in one atomic workspace operation."""
+    workspace = session.get(ContractList, list_id)
+    if workspace is None:
+        raise HTTPException(status_code=404, detail="List not found")
+    if workspace.is_default:
+        raise HTTPException(
+            status_code=400,
+            detail="Personal Default workspaces are managed automatically",
+        )
+
+    contract_ids = assignment_data.contract_ids
+    contracts = session.exec(
+        select(Contract).where(col(Contract.id).in_(contract_ids))
+    ).all()
+    contracts_by_id = {
+        contract.id: contract for contract in contracts if contract.id is not None
+    }
+    missing_ids = [
+        contract_id for contract_id in contract_ids if contract_id not in contracts_by_id
+    ]
+    if missing_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{len(missing_ids)} selected contract(s) no longer exist",
+        )
+
+    existing_target_ids = set(
+        session.exec(
+            select(ContractListLink.contract_id)
+            .where(col(ContractListLink.list_id) == list_id)
+            .where(col(ContractListLink.contract_id).in_(contract_ids))
+        ).all()
+    )
+    changed_count = 0
+
+    if assignment_data.operation == "add":
+        for contract_id in contract_ids:
+            if contract_id not in existing_target_ids:
+                session.add(
+                    ContractListLink(contract_id=contract_id, list_id=list_id)
+                )
+                changed_count += 1
+        session.flush()
+        session.exec(
+            delete(ContractListLink)
+            .where(col(ContractListLink.contract_id).in_(contract_ids))
+            .where(
+                col(ContractListLink.list_id).in_(
+                    select(ContractList.id).where(
+                        col(ContractList.is_default).is_(True)
+                    )
+                )
+            )
+        )
+    else:
+        changed_count = len(existing_target_ids)
+        if existing_target_ids:
+            session.exec(
+                delete(ContractListLink)
+                .where(col(ContractListLink.list_id) == list_id)
+                .where(
+                    col(ContractListLink.contract_id).in_(
+                        list(existing_target_ids)
+                    )
+                )
+            )
+        session.flush()
+        remaining_contract_ids = set(
+            session.exec(
+                select(ContractListLink.contract_id).where(
+                    col(ContractListLink.contract_id).in_(contract_ids)
+                )
+            ).all()
+        )
+        defaults_by_owner: dict[int, ContractList] = {}
+        for contract_id in contract_ids:
+            if contract_id in remaining_contract_ids:
+                continue
+            contract = contracts_by_id[contract_id]
+            owner_id = contract.owner_user_id or admin.id
+            if owner_id is None:
+                raise RuntimeError("Document owner could not be resolved")
+            if contract.owner_user_id is None:
+                contract.owner_user_id = owner_id
+                session.add(contract)
+            default_workspace = defaults_by_owner.get(owner_id)
+            if default_workspace is None:
+                default_workspace = ensure_default_workspace(session, owner_id)
+                defaults_by_owner[owner_id] = default_workspace
+            if default_workspace.id is None:
+                raise RuntimeError("Default workspace could not be resolved")
+            session.add(
+                ContractListLink(
+                    contract_id=contract_id,
+                    list_id=default_workspace.id,
+                )
+            )
+
+    session.flush()
+    assignment_rows = session.exec(
+        select(ContractListLink.contract_id, ContractListLink.list_id).where(
+            col(ContractListLink.contract_id).in_(contract_ids)
+        )
+    ).all()
+    list_ids_by_contract = {contract_id: [] for contract_id in contract_ids}
+    for contract_id, assigned_list_id in assignment_rows:
+        list_ids_by_contract[contract_id].append(assigned_list_id)
+    session.commit()
+    return {
+        "operation": assignment_data.operation,
+        "changed_count": changed_count,
+        "assignments": [
+            {
+                "contract_id": contract_id,
+                "list_ids": list_ids_by_contract[contract_id],
+            }
+            for contract_id in contract_ids
+        ],
+    }
 
 
 @router.post("/lists/{list_id}/contracts/{contract_id}", status_code=201)

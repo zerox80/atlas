@@ -1,7 +1,13 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { FiFileText, FiPlus } from "react-icons/fi";
+import {
+  FiCheckSquare,
+  FiFileText,
+  FiFolder,
+  FiPlus,
+  FiX,
+} from "react-icons/fi";
 import api, {
   fetchContractPage,
   type ContractCursor,
@@ -15,7 +21,11 @@ import ContractToolbar from "../features/contracts/ContractToolbar";
 import type { ContractViewFilter } from "../features/contracts/types";
 import { downloadDocument } from "../features/documents/downloadDocument";
 import { getListIdFromSearchParams } from "../features/documents/documentUtils";
-import { invalidateDocumentQueries, invalidateListAndDocumentQueries, queryKeys } from "../queryKeys";
+import {
+  invalidateDocumentQueries,
+  invalidateListAndDocumentQueries,
+  queryKeys,
+} from "../queryKeys";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import type { Contract, ContractPage } from "../types";
 
@@ -27,12 +37,16 @@ const Contracts: React.FC = () => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [chatContract, setChatContract] = useState<Contract | null>(null);
-  const [listContract, setListContract] = useState<Contract | null>(null);
+  const [listContracts, setListContracts] = useState<Contract[]>([]);
   const [auditContract, setAuditContract] = useState<Contract | null>(null);
   const [detailsContract, setDetailsContract] = useState<Contract | null>(null);
   const [filter, setFilter] = useState<ContractViewFilter>("all");
   const [search, setSearch] = useState("");
   const [openMenu, setOpenMenu] = useState<number | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedContractIds, setSelectedContractIds] = useState<Set<number>>(
+    () => new Set(),
+  );
 
   const debouncedSearch = useDebouncedValue(search.trim());
   const {
@@ -77,6 +91,45 @@ const Contracts: React.FC = () => {
     attention: 0,
     active: 0,
     expired: 0,
+  };
+  const selectedContracts = useMemo(
+    () =>
+      contracts.filter((contract) => selectedContractIds.has(contract.id)),
+    [contracts, selectedContractIds],
+  );
+  const allVisibleSelected =
+    contracts.length > 0 &&
+    contracts.every((contract) => selectedContractIds.has(contract.id));
+
+  const stopSelection = () => {
+    setIsSelectionMode(false);
+    setSelectedContractIds(new Set());
+  };
+
+  useEffect(() => {
+    setIsSelectionMode(false);
+    setSelectedContractIds(new Set());
+  }, [listId]);
+
+  const toggleContractSelection = (contract: Contract) => {
+    setSelectedContractIds((current) => {
+      const next = new Set(current);
+      if (next.has(contract.id)) next.delete(contract.id);
+      else next.add(contract.id);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedContractIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        contracts.forEach((contract) => next.delete(contract.id));
+      } else {
+        contracts.forEach((contract) => next.add(contract.id));
+      }
+      return next;
+    });
   };
 
   const openUpload = (contract: Contract | null = null) => {
@@ -157,10 +210,29 @@ const Contracts: React.FC = () => {
         title="Verträge & Fristen"
         description="Eine fokussierte Arbeitsansicht für Laufzeiten, Kündigungsfenster und Vertragswerte."
         actions={
-          user?.can_create_documents ? (
-            <button onClick={() => openUpload()} className="btn-primary">
-              <FiPlus /> Vertrag hinzufügen
-            </button>
+          isAdmin || user?.can_create_documents ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {isAdmin && contracts.length > 0 && (
+                <button
+                  onClick={() => {
+                    if (isSelectionMode) stopSelection();
+                    else {
+                      setIsSelectionMode(true);
+                      setOpenMenu(null);
+                    }
+                  }}
+                  className="btn-secondary"
+                >
+                  {isSelectionMode ? <FiX /> : <FiCheckSquare />}
+                  {isSelectionMode ? "Auswahl schließen" : "Auswählen"}
+                </button>
+              )}
+              {user?.can_create_documents && (
+                <button onClick={() => openUpload()} className="btn-primary">
+                  <FiPlus /> Vertrag hinzufügen
+                </button>
+              )}
+            </div>
           ) : undefined
         }
       />
@@ -168,10 +240,45 @@ const Contracts: React.FC = () => {
       <ContractToolbar
         counts={counts}
         filter={filter}
-        onFilterChange={setFilter}
+        onFilterChange={(nextFilter) => {
+          setFilter(nextFilter);
+          stopSelection();
+        }}
         searchQuery={search}
-        onSearchChange={setSearch}
+        onSearchChange={(nextSearch) => {
+          setSearch(nextSearch);
+          stopSelection();
+        }}
       />
+
+      {isAdmin && isSelectionMode && contracts.length > 0 && (
+        <div className="surface mb-5 flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={toggleAllVisible} className="btn-secondary">
+              <FiCheckSquare />
+              {allVisibleSelected
+                ? "Alle angezeigten abwählen"
+                : "Alle angezeigten auswählen"}
+            </button>
+            <span className="text-sm font-semibold text-white">
+              {selectedContracts.length} von {contracts.length} angezeigten
+              Verträgen ausgewählt
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setListContracts(selectedContracts)}
+              disabled={selectedContracts.length === 0}
+              className="btn-primary disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <FiFolder /> Workspace zuweisen
+            </button>
+            <button onClick={stopSelection} className="btn-ghost">
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      )}
 
       {contracts.length ? (
         <div className="grid gap-4 xl:grid-cols-2">
@@ -181,8 +288,10 @@ const Contracts: React.FC = () => {
               contract={contract}
               isAdmin={isAdmin}
               isMenuOpen={openMenu === contract.id}
+              isSelected={selectedContractIds.has(contract.id)}
+              isSelectionMode={isSelectionMode}
               onAssignToList={(selectedContract) => {
-                setListContract(selectedContract);
+                setListContracts([selectedContract]);
                 setOpenMenu(null);
               }}
               onDelete={handleDelete}
@@ -200,6 +309,7 @@ const Contracts: React.FC = () => {
                 )
               }
               onToggleProtection={handleProtection}
+              onToggleSelection={toggleContractSelection}
             />
           ))}
         </div>
@@ -245,13 +355,13 @@ const Contracts: React.FC = () => {
         editingContract={editingContract}
         isUploadOpen={isUploadOpen}
         initialListId={listId}
-        listContract={listContract}
+        listContracts={listContracts}
         onAuditClose={() => setAuditContract(null)}
         onChatClose={() => setChatContract(null)}
         onDetailsClose={() => setDetailsContract(null)}
         onDownload={handleDownload}
         onEdit={handleDetailsEdit}
-        onListClose={() => setListContract(null)}
+        onListClose={() => setListContracts([])}
         onUploadClose={() => {
           setIsUploadOpen(false);
           setEditingContract(null);
