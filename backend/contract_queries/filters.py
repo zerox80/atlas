@@ -119,7 +119,12 @@ def build_contract_query(
     if state_filter is not None:
         statement = statement.where(contract_state_condition(state_filter, now))
 
-    statement = filter_contracts_for_user(statement, current_user, "read")
+    statement = filter_contracts_for_user(
+        statement,
+        current_user,
+        "read",
+        list_id=list_id,
+    )
     resolved_sort_by = sort_by or "uploaded_at"
     sort_column = CONTRACT_SORT_COLUMNS.get(
         resolved_sort_by, col(Contract.uploaded_at)

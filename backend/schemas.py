@@ -54,11 +54,17 @@ class ContractListRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    owner_user_id: Optional[int] = None
+    owner_username: Optional[str] = None
     name: str
     description: Optional[str] = None
     color: str
+    is_default: bool = False
     created_at: datetime
     contract_count: int = 0
+    can_read: bool = True
+    can_write: bool = False
+    is_preferred_default: bool = False
 
 
 class ContractCreate(BaseModel):
@@ -200,6 +206,8 @@ class UserRead(BaseModel):
     is_active: bool
     created_at: datetime
     has_2fa: bool = False
+    default_workspace_id: Optional[int] = None
+    default_workspace_name: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
@@ -231,10 +239,32 @@ class PermissionRead(BaseModel):
 
     id: int
     user_id: int
-    contract_id: int
+    scope_type: Literal["document", "workspace"] = "document"
+    contract_id: Optional[int] = None
+    list_id: Optional[int] = None
     permission_level: str
     username: Optional[str] = None
     contract_title: Optional[str] = None
+    list_name: Optional[str] = None
+    target_name: Optional[str] = None
+
+
+class WorkspacePermissionCreate(BaseModel):
+    user_id: int
+    list_id: int
+    permission_level: str = Field(default="read", pattern="^(read|write|full)$")
+
+
+class DefaultWorkspaceUpdate(BaseModel):
+    list_id: Optional[int] = None
+
+
+class DefaultWorkspaceOptionRead(BaseModel):
+    id: int
+    name: str
+    owner_user_id: Optional[int] = None
+    owner_username: Optional[str] = None
+    is_personal: bool = False
 
 
 class PermissionPage(BaseModel):

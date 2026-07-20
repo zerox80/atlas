@@ -141,7 +141,7 @@ const Lists: React.FC = () => {
                 >
                   <FiFolder size={22} />
                 </div>
-                {isAdmin && (
+                {isAdmin && !list.is_default && (
                   <div className="flex gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
                     <button
                       onClick={() => {
@@ -163,12 +163,25 @@ const Lists: React.FC = () => {
                   </div>
                 )}
               </div>
-              <p className="eyebrow">
-                Collection {String(index + 1).padStart(2, "0")}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="eyebrow">
+                  Collection {String(index + 1).padStart(2, "0")}
+                </p>
+                {list.is_preferred_default && (
+                  <span className="chip border-[#b8f15a]/20 bg-[#b8f15a]/[0.07] text-[#b8f15a]">
+                    Mein Standard
+                  </span>
+                )}
+                {list.is_default && <span className="chip">Persönlich</span>}
+              </div>
               <h2 className="mt-2 truncate text-xl font-semibold tracking-[-0.02em]">
                 {list.name}
               </h2>
+              {list.owner_username && (
+                <p className="mt-1 text-xs text-white/34">
+                  Eigentümer: {list.owner_username}
+                </p>
+              )}
               <p className="mt-2 min-h-10 line-clamp-2 text-sm leading-5 text-white/42">
                 {list.description || "Noch keine Beschreibung hinterlegt."}
               </p>

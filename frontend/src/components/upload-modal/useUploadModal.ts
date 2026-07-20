@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDropzone, type FileRejection } from "react-dropzone";
 import api from "../../api";
-import { invalidateDocumentAndTagQueries } from "../../queryKeys";
-import type { ContractAnalysisResult } from "../../types";
+import { useUser } from "../../App";
+import { invalidateDocumentAndTagQueries, queryKeys } from "../../queryKeys";
+import type { ContractAnalysisResult, ContractList } from "../../types";
 import { dateInputToApiDate } from "../../utils/apiDate";
 import { businessDateKey } from "../../utils/contractPresentation";
 import { getApiErrorMessage } from "../../utils/errorUtils";
@@ -26,6 +27,7 @@ export const useUploadModal = ({
   isOpen,
   onClose,
   initialData,
+  initialListId,
   documentType = "contract",
 }: UploadModalProps) => {
   const [file, setFile] = useState<File | null>(null);
@@ -40,7 +42,25 @@ export const useUploadModal = ({
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [fileError, setFileError] = useState("");
+  const [workspaceId, setWorkspaceId] = useState(0);
   const queryClient = useQueryClient();
+  const { user } = useUser();
+
+  const { data: availableWorkspaces = [], isLoading: workspacesLoading } =
+    useQuery<ContractList[]>(
+      queryKeys.lists,
+      async () => (await api.get<ContractList[]>("/lists")).data,
+      { enabled: isOpen && !initialData },
+    );
+  const writableWorkspaces = useMemo(
+    () =>
+      availableWorkspaces.filter(
+        (workspace) =>
+          workspace.can_write &&
+          (!workspace.is_default || workspace.owner_user_id === user?.id),
+      ),
+    [availableWorkspaces, user?.id],
+  );
 
   const isInvoice = (initialData?.document_type ?? documentType) === "invoice";
   const documentLabel = isInvoice ? "Rechnung" : "Vertrag";
@@ -68,6 +88,32 @@ export const useUploadModal = ({
     setFile(null);
     setFileError("");
   }, [isOpen, initialData]);
+
+  useEffect(() => {
+    if (!isOpen || initialData) return;
+    const requested = writableWorkspaces.find(
+      (workspace) => workspace.id === initialListId,
+    );
+    const preferred = writableWorkspaces.find(
+      (workspace) =>
+        workspace.id === user?.default_workspace_id ||
+        workspace.is_preferred_default,
+    );
+    const personal = writableWorkspaces.find(
+      (workspace) =>
+        workspace.is_default && workspace.owner_user_id === user?.id,
+    );
+    setWorkspaceId(
+      requested?.id ?? preferred?.id ?? personal?.id ?? 0,
+    );
+  }, [
+    initialData,
+    initialListId,
+    isOpen,
+    user?.default_workspace_id,
+    user?.id,
+    writableWorkspaces,
+  ]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (!acceptedFiles.length) return;
@@ -152,6 +198,10 @@ export const useUploadModal = ({
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if ((!initialData && !file) || !title) return;
+    if (!initialData && workspaceId === 0) {
+      alert("Es ist kein beschreibbarer Workspace als Ablageziel verfügbar.");
+      return;
+    }
     setUploading(true);
     try {
       const parsedValue = value ? parseGermanNumber(value) : null;
@@ -187,6 +237,7 @@ export const useUploadModal = ({
       formData.append("end_date", dateInputToApiDate(endDate));
       if (!initialData) {
         formData.append("document_type", isInvoice ? "invoice" : "contract");
+        formData.append("list_id", workspaceId.toString());
       } else {
         if (initialData.version === undefined) {
           throw new Error("Die Dokumentversion fehlt. Bitte lade die Ansicht neu.");
@@ -226,6 +277,7 @@ export const useUploadModal = ({
     fileError,
     handleAnalyze,
     handleSubmit,
+    isEditing: Boolean(initialData),
     isInvoice,
     noticePeriod,
     setAnnualValue,
@@ -236,11 +288,15 @@ export const useUploadModal = ({
     setTags,
     setTitle,
     setValue,
+    setWorkspaceId,
     startDate,
     tags,
     title,
     uploading,
     value,
+    workspaceId,
+    workspacesLoading,
+    writableWorkspaces,
   };
 };
 

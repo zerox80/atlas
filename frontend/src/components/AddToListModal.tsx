@@ -16,6 +16,10 @@ interface AddToListModalProps {
   contract: Contract | null;
 }
 
+interface ListAssignmentResponse {
+  list_ids: number[];
+}
+
 const AddToListModal: React.FC<AddToListModalProps> = ({
   isOpen,
   onClose,
@@ -47,12 +51,16 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
     try {
       if (contractLists.includes(listId)) {
         // Remove from list
-        await api.delete(`/lists/${listId}/contracts/${contractId}`);
-        setContractLists((prev) => prev.filter((id) => id !== listId));
+        const response = await api.delete<ListAssignmentResponse>(
+          `/lists/${listId}/contracts/${contractId}`,
+        );
+        setContractLists(response.data.list_ids);
       } else {
         // Add to list
-        await api.post(`/lists/${listId}/contracts/${contractId}`);
-        setContractLists((prev) => [...prev, listId]);
+        const response = await api.post<ListAssignmentResponse>(
+          `/lists/${listId}/contracts/${contractId}`,
+        );
+        setContractLists(response.data.list_ids);
       }
       await invalidateListAndDocumentQueries(queryClient);
     } catch (error: unknown) {
@@ -112,8 +120,10 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                       return (
                         <button
                           key={list.id}
-                          onClick={() => handleToggleList(list.id)}
-                          disabled={isLoading}
+                          onClick={() => {
+                            if (!list.is_default) void handleToggleList(list.id);
+                          }}
+                          disabled={isLoading || list.is_default}
                           className={[
                             "flex w-full items-center gap-3 rounded-2xl border p-3.5 text-left",
                             "transition-all disabled:opacity-50",
@@ -132,6 +142,14 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                             <p className="font-semibold text-white">
                               {list.name}
                             </p>
+                            {list.owner_username && (
+                              <p className="text-xs muted">
+                                Eigentümer: {list.owner_username}
+                                {list.is_default
+                                  ? " · persönliche Ablage (automatisch)"
+                                  : ""}
+                              </p>
+                            )}
                             {list.description && (
                               <p className="truncate text-sm muted">
                                 {list.description}

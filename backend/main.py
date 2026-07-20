@@ -19,6 +19,7 @@ from api_core import (
     CSRF_COOKIE_NAME,
     CSRF_EXEMPT_PATHS,
     CSRF_HEADER_NAME,
+    backfill_default_workspace_links,
     backfill_existing_contract_read_permissions,
     bootstrap_admin_user,
     get_current_user,
@@ -118,7 +119,7 @@ def on_startup():
                 session.add(tag)
             session.commit()
 
-        backfill_existing_contract_read_permissions(session)
+        backfill_default_workspace_links(session)
 
 
 @app.post("/admin/backup")

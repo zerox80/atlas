@@ -21,6 +21,7 @@ from api_core import (
     check_contract_permission,
     get_current_user,
     limiter,
+    user_can_create_documents,
 )
 from contract_queries import ensure_ai_supported_contract_file
 from database import get_session
@@ -91,10 +92,7 @@ async def _read_contract_pdf_for_ai(
         raise HTTPException(status_code=404, detail="Vertrag nicht gefunden")
 
     if not check_contract_permission(current_user, contract_id, "read", session):
-        raise HTTPException(
-            status_code=403,
-            detail="Keine Berechtigung für diesen Vertrag",
-        )
+        raise HTTPException(status_code=404, detail="Vertrag nicht gefunden")
     ensure_ai_supported_contract_file(contract)
 
     try:
@@ -159,8 +157,11 @@ async def analyze_contract_pdf(
     file: UploadFile = File(...),
     document_type: Annotated[str, Form()] = "contract",
     current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ) -> ContractAnalysisResult:
     """Analyze a PDF and return suggestions for a contract or invoice form."""
+    if not user_can_create_documents(current_user, session):
+        raise HTTPException(status_code=403, detail="No writable workspace available")
     if document_type not in _ANALYSIS_DOCUMENT_TYPES:
         raise HTTPException(status_code=422, detail="Ungültiger Dokumenttyp.")
 

@@ -23,6 +23,8 @@ interface UserInfo {
   username: string;
   role: string;
   has_2fa: boolean;
+  can_create_documents?: boolean;
+  default_workspace_id?: number | null;
 }
 
 const isUserInfo = (value: unknown): value is UserInfo => {

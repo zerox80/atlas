@@ -47,10 +47,7 @@ def delete_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     if not check_contract_permission(current_user, contract_id, "full", session):
-        raise HTTPException(
-            status_code=403,
-            detail="You don't have permission to delete this contract",
-        )
+        raise HTTPException(status_code=404, detail="Contract not found")
     if contract.is_protected:
         raise HTTPException(
             status_code=403,
@@ -142,10 +139,7 @@ def toggle_contract_protection(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     if not check_contract_permission(current_user, contract_id, "full", session):
-        raise HTTPException(
-            status_code=403,
-            detail="You don't have permission to modify protection status",
-        )
+        raise HTTPException(status_code=404, detail="Contract not found")
 
     expected_version = version
     if expected_version != contract.version:

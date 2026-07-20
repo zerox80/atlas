@@ -44,6 +44,9 @@ const UsersSection: React.FC<UsersSectionProps> = ({
             <th className="p-4 text-left font-medium text-gray-400">Benutzer</th>
             <th className="p-4 text-left font-medium text-gray-400">Rolle</th>
             <th className="p-4 text-left font-medium text-gray-400">Status</th>
+            <th className="p-4 text-left font-medium text-gray-400">
+              Standard-Workspace
+            </th>
             <th className="p-4 text-left font-medium text-gray-400">2FA</th>
             <th className="p-4 text-right font-medium text-gray-400">Aktionen</th>
           </tr>
@@ -79,6 +82,9 @@ const UsersSection: React.FC<UsersSectionProps> = ({
                     <FiX /> Inaktiv
                   </span>
                 )}
+              </td>
+              <td className="p-4 text-sm text-gray-300">
+                {user.default_workspace_name || "—"}
               </td>
               <td className="p-4">
                 {user.has_2fa ? (

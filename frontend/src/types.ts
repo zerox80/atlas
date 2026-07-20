@@ -8,11 +8,17 @@ export type DocumentType = "contract" | "invoice";
 
 export interface ContractList {
   id: number;
+  owner_user_id?: number | null;
+  owner_username?: string | null;
   name: string;
   description: string | null;
   color: string;
   created_at: string;
   contract_count: number;
+  is_default?: boolean;
+  can_read?: boolean;
+  can_write?: boolean;
+  is_preferred_default?: boolean;
 }
 
 export interface Contract {

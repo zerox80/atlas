@@ -20,8 +20,10 @@ from sqlmodel import Session, col, update
 
 from api_core import (
     check_contract_permission,
+    check_workspace_permission,
     contract_read_for_user,
     get_current_user,
+    resolve_user_default_workspace,
 )
 from contract_endpoints.helpers import enforce_upload_rate_limit, resolve_tags
 from contract_queries import (
@@ -38,7 +40,7 @@ from file_utils import (
     save_upload_file,
     validate_file,
 )
-from models import Contract, ContractPermission, User
+from models import Contract, ContractList, ContractListLink, User
 from schemas import ContractCreate, ContractRead, ContractUpdate
 from security_utils import log_audit
 
@@ -59,10 +61,45 @@ async def create_contract(
     description: Annotated[Optional[str], Form()] = None,
     tags: Annotated[Optional[str], Form(max_length=2_550)] = "",
     document_type: Annotated[str, Form()] = "contract",
+    list_id: Annotated[Optional[int], Form()] = None,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     enforce_upload_rate_limit(request)
+    if current_user.id is None:
+        raise HTTPException(status_code=403, detail="Document owner could not be resolved")
+    target_workspace = (
+        session.get(ContractList, list_id)
+        if list_id is not None
+        else resolve_user_default_workspace(session, current_user)
+    )
+    if target_workspace is None:
+        if list_id is not None:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        raise HTTPException(
+            status_code=403,
+            detail="No writable default workspace is configured",
+        )
+    if target_workspace.id is None:
+        raise RuntimeError("Target workspace has no database ID")
+    if (
+        target_workspace.is_default
+        and target_workspace.owner_user_id != current_user.id
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="A personal Default workspace only accepts its owner's documents",
+        )
+    if not check_workspace_permission(
+        current_user,
+        target_workspace.id,
+        "write",
+        session,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have write permission for this workspace",
+        )
     parsed_notice_period = parse_int_form(notice_period)
     contract_data = validate_contract_form(
         ContractCreate,
@@ -87,6 +124,7 @@ async def create_contract(
 
     file_path = await save_upload_file(file)
     contract = Contract(
+        owner_user_id=current_user.id,
         title=contract_data.title,
         description=contract_data.description,
         start_date=contract_data.start_date,
@@ -108,13 +146,12 @@ async def create_contract(
         )
         session.add(contract)
         session.flush()
-        if current_user.id is None or contract.id is None:
+        if contract.id is None:
             raise RuntimeError("Contract owner could not be assigned")
         session.add(
-            ContractPermission(
-                user_id=current_user.id,
+            ContractListLink(
                 contract_id=contract.id,
-                permission_level="full",
+                list_id=target_workspace.id,
             )
         )
         client_host = request.client.host if request.client else "unknown"
@@ -149,10 +186,7 @@ def download_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     if not check_contract_permission(current_user, contract_id, "read", session):
-        raise HTTPException(
-            status_code=403,
-            detail="You don't have permission to access this contract",
-        )
+        raise HTTPException(status_code=404, detail="Contract not found")
 
     try:
         resolved_path = resolve_file_path(contract.file_path)
@@ -211,10 +245,7 @@ async def update_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     if not check_contract_permission(current_user, contract_id, "write", session):
-        raise HTTPException(
-            status_code=403,
-            detail="You don't have permission to edit this contract",
-        )
+        raise HTTPException(status_code=404, detail="Contract not found")
 
     expected_version = version
     if expected_version != contract.version:

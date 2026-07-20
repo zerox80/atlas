@@ -6,7 +6,7 @@ import InvoiceRow from "./InvoiceRow";
 
 interface InvoiceArchiveProps {
   invoices: Contract[];
-  onCreate: () => void;
+  onCreate?: () => void;
   onDelete: (invoice: Contract) => void | Promise<void>;
   onDownload: (invoice: Contract) => void | Promise<void>;
   onEdit: (invoice: Contract) => void;
@@ -79,7 +79,7 @@ const InvoiceArchive: React.FC<InvoiceArchiveProps> = ({
               : "Lade eine Rechnung direkt hoch – ein zugehöriger Vertrag ist nicht nötig."
           }
           action={
-            !searchQuery ? (
+            !searchQuery && onCreate ? (
               <button onClick={onCreate} className="btn-primary">
                 <FiPlus /> Erste Rechnung hochladen
               </button>

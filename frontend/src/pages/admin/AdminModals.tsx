@@ -32,6 +32,10 @@ const AdminModals: React.FC<AdminModalsProps> = ({
   setEditRole,
   editIsActive,
   setEditIsActive,
+  editDefaultWorkspaceId,
+  setEditDefaultWorkspaceId,
+  defaultWorkspaceOptions,
+  defaultWorkspacesLoading,
   handleUpdateUser,
   isPermissionModalOpen,
   setIsPermissionModalOpen,
@@ -39,6 +43,10 @@ const AdminModals: React.FC<AdminModalsProps> = ({
   setPermUserId,
   permContractId,
   setPermContractId,
+  permListId,
+  setPermListId,
+  permScope,
+  setPermScope,
   permLevel,
   setPermLevel,
   users,
@@ -89,6 +97,10 @@ const AdminModals: React.FC<AdminModalsProps> = ({
       setRole={setEditRole}
       isActive={editIsActive}
       setIsActive={setEditIsActive}
+      defaultWorkspaceId={editDefaultWorkspaceId}
+      setDefaultWorkspaceId={setEditDefaultWorkspaceId}
+      defaultWorkspaceOptions={defaultWorkspaceOptions}
+      defaultWorkspacesLoading={defaultWorkspacesLoading}
     />
     <PermissionModal
       isOpen={isPermissionModalOpen}
@@ -98,6 +110,10 @@ const AdminModals: React.FC<AdminModalsProps> = ({
       setUserId={setPermUserId}
       contractId={permContractId}
       setContractId={setPermContractId}
+      listId={permListId}
+      setListId={setPermListId}
+      scope={permScope}
+      setScope={setPermScope}
       level={permLevel}
       setLevel={setPermLevel}
       users={users}

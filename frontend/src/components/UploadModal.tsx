@@ -95,7 +95,9 @@ const UploadModal = (props: UploadModalProps) => {
                     <button
                       type="submit"
                       disabled={
-                        controller.uploading || (!initialData && !controller.file)
+                        controller.uploading ||
+                        (!initialData &&
+                          (!controller.file || controller.workspaceId === 0))
                       }
                       className="btn-primary min-w-40"
                     >

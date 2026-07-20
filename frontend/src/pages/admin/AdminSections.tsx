@@ -12,7 +12,7 @@ interface AdminSectionsProps {
   getLevelColor: (level: string) => string;
   getLevelLabel: (level: string) => string;
   handleBackup: () => void;
-  handleDeletePermission: (permissionId: number) => void;
+  handleDeletePermission: (permission: Permission) => void;
   handleDeleteTag: (tagId: number) => void;
   handleDeleteUser: (user: User) => void;
   isBackupRunning: boolean;

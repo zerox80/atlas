@@ -13,7 +13,7 @@ interface PermissionsSectionProps {
   getLevelLabel: (level: string) => string;
   loading: boolean;
   onAddPermission: () => void;
-  onDeletePermission: (permissionId: number) => void;
+  onDeletePermission: (permission: Permission) => void;
   onPageChange: (page: number) => void;
   page: number;
   pageSize: number;
@@ -49,7 +49,9 @@ const PermissionsSection: React.FC<PermissionsSectionProps> = ({
         <thead className="bg-gray-900/50">
           <tr>
             <th className="p-4 text-left font-medium text-gray-400">Benutzer</th>
-            <th className="p-4 text-left font-medium text-gray-400">Vertrag</th>
+            <th className="p-4 text-left font-medium text-gray-400">
+              Workspace / Dokument
+            </th>
             <th className="p-4 text-left font-medium text-gray-400">
               Berechtigung
             </th>
@@ -72,11 +74,18 @@ const PermissionsSection: React.FC<PermissionsSectionProps> = ({
           ) : (
             permissions.map((permission) => (
               <tr
-                key={permission.id}
+                key={`${permission.scope_type}-${permission.id}`}
                 className="border-t border-gray-700 transition-colors hover:bg-gray-800/50"
               >
                 <td className="p-4 text-white">{permission.username}</td>
-                <td className="p-4 text-gray-300">{permission.contract_title}</td>
+                <td className="p-4 text-gray-300">
+                  <div>{permission.target_name || "—"}</div>
+                  <span className="mt-1 inline-block text-[10px] font-bold uppercase tracking-[0.12em] text-gray-500">
+                    {permission.scope_type === "workspace"
+                      ? "Workspace"
+                      : "Dokument-Ausnahme"}
+                  </span>
+                </td>
                 <td className="p-4">
                   <span
                     className={`rounded px-2 py-1 text-sm ${getLevelColor(permission.permission_level)}`}
@@ -86,7 +95,7 @@ const PermissionsSection: React.FC<PermissionsSectionProps> = ({
                 </td>
                 <td className="p-4 text-right">
                   <button
-                    onClick={() => onDeletePermission(permission.id)}
+                    onClick={() => onDeletePermission(permission)}
                     className="rounded p-2 text-red-400 transition-colors hover:bg-red-500/20"
                     title="Entfernen"
                   >

@@ -108,38 +108,45 @@ def export_contracts(
             detail=f"Export is limited to {EXPORT_MAX_ROWS} rows; narrow the filters.",
         )
 
+    visible_contracts = contract_reads_for_user(contracts, current_user, session)
     data = [
         {
-            "ID": contract.id,
-            "Titel": _spreadsheet_safe(contract.title),
-            "Beschreibung": _spreadsheet_safe(contract.description),
-            "Wert (€)": contract.value,
-            "Jährlicher Wert (€)": contract.annual_value,
+            "ID": contract["id"],
+            "Titel": _spreadsheet_safe(contract["title"]),
+            "Beschreibung": _spreadsheet_safe(contract["description"]),
+            "Wert (€)": contract["value"],
+            "Jährlicher Wert (€)": contract["annual_value"],
             "Startdatum": (
-                contract.start_date.strftime("%Y-%m-%d")
-                if contract.start_date
+                contract["start_date"].strftime("%Y-%m-%d")
+                if contract["start_date"]
                 else ""
             ),
             "Enddatum": (
-                contract.end_date.strftime("%Y-%m-%d")
-                if contract.end_date
+                contract["end_date"].strftime("%Y-%m-%d")
+                if contract["end_date"]
                 else ""
             ),
             "Kündigungsfrist (Tage)": (
-                contract.notice_period if contract.notice_period is not None else ""
+                contract["notice_period"]
+                if contract["notice_period"] is not None
+                else ""
             ),
-            "Geschützt": "Ja" if contract.is_protected else "Nein",
-            "Tags": _spreadsheet_safe(", ".join(tag.name for tag in contract.tags)),
+            "Geschützt": "Ja" if contract["is_protected"] else "Nein",
+            "Tags": _spreadsheet_safe(
+                ", ".join(tag["name"] for tag in contract["tags"])
+            ),
             "Listen": _spreadsheet_safe(
-                ", ".join(contract_list.name for contract_list in contract.lists)
+                ", ".join(
+                    workspace["name"] for workspace in contract["lists"]
+                )
             ),
             "Erstellt am": (
-                contract.uploaded_at.strftime("%Y-%m-%d %H:%M")
-                if contract.uploaded_at
+                contract["uploaded_at"].strftime("%Y-%m-%d %H:%M")
+                if contract["uploaded_at"]
                 else ""
             ),
         }
-        for contract in contracts
+        for contract in visible_contracts
     ]
     data_frame = pd.DataFrame(data)
 

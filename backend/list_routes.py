@@ -10,14 +10,25 @@ from sqlmodel import Session, col, delete, select
 from api_core import (
     allowed_permission_levels,
     contract_reads_for_user,
+    ensure_default_workspace,
     filter_contracts_for_user,
     get_current_user,
     get_visible_list_or_404,
+    permission_grants,
     require_admin,
+    resolve_user_default_workspace,
     visible_contract_count_for_list,
+    workspace_permission_level,
 )
 from database import get_session
-from models import Contract, ContractList, ContractListLink, ContractPermission, User
+from models import (
+    Contract,
+    ContractList,
+    ContractListLink,
+    ContractListPermission,
+    ContractPermission,
+    User,
+)
 from schemas import ContractListCreate, ContractListRead, ContractListUpdate, ContractRead
 
 router = APIRouter()
@@ -29,19 +40,33 @@ def get_lists(
 ):
     """Get visible contract lists with permission-aware contract counts."""
     lists = session.exec(select(ContractList).order_by(col(ContractList.name).asc())).all()
-    count_statement = (
+    owner_names = dict(session.exec(select(User.id, User.username)).all())
+    all_counts = dict(session.exec(
         select(
             ContractListLink.list_id,
             func.count(func.distinct(ContractListLink.contract_id)),
         )
-        .join(Contract, col(Contract.id) == col(ContractListLink.contract_id))
-    )
+        .group_by(ContractListLink.list_id)
+    ).all())
+    workspace_levels: dict[int, str] = {}
+    direct_counts: dict[int, int] = {}
     if current_user.role != "admin":
-        count_statement = (
-            count_statement
+        workspace_levels = dict(session.exec(
+            select(
+                ContractListPermission.list_id,
+                ContractListPermission.permission_level,
+            )
+            .where(ContractListPermission.user_id == current_user.id)
+        ).all())
+        direct_counts = dict(session.exec(
+            select(
+                ContractListLink.list_id,
+                func.count(func.distinct(ContractListLink.contract_id)),
+            )
             .join(
                 ContractPermission,
-                col(ContractPermission.contract_id) == col(Contract.id),
+                col(ContractPermission.contract_id)
+                == col(ContractListLink.contract_id),
             )
             .where(col(ContractPermission.user_id) == current_user.id)
             .where(
@@ -49,25 +74,38 @@ def get_lists(
                     allowed_permission_levels("read")
                 )
             )
-        )
-    counts = dict(
-        session.exec(count_statement.group_by(ContractListLink.list_id)).all()
-    )
+            .group_by(ContractListLink.list_id)
+        ).all())
 
     result = []
     for lst in lists:
         if lst.id is None:
             continue
-        count = int(counts.get(lst.id, 0))
-        if current_user.role != "admin" and count == 0:
+        assigned_level = (
+            "full" if current_user.role == "admin" else workspace_levels.get(lst.id)
+        )
+        has_workspace_read = permission_grants(assigned_level, "read")
+        direct_count = int(direct_counts.get(lst.id, 0))
+        if current_user.role != "admin" and not has_workspace_read and direct_count == 0:
             continue
+        count = (
+            int(all_counts.get(lst.id, 0))
+            if has_workspace_read
+            else direct_count
+        )
         result.append({
             "id": lst.id,
+            "owner_user_id": lst.owner_user_id,
+            "owner_username": owner_names.get(lst.owner_user_id),
             "name": lst.name,
             "description": lst.description,
             "color": lst.color,
+            "is_default": lst.is_default,
             "created_at": lst.created_at,
-            "contract_count": count or 0
+            "contract_count": count or 0,
+            "can_read": True,
+            "can_write": permission_grants(assigned_level, "write"),
+            "is_preferred_default": current_user.default_workspace_id == lst.id,
         })
     return result
 
@@ -79,21 +117,31 @@ def create_list(
     session: Session = Depends(get_session)
 ):
     """Create a new contract list."""
+    if list_data.name.strip().casefold() == "default":
+        raise HTTPException(status_code=400, detail="'Default' is a reserved workspace name")
     new_list = ContractList(
+        owner_user_id=admin.id,
         name=list_data.name,
         description=list_data.description,
-        color=list_data.color
+        color=list_data.color,
+        is_default=False,
     )
     session.add(new_list)
     session.commit()
     session.refresh(new_list)
     return {
         "id": new_list.id,
+        "owner_user_id": new_list.owner_user_id,
+        "owner_username": admin.username,
         "name": new_list.name,
         "description": new_list.description,
         "color": new_list.color,
+        "is_default": new_list.is_default,
         "created_at": new_list.created_at,
-        "contract_count": 0
+        "contract_count": 0,
+        "can_read": True,
+        "can_write": True,
+        "is_preferred_default": admin.default_workspace_id == new_list.id,
     }
 
 
@@ -106,14 +154,22 @@ def get_list(
     """Get a specific list with its contract count."""
     lst = get_visible_list_or_404(list_id, current_user, session)
     count = visible_contract_count_for_list(list_id, current_user, session)
+    assigned_level = workspace_permission_level(current_user, list_id, session)
+    owner = session.get(User, lst.owner_user_id) if lst.owner_user_id else None
     
     return {
         "id": lst.id,
+        "owner_user_id": lst.owner_user_id,
+        "owner_username": owner.username if owner else None,
         "name": lst.name,
         "description": lst.description,
         "color": lst.color,
+        "is_default": lst.is_default,
         "created_at": lst.created_at,
-        "contract_count": count or 0
+        "contract_count": count or 0,
+        "can_read": True,
+        "can_write": permission_grants(assigned_level, "write"),
+        "is_preferred_default": current_user.default_workspace_id == lst.id,
     }
 
 
@@ -129,6 +185,16 @@ def update_list(
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
     
+    if lst.is_default and list_data.name is not None and list_data.name != "Default":
+        raise HTTPException(status_code=400, detail="The Default workspace cannot be renamed")
+    if (
+        not lst.is_default
+        and list_data.name is not None
+        and list_data.name.strip().casefold() == "default"
+        and lst.name.strip().casefold() != "default"
+    ):
+        raise HTTPException(status_code=400, detail="'Default' is a reserved workspace name")
+
     if list_data.name is not None:
         lst.name = list_data.name
     if list_data.description is not None:
@@ -141,14 +207,21 @@ def update_list(
     session.refresh(lst)
     
     count = visible_contract_count_for_list(list_id, admin, session)
+    owner = session.get(User, lst.owner_user_id) if lst.owner_user_id else None
     
     return {
         "id": lst.id,
+        "owner_user_id": lst.owner_user_id,
+        "owner_username": owner.username if owner else None,
         "name": lst.name,
         "description": lst.description,
         "color": lst.color,
+        "is_default": lst.is_default,
         "created_at": lst.created_at,
-        "contract_count": count or 0
+        "contract_count": count or 0,
+        "can_read": True,
+        "can_write": True,
+        "is_preferred_default": admin.default_workspace_id == lst.id,
     }
 
 
@@ -162,10 +235,59 @@ def delete_list(
     lst = session.get(ContractList, list_id)
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
-    
-    # Remove all links first
+    if lst.is_default:
+        raise HTTPException(status_code=400, detail="The Default workspace cannot be deleted")
+
+    users_needing_default_fallback = session.exec(
+        select(User).where(User.default_workspace_id == list_id)
+    ).all()
+    for user in users_needing_default_fallback:
+        user.default_workspace_id = None
+        session.add(user)
+    session.flush()
+
+    affected_contract_ids = list(session.exec(
+        select(ContractListLink.contract_id).where(
+            col(ContractListLink.list_id) == list_id
+        )
+    ).all())
     session.exec(delete(ContractListLink).where(col(ContractListLink.list_id) == list_id))
+    session.exec(
+        delete(ContractListPermission).where(
+            col(ContractListPermission.list_id) == list_id
+        )
+    )
     session.delete(lst)
+    session.flush()
+
+    for user in users_needing_default_fallback:
+        resolve_user_default_workspace(session, user)
+
+    for contract_id in affected_contract_ids:
+        remaining_link = session.exec(
+            select(ContractListLink).where(
+                col(ContractListLink.contract_id) == contract_id
+            )
+        ).first()
+        if remaining_link is None:
+            contract = session.get(Contract, contract_id)
+            if contract is None:
+                continue
+            owner_id = contract.owner_user_id or admin.id
+            if owner_id is None:
+                raise RuntimeError("Document owner could not be resolved")
+            if contract.owner_user_id is None:
+                contract.owner_user_id = owner_id
+                session.add(contract)
+            default_workspace = ensure_default_workspace(session, owner_id)
+            if default_workspace.id is None:
+                raise RuntimeError("Default workspace could not be resolved")
+            session.add(
+                ContractListLink(
+                    contract_id=contract_id,
+                    list_id=default_workspace.id,
+                )
+            )
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -198,11 +320,55 @@ def add_contract_to_list(
     
     if existing:
         raise HTTPException(status_code=400, detail="Contract already in list")
-    
+
+    if lst.is_default:
+        if contract.owner_user_id != lst.owner_user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="A document can only use its owner's Default workspace",
+            )
+        non_default_link = session.exec(
+            select(ContractListLink)
+            .join(
+                ContractList,
+                col(ContractList.id) == col(ContractListLink.list_id),
+            )
+            .where(col(ContractListLink.contract_id) == contract_id)
+            .where(col(ContractList.is_default).is_(False))
+        ).first()
+        if non_default_link is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Only unassigned documents belong in the Default workspace",
+            )
+
     link = ContractListLink(list_id=list_id, contract_id=contract_id)
     session.add(link)
+    if not lst.is_default:
+        session.exec(
+            delete(ContractListLink)
+            .where(col(ContractListLink.contract_id) == contract_id)
+            .where(
+                col(ContractListLink.list_id).in_(
+                    select(ContractList.id).where(
+                        col(ContractList.is_default).is_(True)
+                    )
+                )
+            )
+        )
     session.commit()
-    return {"ok": True, "message": f"Contract '{contract.title}' added to list '{lst.name}'"}
+    assigned_list_ids = list(
+        session.exec(
+            select(ContractListLink.list_id).where(
+                col(ContractListLink.contract_id) == contract_id
+            )
+        ).all()
+    )
+    return {
+        "ok": True,
+        "message": f"Contract '{contract.title}' added to list '{lst.name}'",
+        "list_ids": assigned_list_ids,
+    }
 
 
 @router.delete("/lists/{list_id}/contracts/{contract_id}")
@@ -216,6 +382,11 @@ def remove_contract_from_list(
     lst = session.get(ContractList, list_id)
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
+    if lst.is_default:
+        raise HTTPException(
+            status_code=400,
+            detail="Documents without another workspace must remain in Default",
+        )
 
     contract = session.get(Contract, contract_id)
     if not contract:
@@ -230,10 +401,43 @@ def remove_contract_from_list(
     
     if not link:
         raise HTTPException(status_code=404, detail="Contract not in list")
-    
+
     session.delete(link)
+    session.flush()
+    remaining_link = session.exec(
+        select(ContractListLink).where(
+            col(ContractListLink.contract_id) == contract_id
+        )
+    ).first()
+    if remaining_link is None:
+        owner_id = contract.owner_user_id or admin.id
+        if owner_id is None:
+            raise RuntimeError("Document owner could not be resolved")
+        if contract.owner_user_id is None:
+            contract.owner_user_id = owner_id
+            session.add(contract)
+        default_workspace = ensure_default_workspace(session, owner_id)
+        if default_workspace.id is None:
+            raise RuntimeError("Default workspace could not be resolved")
+        session.add(
+            ContractListLink(
+                contract_id=contract_id,
+                list_id=default_workspace.id,
+            )
+        )
     session.commit()
-    return {"ok": True, "message": "Contract removed from list"}
+    assigned_list_ids = list(
+        session.exec(
+            select(ContractListLink.list_id).where(
+                col(ContractListLink.contract_id) == contract_id
+            )
+        ).all()
+    )
+    return {
+        "ok": True,
+        "message": "Contract removed from list",
+        "list_ids": assigned_list_ids,
+    }
 
 
 @router.get("/lists/{list_id}/contracts", response_model=List[ContractRead])
@@ -253,7 +457,12 @@ def get_list_contracts(
         .where(col(ContractListLink.list_id) == list_id)
         .options(selectinload(Contract.tags), selectinload(Contract.lists))  # type: ignore[arg-type]
     )
-    statement = filter_contracts_for_user(statement, current_user, "read").distinct()
+    statement = filter_contracts_for_user(
+        statement,
+        current_user,
+        "read",
+        list_id=list_id,
+    ).distinct()
     contracts = session.exec(statement.offset(offset).limit(limit)).all()
     
     return contract_reads_for_user(contracts, current_user, session)

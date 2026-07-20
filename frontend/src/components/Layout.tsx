@@ -271,7 +271,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </kbd>
           </button>
           <ThemeToggle />
-          <div className="relative">
+          {user?.can_create_documents && <div className="relative">
             <button
               onClick={() => setCreateOpen(!createOpen)}
               className="btn-primary"
@@ -322,7 +322,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </button>
               </div>
             )}
-          </div>
+          </div>}
         </header>
         <main>{children}</main>
       </div>
@@ -330,6 +330,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         isOpen={createType !== null}
         onClose={() => setCreateType(null)}
         documentType={createType || "contract"}
+        initialListId={
+          Number(new URLSearchParams(location.search).get("list_id")) || null
+        }
       />
     </div>
   );

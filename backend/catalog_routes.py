@@ -7,7 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from sqlalchemy import or_
 from sqlmodel import Session, col, delete, select
 
-from api_core import check_contract_permission, get_current_user, require_admin
+from api_core import (
+    check_contract_permission,
+    filter_contracts_for_user,
+    get_current_user,
+    require_admin,
+)
 from database import get_session
 from models import AuditLog, Contract, ContractTagLink, Tag, User
 from schemas import (
@@ -27,8 +32,16 @@ def get_tags(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Get all tags (requires authentication)"""
-    return session.exec(select(Tag)).all()
+    """Return only tags attached to documents visible to the caller."""
+    if current_user.role == "admin":
+        return session.exec(select(Tag).order_by(col(Tag.name))).all()
+    statement = (
+        select(Tag)
+        .join(ContractTagLink, col(ContractTagLink.tag_id) == col(Tag.id))
+        .join(Contract, col(Contract.id) == col(ContractTagLink.contract_id))
+    )
+    statement = filter_contracts_for_user(statement, current_user, "read")
+    return session.exec(statement.distinct().order_by(col(Tag.name))).all()
 
 
 @router.post("/tags", response_model=TagRead, status_code=201)
@@ -169,7 +182,7 @@ def get_contract_audit_logs(
         raise HTTPException(status_code=404, detail="Contract not found")
 
     if not check_contract_permission(current_user, contract_id, "read", session):
-        raise HTTPException(status_code=403, detail="You don't have permission to access this contract")
+        raise HTTPException(status_code=404, detail="Contract not found")
 
     if (cursor_timestamp is None) != (cursor_id is None):
         raise HTTPException(

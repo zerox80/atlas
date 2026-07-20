@@ -20,7 +20,7 @@ import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import type { Contract, ContractPage } from "../types";
 
 const Contracts: React.FC = () => {
-  const { isAdmin } = useUser();
+  const { isAdmin, user } = useUser();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const listId = getListIdFromSearchParams(searchParams);
@@ -157,9 +157,11 @@ const Contracts: React.FC = () => {
         title="Verträge & Fristen"
         description="Eine fokussierte Arbeitsansicht für Laufzeiten, Kündigungsfenster und Vertragswerte."
         actions={
-          <button onClick={() => openUpload()} className="btn-primary">
-            <FiPlus /> Vertrag hinzufügen
-          </button>
+          user?.can_create_documents ? (
+            <button onClick={() => openUpload()} className="btn-primary">
+              <FiPlus /> Vertrag hinzufügen
+            </button>
+          ) : undefined
         }
       />
 
@@ -215,7 +217,7 @@ const Contracts: React.FC = () => {
               : "Lade den ersten Vertrag hoch und lass Fristen automatisch erkennen."
           }
           action={
-            !search && filter === "all" ? (
+            !search && filter === "all" && user?.can_create_documents ? (
               <button onClick={() => openUpload()} className="btn-primary">
                 <FiPlus /> Ersten Vertrag hochladen
               </button>
@@ -242,6 +244,7 @@ const Contracts: React.FC = () => {
         detailsContract={detailsContract}
         editingContract={editingContract}
         isUploadOpen={isUploadOpen}
+        initialListId={listId}
         listContract={listContract}
         onAuditClose={() => setAuditContract(null)}
         onChatClose={() => setChatContract(null)}

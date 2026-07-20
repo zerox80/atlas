@@ -36,6 +36,13 @@ class User(SQLModel, table=True):
     is_active: bool = Field(default=True)  # Account status managed through user editing
     # Incrementing this value invalidates every JWT issued with the previous value.
     token_version: int = Field(default=0, nullable=False)
+    # Admin-selected upload target. This is intentionally separate from
+    # workspace permissions: granting access must never change where uploads go.
+    default_workspace_id: Optional[int] = Field(
+        default=None,
+        foreign_key="contractlist.id",
+        index=True,
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -65,12 +72,36 @@ class ContractListLink(SQLModel, table=True):
 
 class ContractList(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     name: str = Field(index=True)
     description: Optional[str] = None
     color: str = "#6366f1"  # Default indigo
+    is_default: bool = Field(default=False, nullable=False, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     contracts: List["Contract"] = Relationship(back_populates="lists", link_model=ContractListLink)
+
+
+# A workspace permission applies to every document linked to the collection.
+class ContractListPermission(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "list_id",
+            name="uq_contractlistpermission_user_list",
+        ),
+        Index(
+            "ix_contractlistpermission_user_level_list",
+            "user_id",
+            "permission_level",
+            "list_id",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    list_id: int = Field(foreign_key="contractlist.id", index=True)
+    permission_level: str = Field(default="read")  # "read", "write", "full"
 
     
 class Contract(SQLModel, table=True):
@@ -80,6 +111,7 @@ class Contract(SQLModel, table=True):
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     title: str
     description: Optional[str] = None
     start_date: Optional[datetime] = None

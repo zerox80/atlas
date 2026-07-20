@@ -1,6 +1,6 @@
 import React from "react";
 import ModalFrame from "./ModalFrame";
-import type { User } from "./types";
+import type { DefaultWorkspaceOption, User } from "./types";
 
 interface AddUserModalProps {
   isOpen: boolean;
@@ -199,23 +199,31 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 };
 
 interface EditUserModalProps {
+  defaultWorkspaceId: number;
+  defaultWorkspaceOptions: DefaultWorkspaceOption[];
+  defaultWorkspacesLoading: boolean;
   isActive: boolean;
   isOpen: boolean;
   onClose: () => void;
   onSubmit: React.FormEventHandler<HTMLFormElement>;
   role: string;
   setIsActive: (value: boolean) => void;
+  setDefaultWorkspaceId: (value: number) => void;
   setRole: (value: string) => void;
   user: User | null;
 }
 
 export const EditUserModal: React.FC<EditUserModalProps> = ({
+  defaultWorkspaceId,
+  defaultWorkspaceOptions,
+  defaultWorkspacesLoading,
   isActive,
   isOpen,
   onClose,
   onSubmit,
   role,
   setIsActive,
+  setDefaultWorkspaceId,
   setRole,
   user,
 }) => {
@@ -242,6 +250,38 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
             <option value="user">Benutzer</option>
             <option value="admin">Admin</option>
           </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-400">
+            Standard-Workspace für neue Uploads
+          </label>
+          <select
+            value={defaultWorkspaceId || ""}
+            onChange={(event) =>
+              setDefaultWorkspaceId(Number(event.target.value))
+            }
+            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-white focus:border-blue-500 focus:outline-none"
+            disabled={defaultWorkspacesLoading}
+          >
+            <option value="">
+              {defaultWorkspacesLoading
+                ? "Verfügbare Workspaces werden geladen…"
+                : "Automatisch: persönlicher Fallback"}
+            </option>
+            {defaultWorkspaceOptions.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.name}
+                {workspace.owner_username
+                  ? ` · ${workspace.owner_username}`
+                  : ""}
+                {workspace.is_personal ? " (persönlich)" : ""}
+              </option>
+            ))}
+          </select>
+          <p className="mt-2 text-xs leading-5 text-gray-500">
+            Nur Workspaces mit Schreibrecht sind auswählbar. Persönliche
+            Defaults anderer Nutzer bleiben ausgeschlossen.
+          </p>
         </div>
         <div>
           <label className="flex cursor-pointer items-center gap-3 text-gray-400">

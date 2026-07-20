@@ -18,7 +18,6 @@ const AdminPanel: React.FC = () => {
     isLoading,
     loadData,
     loadError,
-    loadPermissions,
     loadTags,
     loadUsers,
     permissionPage,
@@ -32,7 +31,7 @@ const AdminPanel: React.FC = () => {
   } = useAdminData();
   const backup = useAdminBackup();
   const userManagement = useAdminUsers(loadUsers);
-  const permissionManagement = useAdminPermissions(loadPermissions);
+  const permissionManagement = useAdminPermissions(loadData);
   const tagManagement = useAdminTags(loadTags);
 
   if (isLoading) {
@@ -44,7 +43,7 @@ const AdminPanel: React.FC = () => {
       <PageHeader
         eyebrow="System / Control Center"
         title="Administration"
-        description="Benutzer, Dokumentrechte, Taxonomie und Datensicherungen an einem zentralen Kontrollpunkt verwalten."
+        description="Benutzer, Workspace- und Dokumentrechte, Standard-Ablagen, Taxonomie und Datensicherungen zentral verwalten."
         actions={
           <span className="chip border-[#b8f15a]/20 bg-[#b8f15a]/[0.07] text-[#b8f15a]">
             <FiShield /> Admin access
@@ -126,6 +125,10 @@ const AdminPanel: React.FC = () => {
         setEditRole={userManagement.setEditRole}
         editIsActive={userManagement.editIsActive}
         setEditIsActive={userManagement.setEditIsActive}
+        editDefaultWorkspaceId={userManagement.editDefaultWorkspaceId}
+        setEditDefaultWorkspaceId={userManagement.setEditDefaultWorkspaceId}
+        defaultWorkspaceOptions={userManagement.defaultWorkspaceOptions}
+        defaultWorkspacesLoading={userManagement.defaultWorkspacesLoading}
         handleUpdateUser={userManagement.handleUpdateUser}
         isPermissionModalOpen={permissionManagement.isPermissionModalOpen}
         setIsPermissionModalOpen={permissionManagement.setIsPermissionModalOpen}
@@ -133,6 +136,10 @@ const AdminPanel: React.FC = () => {
         setPermUserId={permissionManagement.setPermUserId}
         permContractId={permissionManagement.permContractId}
         setPermContractId={permissionManagement.setPermContractId}
+        permListId={permissionManagement.permListId}
+        setPermListId={permissionManagement.setPermListId}
+        permScope={permissionManagement.permScope}
+        setPermScope={permissionManagement.setPermScope}
         permLevel={permissionManagement.permLevel}
         setPermLevel={permissionManagement.setPermLevel}
         users={users}

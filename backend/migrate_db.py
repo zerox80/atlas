@@ -364,6 +364,315 @@ def migration_008_sanitize_contract_numeric_values(cursor: sqlite3.Cursor) -> No
         )
 
 
+def migration_009_workspace_permissions_and_default(cursor: sqlite3.Cursor) -> None:
+    """Add workspace ACLs and one isolated Default workspace per user."""
+    add_missing_columns(
+        cursor,
+        "contract",
+        (("owner_user_id", "owner_user_id INTEGER"),),
+    )
+
+    fallback_owner = None
+    if table_exists(cursor, "user"):
+        fallback_row = cursor.execute(
+            """
+            SELECT id FROM "user"
+            ORDER BY CASE WHEN role = 'admin' THEN 0 ELSE 1 END,
+                     CASE WHEN is_active = 1 THEN 0 ELSE 1 END,
+                     id
+            LIMIT 1
+            """
+        ).fetchone()
+        fallback_owner = int(fallback_row[0]) if fallback_row else None
+
+    if table_exists(cursor, "contract"):
+        if table_exists(cursor, "user"):
+            cursor.execute(
+                """
+                UPDATE contract
+                SET owner_user_id = NULL
+                WHERE owner_user_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM "user" WHERE "user".id = contract.owner_user_id
+                  )
+                """
+            )
+        if (
+            table_exists(cursor, "user")
+            and table_exists(cursor, "auditlog")
+            and "contract_id" in existing_columns(cursor, "auditlog")
+        ):
+            cursor.execute(
+                """
+                UPDATE contract
+                SET owner_user_id = (
+                    SELECT auditlog.user_id
+                    FROM auditlog
+                    WHERE auditlog.contract_id = contract.id
+                      AND auditlog.action = 'UPLOAD'
+                      AND auditlog.user_id IS NOT NULL
+                      AND EXISTS (
+                          SELECT 1 FROM "user"
+                          WHERE "user".id = auditlog.user_id
+                      )
+                    ORDER BY auditlog.timestamp ASC, auditlog.id ASC
+                    LIMIT 1
+                )
+                WHERE owner_user_id IS NULL
+                """
+            )
+        if table_exists(cursor, "user") and table_exists(
+            cursor, "contractpermission"
+        ):
+            cursor.execute(
+                """
+                UPDATE contract
+                SET owner_user_id = (
+                    SELECT contractpermission.user_id
+                    FROM contractpermission
+                    WHERE contractpermission.contract_id = contract.id
+                      AND contractpermission.permission_level = 'full'
+                      AND EXISTS (
+                          SELECT 1 FROM "user"
+                          WHERE "user".id = contractpermission.user_id
+                      )
+                    ORDER BY contractpermission.id ASC
+                    LIMIT 1
+                )
+                WHERE owner_user_id IS NULL
+                """
+            )
+        if fallback_owner is not None:
+            cursor.execute(
+                "UPDATE contract SET owner_user_id = ? WHERE owner_user_id IS NULL",
+                (fallback_owner,),
+            )
+
+    # Very old installations may not have used collections yet. Their contract
+    # owners are still migrated above; create_all and the startup backfill will
+    # then create the current workspace tables and isolated Defaults.
+    if not table_exists(cursor, "contractlist"):
+        return
+
+    add_missing_columns(
+        cursor,
+        "contractlist",
+        (
+            ("owner_user_id", "owner_user_id INTEGER"),
+            ("is_default", "is_default BOOLEAN NOT NULL DEFAULT 0"),
+        ),
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS contractlistpermission (
+            id INTEGER NOT NULL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            list_id INTEGER NOT NULL,
+            permission_level VARCHAR NOT NULL DEFAULT 'read',
+            CONSTRAINT uq_contractlistpermission_user_list
+                UNIQUE (user_id, list_id),
+            FOREIGN KEY(user_id) REFERENCES "user" (id),
+            FOREIGN KEY(list_id) REFERENCES contractlist (id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        DELETE FROM contractlistpermission
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM contractlistpermission
+            GROUP BY user_id, list_id
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS
+        ix_contractlistpermission_user_list
+        ON contractlistpermission (user_id, list_id)
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS
+        ix_contractlistpermission_user_level_list
+        ON contractlistpermission (user_id, permission_level, list_id)
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS ix_contractlistpermission_user_id "
+        "ON contractlistpermission (user_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS ix_contractlistpermission_list_id "
+        "ON contractlistpermission (list_id)"
+    )
+
+    if table_exists(cursor, "user"):
+        cursor.execute(
+            """
+            UPDATE contractlist
+            SET owner_user_id = NULL
+            WHERE owner_user_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM "user"
+                  WHERE "user".id = contractlist.owner_user_id
+              )
+            """
+        )
+    if fallback_owner is not None:
+        cursor.execute(
+            "UPDATE contractlist SET owner_user_id = ? WHERE owner_user_id IS NULL",
+            (fallback_owner,),
+        )
+
+    cursor.execute("DROP INDEX IF EXISTS ix_contractlist_single_default")
+    cursor.execute(
+        """
+        UPDATE contractlist
+        SET is_default = 0
+        WHERE is_default = 1
+          AND id NOT IN (
+              SELECT MIN(id)
+              FROM contractlist
+              WHERE is_default = 1
+              GROUP BY owner_user_id
+          )
+        """
+    )
+
+    users = (
+        cursor.execute('SELECT id FROM "user" ORDER BY id').fetchall()
+        if table_exists(cursor, "user")
+        else []
+    )
+    for (user_id_value,) in users:
+        user_id = int(user_id_value)
+        existing_default = cursor.execute(
+            """
+            SELECT id FROM contractlist
+            WHERE owner_user_id = ? AND is_default = 1
+            ORDER BY id LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+        if existing_default:
+            default_list_id = int(existing_default[0])
+        else:
+            cursor.execute(
+                """
+                INSERT INTO contractlist
+                    (owner_user_id, name, description, color, is_default, created_at)
+                VALUES
+                    (?, 'Default', 'Persönlicher Standard-Workspace',
+                     '#6366f1', 1, CURRENT_TIMESTAMP)
+                """,
+                (user_id,),
+            )
+            default_list_id = int(cursor.lastrowid)
+        cursor.execute(
+            "UPDATE contractlist SET name = 'Default' WHERE id = ?",
+            (default_list_id,),
+        )
+        cursor.execute(
+            """
+            INSERT INTO contractlistpermission
+                (user_id, list_id, permission_level)
+            VALUES (?, ?, 'full')
+            ON CONFLICT(user_id, list_id)
+            DO UPDATE SET permission_level = excluded.permission_level
+            """,
+            (user_id, default_list_id),
+        )
+
+    cursor.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS
+        ix_contractlist_owner_single_default
+        ON contractlist (owner_user_id)
+        WHERE is_default = 1 AND owner_user_id IS NOT NULL
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS ix_contractlist_is_default "
+        "ON contractlist (is_default)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS ix_contractlist_owner_user_id "
+        "ON contractlist (owner_user_id)"
+    )
+    if table_exists(cursor, "contract"):
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS ix_contract_owner_user_id "
+            "ON contract (owner_user_id)"
+        )
+
+    if table_exists(cursor, "contract") and table_exists(cursor, "contractlistlink"):
+        # A Default is private to its owner. Repair any legacy/global Default links.
+        cursor.execute(
+            """
+            DELETE FROM contractlistlink
+            WHERE EXISTS (
+                SELECT 1
+                FROM contractlist
+                JOIN contract ON contract.id = contractlistlink.contract_id
+                WHERE contractlist.id = contractlistlink.list_id
+                  AND contractlist.is_default = 1
+                  AND contract.owner_user_id IS NOT contractlist.owner_user_id
+            )
+            """
+        )
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO contractlistlink (contract_id, list_id)
+            SELECT contract.id, contractlist.id
+            FROM contract
+            JOIN contractlist
+              ON contractlist.owner_user_id = contract.owner_user_id
+             AND contractlist.is_default = 1
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM contractlistlink
+                WHERE contractlistlink.contract_id = contract.id
+            )
+            """
+        )
+
+
+def migration_010_admin_selected_default_workspace(cursor: sqlite3.Cursor) -> None:
+    """Persist an explicit, permission-independent upload target per user."""
+    if not table_exists(cursor, "user"):
+        return
+
+    add_missing_columns(
+        cursor,
+        "user",
+        (("default_workspace_id", "default_workspace_id INTEGER"),),
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS ix_user_default_workspace_id "
+        "ON \"user\" (default_workspace_id)"
+    )
+    if not table_exists(cursor, "contractlist"):
+        return
+    # Existing users start on their own isolated personal workspace. A shared
+    # permission is deliberately never inferred as the default upload target.
+    cursor.execute(
+        """
+        UPDATE "user"
+        SET default_workspace_id = (
+            SELECT contractlist.id
+            FROM contractlist
+            WHERE contractlist.owner_user_id = "user".id
+              AND contractlist.is_default = 1
+            ORDER BY contractlist.id
+            LIMIT 1
+        )
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     ("001_legacy_columns_and_permission_index", migration_001_legacy_columns),
     ("002_contract_document_type", migration_002_document_type),
@@ -373,6 +682,14 @@ MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     ("006_user_token_version", migration_006_user_token_version),
     ("007_user_auth_subject", migration_007_user_auth_subject),
     ("008_sanitize_contract_numeric_values", migration_008_sanitize_contract_numeric_values),
+    (
+        "009_workspace_permissions_and_default_collection",
+        migration_009_workspace_permissions_and_default,
+    ),
+    (
+        "010_admin_selected_default_workspace",
+        migration_010_admin_selected_default_workspace,
+    ),
 )
 
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEventHandler } from "react";
 import api from "../../api";
 import { getApiErrorMessage } from "../../utils/errorUtils";
-import type { User } from "./types";
+import type { DefaultWorkspaceOption, User } from "./types";
 
 type ReloadAdminData = () => Promise<void>;
 
@@ -14,6 +14,12 @@ export const useAdminUsers = (loadData: ReloadAdminData) => {
   const [newPassword, setNewPassword] = useState("");
   const [editRole, setEditRole] = useState("user");
   const [editIsActive, setEditIsActive] = useState(true);
+  const [editDefaultWorkspaceId, setEditDefaultWorkspaceId] = useState(0);
+  const [defaultWorkspaceOptions, setDefaultWorkspaceOptions] = useState<
+    DefaultWorkspaceOption[]
+  >([]);
+  const [defaultWorkspacesLoading, setDefaultWorkspacesLoading] =
+    useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [passwordUser, setPasswordUser] = useState<User | null>(null);
   const [changedPassword, setChangedPassword] = useState("");
@@ -22,6 +28,7 @@ export const useAdminUsers = (loadData: ReloadAdminData) => {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const changePasswordRequestPending = useRef(false);
   const adminPanelMounted = useRef(true);
+  const defaultWorkspaceRequest = useRef(0);
 
   useEffect(() => {
     adminPanelMounted.current = true;
@@ -100,7 +107,45 @@ export const useAdminUsers = (loadData: ReloadAdminData) => {
     setSelectedUser(user);
     setEditRole(user.role);
     setEditIsActive(user.is_active);
+    setEditDefaultWorkspaceId(user.default_workspace_id ?? 0);
+    setDefaultWorkspaceOptions([]);
     setIsEditUserModalOpen(true);
+    const requestId = defaultWorkspaceRequest.current + 1;
+    defaultWorkspaceRequest.current = requestId;
+    setDefaultWorkspacesLoading(true);
+    void api
+      .get<DefaultWorkspaceOption[]>(
+        `/admin/users/${user.id}/default-workspace-options`,
+      )
+      .then((response) => {
+        if (
+          adminPanelMounted.current &&
+          defaultWorkspaceRequest.current === requestId
+        ) {
+          setDefaultWorkspaceOptions(response.data);
+        }
+      })
+      .catch((error: unknown) => {
+        if (
+          adminPanelMounted.current &&
+          defaultWorkspaceRequest.current === requestId
+        ) {
+          alert(
+            getApiErrorMessage(
+              error,
+              "Standard-Workspaces konnten nicht geladen werden",
+            ),
+          );
+        }
+      })
+      .finally(() => {
+        if (
+          adminPanelMounted.current &&
+          defaultWorkspaceRequest.current === requestId
+        ) {
+          setDefaultWorkspacesLoading(false);
+        }
+      });
   };
 
   const handleUpdateUser: FormEventHandler<HTMLFormElement> = async (event) => {
@@ -111,6 +156,14 @@ export const useAdminUsers = (loadData: ReloadAdminData) => {
         role: editRole,
         is_active: editIsActive,
       });
+      if (
+        editDefaultWorkspaceId !== (selectedUser.default_workspace_id ?? 0)
+      ) {
+        await api.put(
+          `/admin/users/${selectedUser.id}/default-workspace`,
+          { list_id: editDefaultWorkspaceId || null },
+        );
+      }
       setIsEditUserModalOpen(false);
       setSelectedUser(null);
       await loadData();
@@ -140,7 +193,10 @@ export const useAdminUsers = (loadData: ReloadAdminData) => {
     changedPasswordConfirmation,
     closePasswordModal,
     editIsActive,
+    editDefaultWorkspaceId,
     editRole,
+    defaultWorkspaceOptions,
+    defaultWorkspacesLoading,
     handleAddUser,
     handleChangePassword,
     handleDeleteUser,
@@ -158,6 +214,7 @@ export const useAdminUsers = (loadData: ReloadAdminData) => {
     setChangedPassword,
     setChangedPasswordConfirmation,
     setEditIsActive,
+    setEditDefaultWorkspaceId,
     setEditRole,
     setIsAddUserModalOpen,
     setIsEditUserModalOpen,

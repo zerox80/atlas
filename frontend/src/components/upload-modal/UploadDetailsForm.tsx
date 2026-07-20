@@ -20,6 +20,46 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
       </span>
     </div>
     <div className="space-y-5">
+      {!controller.isEditing && (
+        <label className="block">
+          <FieldLabel>Ablage-Workspace</FieldLabel>
+          <select
+            value={controller.workspaceId || ""}
+            onChange={(event) =>
+              controller.setWorkspaceId(Number(event.target.value))
+            }
+            className="field"
+            required
+            disabled={controller.workspacesLoading}
+          >
+            <option value="">
+              {controller.workspacesLoading
+                ? "Workspaces werden geladen …"
+                : "Workspace wählen …"}
+            </option>
+            {controller.writableWorkspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.name}
+                {workspace.owner_username
+                  ? ` · ${workspace.owner_username}`
+                  : ""}
+                {workspace.is_preferred_default ? " (Standard)" : ""}
+              </option>
+            ))}
+          </select>
+          {!controller.workspacesLoading &&
+            controller.writableWorkspaces.length === 0 && (
+              <span className="mt-2 block text-[11px] text-rose-300">
+                Kein beschreibbarer Workspace freigegeben. Bitte den Admin
+                kontaktieren.
+              </span>
+            )}
+          <span className="mt-2 block text-[11px] text-white/28">
+            Ein konfigurierter Admin-Standard ist vorausgewählt. Ein fremder
+            persönlicher Default ist nie als Upload-Ziel zulässig.
+          </span>
+        </label>
+      )}
       <label className="block">
         <FieldLabel>
           {controller.isInvoice

@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { FiFileText, FiPlus } from "react-icons/fi";
 import api, { fetchContractPage, type ContractCursor } from "../api";
+import { useUser } from "../App";
 import UploadModal from "../components/UploadModal";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import InvoiceArchive from "../features/invoices/InvoiceArchive";
@@ -14,6 +15,7 @@ import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import type { Contract, ContractPage } from "../types";
 
 const Invoices: React.FC = () => {
+  const { user } = useUser();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const listId = getListIdFromSearchParams(searchParams);
@@ -121,16 +123,20 @@ const Invoices: React.FC = () => {
         title="Rechnungen"
         description="Ein schneller, eigenständiger Ablageprozess für Rechnungen – auch wenn kein Vertrag existiert."
         actions={
-          <button onClick={() => openUpload()} className="btn-primary">
-            <FiPlus /> Rechnung hochladen
-          </button>
+          user?.can_create_documents ? (
+            <button onClick={() => openUpload()} className="btn-primary">
+              <FiPlus /> Rechnung hochladen
+            </button>
+          ) : undefined
         }
       />
 
       <InvoiceStats invoiceCount={summary?.all ?? 0} stats={stats} />
       <InvoiceArchive
         invoices={invoices}
-        onCreate={() => openUpload()}
+        onCreate={
+          user?.can_create_documents ? () => openUpload() : undefined
+        }
         onDelete={handleDelete}
         onDownload={handleDownload}
         onEdit={openUpload}
@@ -159,6 +165,7 @@ const Invoices: React.FC = () => {
           setEditingInvoice(null);
         }}
         initialData={editingInvoice}
+        initialListId={listId}
         documentType="invoice"
       />
     </div>
