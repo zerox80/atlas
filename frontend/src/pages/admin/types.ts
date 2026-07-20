@@ -28,6 +28,7 @@ export interface DefaultWorkspaceOption {
   owner_user_id: number | null;
   owner_username: string | null;
   is_personal: boolean;
+  requires_write_grant: boolean;
 }
 
 export interface PermissionPage {

@@ -15,6 +15,7 @@ from api_core import (
     resolve_user_default_workspace,
     user_can_create_documents,
     workspace_can_be_default_for_user,
+    workspace_can_be_selected_as_default,
 )
 from auth import get_password_hash
 from database import get_session
@@ -85,6 +86,52 @@ def _increment_token_version(session: Session, user: User) -> None:
         .execution_options(synchronize_session=False)
     )
     session.expire(user, ["token_version"])
+
+
+def _ensure_default_workspace_permission(
+    session: Session,
+    user: User,
+    workspace: ContractList,
+) -> bool:
+    """Grant the minimum workspace permission implied by a default target."""
+    if user.role == "admin":
+        return False
+    if user.id is None or workspace.id is None:
+        raise RuntimeError("Default workspace permission could not be resolved")
+
+    desired_level = (
+        "full"
+        if workspace.is_default and workspace.owner_user_id == user.id
+        else "write"
+    )
+    permission = session.exec(
+        select(ContractListPermission)
+        .where(ContractListPermission.user_id == user.id)
+        .where(ContractListPermission.list_id == workspace.id)
+    ).first()
+    if permission is None:
+        session.add(
+            ContractListPermission(
+                user_id=user.id,
+                list_id=workspace.id,
+                permission_level=desired_level,
+            )
+        )
+        session.flush()
+        return True
+
+    current_level = permission.permission_level
+    needs_upgrade = (
+        desired_level == "full" and current_level != "full"
+    ) or (
+        desired_level == "write" and current_level not in {"write", "full"}
+    )
+    if not needs_upgrade:
+        return False
+    permission.permission_level = desired_level
+    session.add(permission)
+    session.flush()
+    return True
 
 
 @router.get("/me")
@@ -235,7 +282,7 @@ def get_default_workspace_options(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    """List writable targets while excluding another user's personal area."""
+    """List every shared target plus the user's own personal Default."""
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -250,9 +297,14 @@ def get_default_workspace_options(
             "owner_user_id": workspace.owner_user_id,
             "owner_username": owner_names.get(workspace.owner_user_id),
             "is_personal": workspace.is_default,
+            "requires_write_grant": not workspace_can_be_default_for_user(
+                user,
+                workspace,
+                session,
+            ),
         }
         for workspace in workspaces
-        if workspace_can_be_default_for_user(user, workspace, session)
+        if workspace_can_be_selected_as_default(user, workspace)
     ]
 
 
@@ -267,7 +319,7 @@ def set_default_workspace(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    """Set the explicit upload target without changing any permission."""
+    """Set the upload target and grant its required workspace permission."""
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -278,20 +330,24 @@ def set_default_workspace(
     )
     if workspace_data.list_id is not None and workspace is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    if workspace is not None and not workspace_can_be_default_for_user(
+    if workspace is not None and not workspace_can_be_selected_as_default(
         user,
         workspace,
-        session,
     ):
         raise HTTPException(
             status_code=400,
             detail=(
-                "The default workspace must be writable and cannot be another "
-                "user's personal Default"
+                "Another user's personal Default cannot be selected as the "
+                "upload target"
             ),
         )
 
     previous_workspace_id = user.default_workspace_id
+    permission_changed = (
+        _ensure_default_workspace_permission(session, user, workspace)
+        if workspace is not None
+        else False
+    )
     user.default_workspace_id = workspace.id if workspace is not None else None
     session.add(user)
     if workspace is None:
@@ -303,6 +359,7 @@ def set_default_workspace(
         (
             f"Changed default workspace for '{user.username}' from "
             f"'{previous_workspace_id}' to '{user.default_workspace_id}'"
+            f"; workspace permission changed: {permission_changed}"
         ),
         request.client.host if request.client else "unknown",
         request.headers.get("user-agent"),

@@ -271,7 +271,7 @@ const Contracts: React.FC = () => {
               disabled={selectedContracts.length === 0}
               className="btn-primary disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <FiFolder /> Workspace zuweisen
+              <FiFolder /> Workspaces verwalten
             </button>
             <button onClick={stopSelection} className="btn-ghost">
               Abbrechen

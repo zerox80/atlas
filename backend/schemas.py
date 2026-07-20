@@ -265,6 +265,7 @@ class DefaultWorkspaceOptionRead(BaseModel):
     owner_user_id: Optional[int] = None
     owner_username: Optional[str] = None
     is_personal: bool = False
+    requires_write_grant: bool = False
 
 
 class PermissionPage(BaseModel):
@@ -287,18 +288,21 @@ class ContractListUpdate(BaseModel):
     color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
 
 
-class ContractListBulkUpdate(BaseModel):
+class ContractSelection(BaseModel):
     contract_ids: List[Annotated[int, Field(gt=0)]] = Field(
         ...,
         min_length=1,
         max_length=10_000,
     )
-    operation: Literal["add", "remove"]
 
     @field_validator("contract_ids")
     @classmethod
     def deduplicate_contract_ids(cls, values: List[int]) -> List[int]:
         return list(dict.fromkeys(values))
+
+
+class ContractListBulkUpdate(ContractSelection):
+    operation: Literal["add", "remove"]
 
 
 class ContractListAssignmentRead(BaseModel):
@@ -307,7 +311,7 @@ class ContractListAssignmentRead(BaseModel):
 
 
 class ContractListBulkResult(BaseModel):
-    operation: Literal["add", "remove"]
+    operation: Literal["add", "remove", "move_to_default"]
     changed_count: int
     assignments: List[ContractListAssignmentRead]
 

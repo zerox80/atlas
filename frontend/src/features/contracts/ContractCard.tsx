@@ -141,7 +141,7 @@ const ContractCard: React.FC<ContractCardProps> = ({
                     onClick={() => onAssignToList(contract)}
                     className="btn-ghost w-full justify-start"
                   >
-                    <FiFolder /> Sammlung zuweisen
+                    <FiFolder /> Workspaces verwalten
                   </button>
                 )}
                 <button

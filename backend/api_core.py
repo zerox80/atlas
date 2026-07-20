@@ -319,15 +319,23 @@ def ensure_default_workspace(session: Session, owner_user_id: int) -> ContractLi
     return workspace
 
 
+def workspace_can_be_selected_as_default(
+    user: User,
+    workspace: ContractList,
+) -> bool:
+    """Allow shared workspaces and only the user's own personal Default."""
+    if workspace.id is None or user.id is None:
+        return False
+    return not workspace.is_default or workspace.owner_user_id == user.id
+
+
 def workspace_can_be_default_for_user(
     user: User,
     workspace: ContractList,
     session: Session,
 ) -> bool:
     """A default target must be writable and never another user's personal area."""
-    if workspace.id is None or user.id is None:
-        return False
-    if workspace.is_default and workspace.owner_user_id != user.id:
+    if not workspace_can_be_selected_as_default(user, workspace):
         return False
     return check_workspace_permission(user, workspace.id, "write", session)
 

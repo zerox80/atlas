@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { FiX, FiCheck, FiFolder, FiMinus } from "react-icons/fi";
+import { FiX, FiCheck, FiFolder, FiHome, FiMinus } from "react-icons/fi";
 import api from "../api";
 import type { Contract, ContractList } from "../types";
 import { getApiErrorMessage } from "../utils/errorUtils";
@@ -27,7 +27,7 @@ interface BulkListAssignmentResponse {
     list_ids: number[];
   }>;
   changed_count: number;
-  operation: "add" | "remove";
+  operation: "add" | "remove" | "move_to_default";
 }
 
 const AddToListModal: React.FC<AddToListModalProps> = ({
@@ -75,6 +75,54 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
     () => lists?.filter((list) => !list.is_default) ?? [],
     [lists],
   );
+  const defaultListIds = useMemo(
+    () =>
+      new Set(
+        [...(lists ?? []), ...activeContracts.flatMap((item) => item.lists ?? [])]
+          .filter((list) => list.is_default)
+          .map((list) => list.id),
+      ),
+    [activeContracts, lists],
+  );
+  const allInPersonalDefault =
+    contractIds.length > 0 &&
+    contractIds.every((contractId) => {
+      const assignedListIds = contractLists[contractId] ?? [];
+      return (
+        assignedListIds.length === 1 &&
+        defaultListIds.has(assignedListIds[0])
+      );
+    });
+
+  const handleMoveToPersonalDefault = async () => {
+    if (!contractIds.length || allInPersonalDefault) return;
+    setIsLoading(true);
+
+    try {
+      const response = await api.post<BulkListAssignmentResponse>(
+        "/contract-list-assignments/personal-default",
+        { contract_ids: contractIds },
+      );
+      setContractLists(
+        Object.fromEntries(
+          response.data.assignments.map((assignment) => [
+            assignment.contract_id,
+            assignment.list_ids,
+          ]),
+        ),
+      );
+      await invalidateListAndDocumentQueries(queryClient);
+    } catch (error: unknown) {
+      alert(
+        getApiErrorMessage(
+          error,
+          "Fehler beim Verschieben in das persönliche Default",
+        ),
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleToggleList = async (listId: number) => {
     if (!contractIds.length) return;
@@ -148,7 +196,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                 <div>
                   <p className="eyebrow">Organisation</p>
                   <h3 className="mt-2 text-xl font-semibold text-white">
-                    Workspaces zuweisen
+                    Workspaces verwalten
                   </h3>
                   <p className="mt-1 max-w-[320px] truncate text-sm muted">
                     {activeContracts.length === 1
@@ -173,6 +221,53 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                     bereits alle enthalten, entfernt der Klick sie gemeinsam.
                   </p>
                 )}
+                <button
+                  type="button"
+                  onClick={() => void handleMoveToPersonalDefault()}
+                  disabled={isLoading || allInPersonalDefault}
+                  className={[
+                    "flex w-full items-center gap-3 rounded-2xl border p-3.5 text-left transition-all",
+                    "disabled:cursor-default",
+                    allInPersonalDefault
+                      ? "border-[#b8f15a]/25 bg-[#b8f15a]/[0.08]"
+                      : "border-[#77a7ff]/25 bg-[#77a7ff]/[0.07] hover:border-[#77a7ff]/45 hover:bg-[#77a7ff]/[0.11]",
+                  ].join(" ")}
+                >
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#77a7ff]/15 text-[#9dbdff]">
+                    <FiHome size={19} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-white">
+                      Persönliches Default
+                    </p>
+                    <p className="mt-0.5 text-xs leading-5 muted">
+                      {activeContracts.length > 1
+                        ? "Jeder Vertrag kommt in das isolierte Default seines Eigentümers."
+                        : "Entfernt den Vertrag aus allen Team-Workspaces."}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-xs font-semibold text-[#b9cced]">
+                      {allInPersonalDefault
+                        ? "Bereits dort"
+                        : "Hierhin verschieben"}
+                    </span>
+                    {allInPersonalDefault && (
+                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#b8f15a] text-[#111700]">
+                        <FiCheck size={14} />
+                      </div>
+                    )}
+                  </div>
+                </button>
+
+                <div className="my-5 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-white/[0.07]" />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] muted">
+                    Team-Workspaces
+                  </span>
+                  <div className="h-px flex-1 bg-white/[0.07]" />
+                </div>
+
                 {areListsLoading ? (
                   <div className="py-10 text-center text-sm muted">
                     Workspaces werden geladen…
@@ -210,9 +305,14 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                             <FiFolder size={18} style={{ color: list.color }} />
                           </div>
                           <div className="flex-1 text-left">
-                            <p className="font-semibold text-white">
-                              {list.name}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="font-semibold text-white">
+                                {list.name}
+                              </p>
+                              {list.is_preferred_default && (
+                                <span className="chip">Dein Standard</span>
+                              )}
+                            </div>
                             {list.owner_username && (
                               <p className="text-xs muted">
                                 Eigentümer: {list.owner_username}
@@ -258,12 +358,11 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                       className="mx-auto mb-3 text-[#596474]"
                     />
                     <p className="font-semibold text-white">
-                      Noch keine Team-Workspaces
+                      Keine weiteren Team-Workspaces
                     </p>
                     <p className="mt-1 text-sm muted">
-                      Erstelle zuerst einen benannten Workspace im Bereich
-                      „Sammlungen“. Persönliche Defaults werden automatisch
-                      verwaltet.
+                      Das persönliche Default steht als sicheres Ziel oben
+                      bereit.
                     </p>
                   </div>
                 )}

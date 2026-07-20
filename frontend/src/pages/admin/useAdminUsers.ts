@@ -156,14 +156,10 @@ export const useAdminUsers = (loadData: ReloadAdminData) => {
         role: editRole,
         is_active: editIsActive,
       });
-      if (
-        editDefaultWorkspaceId !== (selectedUser.default_workspace_id ?? 0)
-      ) {
-        await api.put(
-          `/admin/users/${selectedUser.id}/default-workspace`,
-          { list_id: editDefaultWorkspaceId || null },
-        );
-      }
+      await api.put(
+        `/admin/users/${selectedUser.id}/default-workspace`,
+        { list_id: editDefaultWorkspaceId || null },
+      );
       setIsEditUserModalOpen(false);
       setSelectedUser(null);
       await loadData();

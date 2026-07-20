@@ -275,12 +275,18 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                   ? ` · ${workspace.owner_username}`
                   : ""}
                 {workspace.is_personal ? " (persönlich)" : ""}
+                {workspace.requires_write_grant
+                  ? " · Schreibrecht wird vergeben"
+                  : ""}
               </option>
             ))}
           </select>
           <p className="mt-2 text-xs leading-5 text-gray-500">
-            Nur Workspaces mit Schreibrecht sind auswählbar. Persönliche
-            Defaults anderer Nutzer bleiben ausgeschlossen.
+            Normale Workspaces aller Eigentümer sind auswählbar. Fehlendes
+            Schreibrecht wird beim Speichern automatisch vergeben. Persönliche
+            Defaults anderer Nutzer bleiben zum Schutz ihrer privaten Ablage
+            ausgeschlossen. Für ein gemeinsames Standardziel verwendest du
+            einen normalen Team-Workspace des Admins.
           </p>
         </div>
         <div>

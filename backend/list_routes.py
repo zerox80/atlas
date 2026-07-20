@@ -36,6 +36,7 @@ from schemas import (
     ContractListRead,
     ContractListUpdate,
     ContractRead,
+    ContractSelection,
 )
 
 router = APIRouter()
@@ -297,6 +298,93 @@ def delete_list(
             )
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/contract-list-assignments/personal-default",
+    response_model=ContractListBulkResult,
+)
+def move_contracts_to_personal_defaults(
+    selection_data: ContractSelection,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """Move every selected contract into its owner's isolated Default."""
+    contract_ids = selection_data.contract_ids
+    contracts = session.exec(
+        select(Contract).where(col(Contract.id).in_(contract_ids))
+    ).all()
+    contracts_by_id = {
+        contract.id: contract for contract in contracts if contract.id is not None
+    }
+    missing_ids = [
+        contract_id for contract_id in contract_ids if contract_id not in contracts_by_id
+    ]
+    if missing_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{len(missing_ids)} selected contract(s) no longer exist",
+        )
+
+    target_list_ids: dict[int, int] = {}
+    defaults_by_owner: dict[int, ContractList] = {}
+    for contract_id in contract_ids:
+        contract = contracts_by_id[contract_id]
+        owner_id = contract.owner_user_id or admin.id
+        if owner_id is None:
+            raise RuntimeError("Document owner could not be resolved")
+        if contract.owner_user_id is None:
+            contract.owner_user_id = owner_id
+            session.add(contract)
+        default_workspace = defaults_by_owner.get(owner_id)
+        if default_workspace is None:
+            default_workspace = ensure_default_workspace(session, owner_id)
+            defaults_by_owner[owner_id] = default_workspace
+        if default_workspace.id is None:
+            raise RuntimeError("Default workspace could not be resolved")
+        target_list_ids[contract_id] = default_workspace.id
+
+    current_rows = session.exec(
+        select(ContractListLink.contract_id, ContractListLink.list_id).where(
+            col(ContractListLink.contract_id).in_(contract_ids)
+        )
+    ).all()
+    current_list_ids = {contract_id: set() for contract_id in contract_ids}
+    for contract_id, assigned_list_id in current_rows:
+        current_list_ids[contract_id].add(assigned_list_id)
+
+    changed_contract_ids = [
+        contract_id
+        for contract_id in contract_ids
+        if current_list_ids[contract_id] != {target_list_ids[contract_id]}
+    ]
+    if changed_contract_ids:
+        session.exec(
+            delete(ContractListLink).where(
+                col(ContractListLink.contract_id).in_(changed_contract_ids)
+            )
+        )
+        session.flush()
+        for contract_id in changed_contract_ids:
+            session.add(
+                ContractListLink(
+                    contract_id=contract_id,
+                    list_id=target_list_ids[contract_id],
+                )
+            )
+
+    session.commit()
+    return {
+        "operation": "move_to_default",
+        "changed_count": len(changed_contract_ids),
+        "assignments": [
+            {
+                "contract_id": contract_id,
+                "list_ids": [target_list_ids[contract_id]],
+            }
+            for contract_id in contract_ids
+        ],
+    }
 
 
 @router.post(
