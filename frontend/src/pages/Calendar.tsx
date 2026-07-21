@@ -296,6 +296,7 @@ const Calendar: React.FC = () => {
         isOpen={Boolean(editingContract)}
         onClose={() => setEditingContract(null)}
         initialData={editingContract}
+        initialListId={listId}
       />
     </div>
   );

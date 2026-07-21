@@ -7,6 +7,20 @@ export const getListIdFromSearchParams = (
   return listIdParam && /^\d+$/.test(listIdParam) ? Number(listIdParam) : null;
 };
 
+export const withWorkspacePath = (
+  path: string,
+  listId: number | null,
+): string => {
+  const [pathname, rawSearch = ""] = path.split("?");
+  const searchParams = new URLSearchParams(rawSearch);
+
+  if (listId !== null) searchParams.set("list_id", String(listId));
+  else searchParams.delete("list_id");
+
+  const search = searchParams.toString();
+  return `${pathname}${search ? `?${search}` : ""}`;
+};
+
 export const matchesDocumentSearch = (
   document: Contract,
   searchQuery: string,

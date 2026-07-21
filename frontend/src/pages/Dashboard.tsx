@@ -23,7 +23,10 @@ import {
 import { fetchDashboardData } from "../api";
 import type { Contract, DashboardData } from "../types";
 import { EmptyState, LoadingState, MetricCard, PageHeader } from "../components/ui";
-import { getListIdFromSearchParams } from "../features/documents/documentUtils";
+import {
+  getListIdFromSearchParams,
+  withWorkspacePath,
+} from "../features/documents/documentUtils";
 import { queryKeys } from "../queryKeys";
 import { formatGermanNumber } from "../utils/formatUtils";
 import {
@@ -295,7 +298,7 @@ const Dashboard: React.FC = () => {
         <div className="flex items-center justify-between px-5 py-5 sm:px-6">
           <div>
             <p className="eyebrow">
-              {listId ? "Sammlung" : "Zuletzt bearbeitet"}
+              {listId ? "Workspace" : "Zuletzt bearbeitet"}
             </p>
             <h2 className="section-title mt-1">
               {listId
@@ -304,8 +307,11 @@ const Dashboard: React.FC = () => {
             </h2>
           </div>
           {listId ? (
-            <button onClick={() => navigate("/lists")} className="btn-ghost">
-              Sammlungen <FiArrowRight />
+            <button
+              onClick={() => navigate(withWorkspacePath("/lists", listId))}
+              className="btn-ghost"
+            >
+              Workspaces <FiArrowRight />
             </button>
           ) : (
             <div className="flex items-center gap-2">

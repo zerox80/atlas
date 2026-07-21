@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   FiAlertCircle,
   FiArrowUpRight,
@@ -18,6 +18,10 @@ import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import { getApiErrorMessage } from "../utils/errorUtils";
 import { invalidateDocumentQueries, queryKeys } from "../queryKeys";
 import { formatContractDate } from "../utils/contractPresentation";
+import {
+  getListIdFromSearchParams,
+  withWorkspacePath,
+} from "../features/documents/documentUtils";
 
 const money = (value?: number | null) =>
   value == null
@@ -26,6 +30,8 @@ const money = (value?: number | null) =>
 
 const ProtectedContracts: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const listId = getListIdFromSearchParams(searchParams);
   const queryClient = useQueryClient();
   const {
     data: contractPages,
@@ -35,10 +41,14 @@ const ProtectedContracts: React.FC = () => {
     isFetchingNextPage,
     isLoading,
   } = useInfiniteQuery<ContractPage, unknown>(
-    queryKeys.protectedContractPage,
+    queryKeys.protectedContractPage(listId),
     ({ pageParam }) =>
       fetchContractPage(
-        { is_protected: true, limit: 48 },
+        {
+          is_protected: true,
+          limit: 48,
+          ...(listId !== null ? { list_id: listId } : {}),
+        },
         pageParam as ContractCursor | undefined,
       ),
     {
@@ -92,7 +102,7 @@ const ProtectedContracts: React.FC = () => {
   return (
     <div className="app-page">
       <PageHeader
-        eyebrow="Security / Vault"
+        eyebrow={listId ? "Workspace / Security / Vault" : "Security / Vault"}
         title="Protected Vault"
         description="Ein kontrollierter Bereich für Dokumente mit Löschschutz und erhöhten Zugriffsanforderungen."
         actions={
@@ -195,7 +205,9 @@ const ProtectedContracts: React.FC = () => {
           description="Aktuell ist kein Dokument mit Löschschutz versehen."
           action={
             <button
-              onClick={() => navigate("/contracts")}
+              onClick={() =>
+                navigate(withWorkspacePath("/contracts", listId))
+              }
               className="btn-secondary"
             >
               Zu den Verträgen <FiArrowUpRight />

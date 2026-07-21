@@ -45,6 +45,18 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
     () => activeContracts.map((item) => item.id),
     [activeContracts],
   );
+  const selectedDocumentLabel = useMemo(() => {
+    const invoicesOnly = activeContracts.every(
+      (item) => item.document_type === "invoice",
+    );
+    const contractsOnly = activeContracts.every(
+      (item) => item.document_type === "contract",
+    );
+
+    if (invoicesOnly) return "Rechnungen";
+    if (contractsOnly) return "Verträge";
+    return "Dokumente";
+  }, [activeContracts]);
   const [contractLists, setContractLists] = useState<
     Record<number, number[]>
   >({});
@@ -116,7 +128,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
       alert(
         getApiErrorMessage(
           error,
-          "Fehler beim Verschieben in das persönliche Default",
+          "Fehler beim Verschieben in den persönlichen Workspace",
         ),
       );
     } finally {
@@ -201,7 +213,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                   <p className="mt-1 max-w-[320px] truncate text-sm muted">
                     {activeContracts.length === 1
                       ? (activeContracts[0]?.title ?? "")
-                      : `${activeContracts.length} Verträge ausgewählt`}
+                      : `${activeContracts.length} ${selectedDocumentLabel} ausgewählt`}
                   </p>
                 </div>
                 <button
@@ -217,7 +229,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                 {activeContracts.length > 1 && (
                   <p className="mb-4 rounded-xl border border-white/[0.07] bg-white/[0.025] p-3 text-xs leading-5 muted">
                     Bei einer gemischten Auswahl wird der Workspace beim
-                    Anklicken allen ausgewählten Verträgen hinzugefügt. Sind
+                    Anklicken allen ausgewählten Dokumenten hinzugefügt. Sind
                     bereits alle enthalten, entfernt der Klick sie gemeinsam.
                   </p>
                 )}
@@ -238,12 +250,12 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-white">
-                      Persönliches Default
+                      Persönlicher Workspace
                     </p>
                     <p className="mt-0.5 text-xs leading-5 muted">
                       {activeContracts.length > 1
-                        ? "Jeder Vertrag kommt in das isolierte Default seines Eigentümers."
-                        : "Entfernt den Vertrag aus allen Team-Workspaces."}
+                        ? "Jedes Dokument kommt in den persönlichen Workspace seines Eigentümers."
+                        : "Entfernt das Dokument aus allen Team-Workspaces."}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -328,7 +340,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                             <span className="text-xs muted">
                               {activeContracts.length > 1
                                 ? `${assignedCount}/${activeContracts.length} ausgewählt`
-                                : `${list.contract_count} Verträge`}
+                                : `${list.contract_count} Dokumente`}
                             </span>
                             {(isAssigned || isPartlyAssigned) && (
                               <div
@@ -361,7 +373,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                       Keine weiteren Team-Workspaces
                     </p>
                     <p className="mt-1 text-sm muted">
-                      Das persönliche Default steht als sicheres Ziel oben
+                      Der persönliche Workspace steht als sicheres Ziel oben
                       bereit.
                     </p>
                   </div>
@@ -369,6 +381,10 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
               </div>
 
               <div className="border-t border-white/[0.07] p-4">
+                <p className="mb-3 text-center text-xs muted">
+                  Den Inhalt eines Workspace öffnest du jederzeit über den
+                  Workspace-Wechsler oben links.
+                </p>
                 <button onClick={onClose} className="btn-secondary w-full">
                   Schließen
                 </button>

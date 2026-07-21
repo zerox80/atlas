@@ -39,7 +39,9 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
             </option>
             {controller.writableWorkspaces.map((workspace) => (
               <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
+                {workspace.is_default
+                  ? "Persönlicher Workspace"
+                  : workspace.name}
                 {workspace.owner_username
                   ? ` · ${workspace.owner_username}`
                   : ""}
@@ -55,8 +57,8 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
               </span>
             )}
           <span className="mt-2 block text-[11px] text-white/28">
-            Ein konfigurierter Admin-Standard ist vorausgewählt. Ein fremder
-            persönlicher Default ist nie als Upload-Ziel zulässig.
+            Dein konfigurierter Standard-Workspace ist vorausgewählt. Ein
+            fremder persönlicher Workspace ist nie als Upload-Ziel zulässig.
           </span>
         </label>
       )}

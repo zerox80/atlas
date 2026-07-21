@@ -1,4 +1,5 @@
 import React from "react";
+import { useQuery } from "@tanstack/react-query";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   FiBarChart2,
@@ -19,6 +20,13 @@ import api from "../api";
 import CommandPalette from "./CommandPalette";
 import ThemeToggle from "./ThemeToggle";
 import UploadModal from "./UploadModal";
+import WorkspaceSwitcher from "./WorkspaceSwitcher";
+import {
+  getListIdFromSearchParams,
+  withWorkspacePath,
+} from "../features/documents/documentUtils";
+import { queryKeys } from "../queryKeys";
+import type { ContractList } from "../types";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -32,7 +40,7 @@ const primaryNav = [
 ];
 
 const workspaceNav = [
-  { to: "/lists", label: "Sammlungen", icon: FiFolder },
+  { to: "/lists", label: "Workspaces", icon: FiFolder },
   { to: "/protected", label: "Geschützt", icon: FiShield },
 ];
 
@@ -41,7 +49,7 @@ const pageMeta: Record<string, { eyebrow: string; title: string }> = {
   "/contracts": { eyebrow: "Dokumente", title: "Verträge" },
   "/invoices": { eyebrow: "Dokumente", title: "Rechnungen" },
   "/calendar": { eyebrow: "Planung", title: "Kalender" },
-  "/lists": { eyebrow: "Workspace", title: "Sammlungen" },
+  "/lists": { eyebrow: "Organisation", title: "Workspaces" },
   "/protected": { eyebrow: "Sicherheit", title: "Geschützte Dokumente" },
   "/admin": { eyebrow: "System", title: "Administration" },
 };
@@ -56,6 +64,51 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   >(null);
   const { user, isAdmin } = useUser();
   const meta = pageMeta[location.pathname] || pageMeta["/"];
+  const activeWorkspaceId = React.useMemo(
+    () => getListIdFromSearchParams(new URLSearchParams(location.search)),
+    [location.search],
+  );
+  const { data: workspaces = [], isLoading: workspacesLoading } = useQuery<
+    ContractList[]
+  >(
+    queryKeys.lists,
+    async () => (await api.get<ContractList[]>("/lists")).data,
+    { staleTime: 60_000 },
+  );
+  const activeWorkspace = workspaces.find(
+    (workspace) => workspace.id === activeWorkspaceId,
+  );
+  const activeWorkspaceLabel = activeWorkspace
+    ? `${
+        activeWorkspace.is_default
+          ? "Persönlicher Workspace"
+          : activeWorkspace.name
+      }${
+        activeWorkspace.owner_username
+          ? ` · ${activeWorkspace.owner_username}`
+          : ""
+      }`
+    : activeWorkspaceId !== null
+      ? workspacesLoading
+        ? "Workspace wird geladen"
+        : `Workspace #${activeWorkspaceId}`
+      : "Alle Workspaces";
+  const activeWorkspaceColor = activeWorkspace?.color || "#b8f15a";
+
+  const scopedPath = React.useCallback(
+    (path: string) => withWorkspacePath(path, activeWorkspaceId),
+    [activeWorkspaceId],
+  );
+
+  const handleWorkspaceChange = (workspaceId: number | null) => {
+    const searchParams = new URLSearchParams(location.search);
+    if (workspaceId === null) searchParams.delete("list_id");
+    else searchParams.set("list_id", String(workspaceId));
+
+    const targetPath = location.pathname === "/lists" ? "/" : location.pathname;
+    const search = searchParams.toString();
+    navigate(`${targetPath}${search ? `?${search}` : ""}`);
+  };
 
   React.useEffect(() => {
     setMobileOpen(false);
@@ -83,7 +136,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   }: (typeof primaryNav)[number]) => (
     <NavLink
       key={to}
-      to={to}
+      to={scopedPath(to)}
       end={end}
       className={({ isActive }) =>
         [
@@ -122,9 +175,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         "bg-[#0b0e13]/95 px-4 py-5 backdrop-blur-xl",
       ].join(" ")}
     >
-      <div className="mb-7 flex items-center justify-between px-2">
+      <div className="mb-5 flex items-center justify-between px-2">
         <button
-          onClick={() => navigate("/")}
+          onClick={() => navigate(scopedPath("/"))}
           className="flex items-center gap-3 text-left"
         >
           <span
@@ -153,6 +206,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           <FiX />
         </button>
       </div>
+
+      <WorkspaceSwitcher
+        activeWorkspaceId={activeWorkspaceId}
+        currentUserId={user?.id}
+        isLoading={workspacesLoading}
+        onChange={handleWorkspaceChange}
+        workspaces={workspaces}
+      />
 
       <button
         onClick={openCommand}
@@ -222,7 +283,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-transparent text-white">
-      <CommandPalette />
+      <CommandPalette
+        activeWorkspaceId={activeWorkspaceId}
+        activeWorkspaceName={activeWorkspaceLabel}
+      />
       <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">
         {sidebar}
       </div>
@@ -253,8 +317,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <FiMenu />
           </button>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#687282]">
-              {meta.eyebrow}
+            <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#687282]">
+              <span>{meta.eyebrow}</span>
+              <span className="text-white/20">/</span>
+              <span className="flex min-w-0 items-center gap-1.5 normal-case tracking-normal text-white/45">
+                <i
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: activeWorkspaceColor }}
+                />
+                <span className="truncate">{activeWorkspaceLabel}</span>
+              </span>
             </p>
             <p className="truncate text-sm font-semibold text-[#e9edf3]">
               {meta.title}
@@ -330,9 +402,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         isOpen={createType !== null}
         onClose={() => setCreateType(null)}
         documentType={createType || "contract"}
-        initialListId={
-          Number(new URLSearchParams(location.search).get("list_id")) || null
-        }
+        initialListId={activeWorkspaceId}
       />
     </div>
   );

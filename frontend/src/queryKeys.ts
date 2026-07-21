@@ -25,7 +25,8 @@ export const queryKeys = {
   dashboard: (listId: number | null) =>
     ["workspace-documents", "dashboard", listId] as const,
   protectedContracts: ["protected-contracts"] as const,
-  protectedContractPage: ["protected-contracts", "page"] as const,
+  protectedContractPage: (listId: number | null) =>
+    ["protected-contracts", "page", listId] as const,
   lists: ["lists"] as const,
   tags: ["tags"] as const,
 };

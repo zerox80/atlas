@@ -10,8 +10,17 @@ import {
 import { useNavigate } from "react-router-dom";
 import api from "../api";
 import type { Contract } from "../types";
+import { withWorkspacePath } from "../features/documents/documentUtils";
 
-const CommandPalette = () => {
+interface CommandPaletteProps {
+  activeWorkspaceId: number | null;
+  activeWorkspaceName: string;
+}
+
+const CommandPalette = ({
+  activeWorkspaceId,
+  activeWorkspaceName,
+}: CommandPaletteProps) => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -55,6 +64,9 @@ const CommandPalette = () => {
           params: {
             limit: 50,
             ...(normalizedQuery ? { q: normalizedQuery } : {}),
+            ...(activeWorkspaceId !== null
+              ? { list_id: activeWorkspaceId }
+              : {}),
           },
           signal: controller.signal,
         })
@@ -75,7 +87,7 @@ const CommandPalette = () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [open, query]);
+  }, [activeWorkspaceId, open, query]);
 
   const go = (path: string) => {
     navigate(path);
@@ -120,7 +132,11 @@ const CommandPalette = () => {
             autoFocus
             value={query}
             onValueChange={setQuery}
-            placeholder="Dokument, Sammlung oder Aktion suchen …"
+            placeholder={
+              activeWorkspaceId === null
+                ? "Alle Workspaces durchsuchen …"
+                : `In „${activeWorkspaceName}“ suchen …`
+            }
             className="w-full bg-transparent py-4 text-base text-white placeholder:text-[#606b7b] focus:outline-none"
           />
           <kbd className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[10px] text-[#697384]">
@@ -151,12 +167,12 @@ const CommandPalette = () => {
                 icon: FiFileText,
               },
               { label: "Kalender öffnen", path: "/calendar", icon: FiCalendar },
-              { label: "Sammlungen öffnen", path: "/lists", icon: FiFolder },
+              { label: "Workspaces öffnen", path: "/lists", icon: FiFolder },
             ].map(({ label, path, icon: Icon }) => (
               <Command.Item
                 key={path}
                 value={label}
-                onSelect={() => go(path)}
+                onSelect={() => go(withWorkspacePath(path, activeWorkspaceId))}
                 className={itemClass}
               >
                 <Icon className="text-[#7f8a9a]" />
@@ -167,7 +183,7 @@ const CommandPalette = () => {
           </Command.Group>
           {contracts.length > 0 && (
             <Command.Group
-              heading="Dokumente"
+              heading={`Dokumente · ${activeWorkspaceName}`}
               className={`mt-2 border-t border-white/[0.06] pt-2 ${groupClass}`}
             >
               {contracts.map((contract) => (
@@ -178,9 +194,12 @@ const CommandPalette = () => {
                     .join(" ")}`}
                   onSelect={() =>
                     go(
-                      contract.document_type === "invoice"
-                        ? "/invoices"
-                        : "/contracts",
+                      withWorkspacePath(
+                        contract.document_type === "invoice"
+                          ? "/invoices"
+                          : "/contracts",
+                        activeWorkspaceId,
+                      ),
                     )
                   }
                   className={itemClass}

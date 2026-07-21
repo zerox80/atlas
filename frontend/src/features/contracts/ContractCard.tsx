@@ -101,6 +101,23 @@ const ContractCard: React.FC<ContractCardProps> = ({
                 Geschützt
               </span>
             )}
+            {contract.lists?.slice(0, 2).map((workspace) => (
+              <span key={workspace.id} className="chip max-w-40">
+                <FiFolder className="shrink-0" />
+                <span className="truncate">
+                  {workspace.is_default
+                    ? `Persönlicher Workspace${
+                        workspace.owner_username
+                          ? ` · ${workspace.owner_username}`
+                          : ""
+                      }`
+                    : workspace.name}
+                </span>
+              </span>
+            ))}
+            {(contract.lists?.length ?? 0) > 2 && (
+              <span className="chip">+{(contract.lists?.length ?? 0) - 2}</span>
+            )}
           </div>
           <h2 className="truncate text-lg font-semibold tracking-[-.02em]">
             <button

@@ -53,7 +53,7 @@ const Lists: React.FC = () => {
       setEditingList(null);
     } catch (error: unknown) {
       alert(
-        getApiErrorMessage(error, "Fehler beim Speichern der Sammlung"),
+        getApiErrorMessage(error, "Fehler beim Speichern des Workspaces"),
       );
     } finally {
       setIsSaving(false);
@@ -63,7 +63,7 @@ const Lists: React.FC = () => {
   const handleDelete = async (list: ContractList) => {
     if (
       !window.confirm(
-        `Sammlung „${list.name}“ wirklich löschen? Die Dokumente bleiben erhalten.`,
+        `Workspace „${list.name}“ wirklich löschen? Die Dokumente bleiben erhalten.`,
       )
     )
       return;
@@ -71,11 +71,11 @@ const Lists: React.FC = () => {
       await api.delete(`/lists/${list.id}`);
       await invalidateListAndDocumentQueries(queryClient);
     } catch (error: unknown) {
-      alert(getApiErrorMessage(error, "Fehler beim Löschen der Sammlung"));
+      alert(getApiErrorMessage(error, "Fehler beim Löschen des Workspaces"));
     }
   };
 
-  if (isLoading) return <LoadingState label="Sammlungen werden geladen" />;
+  if (isLoading) return <LoadingState label="Workspaces werden geladen" />;
 
   const totalDocuments = lists.reduce(
     (sum, list) => sum + list.contract_count,
@@ -85,16 +85,16 @@ const Lists: React.FC = () => {
   return (
     <div className="app-page">
       <PageHeader
-        eyebrow="Workspace / Collections"
-        title="Sammlungen"
+        eyebrow="Workspace-Verzeichnis"
+        title="Workspaces"
         description={[
           "Baue thematische Workspaces für Teams, Anbieter oder Projekte. Ein",
-          "Dokument kann in mehreren Sammlungen leben.",
+          "Dokument kann in mehreren Workspaces leben.",
         ].join(" ")}
         actions={
           isAdmin ? (
             <button onClick={openCreate} className="btn-primary">
-              <FiPlus /> Neue Sammlung
+              <FiPlus /> Neuer Workspace
             </button>
           ) : undefined
         }
@@ -102,7 +102,7 @@ const Lists: React.FC = () => {
 
       <section className="mb-5 grid gap-3 sm:grid-cols-3">
         <div className="surface p-5">
-          <p className="eyebrow">Sammlungen</p>
+          <p className="eyebrow">Workspaces</p>
           <p className="metric-value mt-3">{lists.length}</p>
         </div>
         <div className="surface p-5">
@@ -165,7 +165,7 @@ const Lists: React.FC = () => {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <p className="eyebrow">
-                  Collection {String(index + 1).padStart(2, "0")}
+                  Workspace {String(index + 1).padStart(2, "0")}
                 </p>
                 {list.is_preferred_default && (
                   <span className="chip border-[#b8f15a]/20 bg-[#b8f15a]/[0.07] text-[#b8f15a]">
@@ -175,7 +175,7 @@ const Lists: React.FC = () => {
                 {list.is_default && <span className="chip">Persönlich</span>}
               </div>
               <h2 className="mt-2 truncate text-xl font-semibold tracking-[-0.02em]">
-                {list.name}
+                {list.is_default ? "Persönlicher Workspace" : list.name}
               </h2>
               {list.owner_username && (
                 <p className="mt-1 text-xs text-white/34">
@@ -206,16 +206,16 @@ const Lists: React.FC = () => {
       ) : (
         <EmptyState
           icon={FiFolder}
-          title="Noch keine Sammlungen"
+          title="Noch keine Workspaces"
           description={
             isAdmin
               ? "Erstelle den ersten thematischen Workspace und ordne Dokumente gezielt zu."
-              : "Für dich sind aktuell keine Sammlungen freigegeben."
+              : "Für dich sind aktuell keine Workspaces freigegeben."
           }
           action={
             isAdmin ? (
               <button onClick={openCreate} className="btn-primary">
-                <FiPlus /> Erste Sammlung
+                <FiPlus /> Ersten Workspace erstellen
               </button>
             ) : undefined
           }

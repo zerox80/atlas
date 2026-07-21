@@ -91,9 +91,9 @@ const ListModal: React.FC<ListModalProps> = ({
                     <FiFolder />
                   </div>
                   <div>
-                    <p className="eyebrow">Collection builder</p>
+                    <p className="eyebrow">Workspace Builder</p>
                     <h2 className="mt-1 text-lg font-semibold">
-                      {initialData ? "Sammlung bearbeiten" : "Neue Sammlung"}
+                      {initialData ? "Workspace bearbeiten" : "Neuer Workspace"}
                     </h2>
                   </div>
                 </div>
@@ -119,7 +119,7 @@ const ListModal: React.FC<ListModalProps> = ({
                     className="field min-h-24 resize-none"
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
-                    placeholder="Wofür wird diese Sammlung genutzt?"
+                    placeholder="Wofür wird dieser Workspace genutzt?"
                   />
                 </label>
                 <div>
@@ -169,7 +169,7 @@ const ListModal: React.FC<ListModalProps> = ({
                     </div>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold">
-                        {name || "Sammlungsname"}
+                        {name || "Workspace-Name"}
                       </p>
                       <p className="mt-1 truncate text-xs text-white/34">
                         {description || "Deine Beschreibung erscheint hier."}
@@ -190,7 +190,7 @@ const ListModal: React.FC<ListModalProps> = ({
                       ? "Speichern …"
                       : initialData
                         ? "Änderungen speichern"
-                        : "Sammlung erstellen"}
+                        : "Workspace erstellen"}
                   </button>
                 </div>
               </form>
