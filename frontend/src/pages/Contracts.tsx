@@ -6,10 +6,12 @@ import {
   FiFileText,
   FiFolder,
   FiPlus,
+  FiShield,
   FiX,
 } from "react-icons/fi";
 import api, {
   fetchContractPage,
+  protectContracts,
   type ContractCursor,
   toggleContractProtection,
 } from "../api";
@@ -44,6 +46,7 @@ const Contracts: React.FC = () => {
   const [search, setSearch] = useState("");
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [isProtectingSelection, setIsProtectingSelection] = useState(false);
   const [selectedContractIds, setSelectedContractIds] = useState<Set<number>>(
     () => new Set(),
   );
@@ -186,6 +189,28 @@ const Contracts: React.FC = () => {
     }
   };
 
+  const handleProtectSelection = async () => {
+    if (
+      selectedContracts.length === 0 ||
+      selectedContracts.every((contract) => contract.is_protected)
+    ) {
+      return;
+    }
+
+    setIsProtectingSelection(true);
+    try {
+      await protectContracts(selectedContracts.map((contract) => contract.id));
+      await invalidateDocumentQueries(queryClient);
+      stopSelection();
+    } catch {
+      alert(
+        "Die ausgewählten Verträge konnten nicht geschützt werden. Bitte lade die Ansicht neu und versuche es erneut.",
+      );
+    } finally {
+      setIsProtectingSelection(false);
+    }
+  };
+
   const handleDetailsEdit = (contract: Contract) => {
     setDetailsContract(null);
     openUpload(contract);
@@ -267,8 +292,30 @@ const Contracts: React.FC = () => {
           </div>
           <div className="flex flex-wrap gap-2">
             <button
+              onClick={() => void handleProtectSelection()}
+              disabled={
+                isProtectingSelection ||
+                selectedContracts.length === 0 ||
+                selectedContracts.every((contract) => contract.is_protected)
+              }
+              title={
+                selectedContracts.length > 0 &&
+                selectedContracts.every((contract) => contract.is_protected)
+                  ? "Alle ausgewählten Verträge sind bereits geschützt"
+                  : undefined
+              }
+              className="btn-secondary disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <FiShield />
+              {isProtectingSelection
+                ? "Wird geschützt…"
+                : "Ausgewählte schützen"}
+            </button>
+            <button
               onClick={() => setListContracts(selectedContracts)}
-              disabled={selectedContracts.length === 0}
+              disabled={
+                isProtectingSelection || selectedContracts.length === 0
+              }
               className="btn-primary disabled:cursor-not-allowed disabled:opacity-40"
             >
               <FiFolder /> Workspaces verwalten

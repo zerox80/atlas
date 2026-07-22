@@ -6,6 +6,7 @@ import {
 import type {
   CalendarData,
   ContractPage,
+  ContractProtectionBulkResult,
   DashboardData,
   DocumentType,
 } from "./types";
@@ -85,6 +86,15 @@ export const toggleContractProtection = (id: number, version: number) =>
   api.put(`/contracts/${id}/toggle-protection`, null, {
     params: { version },
   });
+
+export const protectContracts = async (
+  contractIds: number[],
+): Promise<ContractProtectionBulkResult> =>
+  (
+    await api.put<ContractProtectionBulkResult>("/contracts/bulk-protect", {
+      contract_ids: contractIds,
+    })
+  ).data;
 
 export interface ContractPageParams {
   document_type?: DocumentType;

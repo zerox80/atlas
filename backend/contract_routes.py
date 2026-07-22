@@ -14,6 +14,7 @@ from contract_endpoints.helpers import (
 )
 from contract_endpoints.lifecycle import (
     delete_contract,
+    protect_contracts,
     toggle_contract_protection,
 )
 
@@ -27,5 +28,6 @@ __all__ = [
     "download_contract",
     "update_contract",
     "delete_contract",
+    "protect_contracts",
     "toggle_contract_protection",
 ]
