@@ -17,8 +17,8 @@ from sqlalchemy import and_, exists, false, func, insert, literal, or_, select a
 from sqlmodel import Session, col, select
 
 from auth import (
-    ACCESS_TOKEN_EXPIRE_MINUTES,
     ALGORITHM,
+    BROWSER_SESSION_EXPIRE_MINUTES,
     SECRET_KEY,
     TOKEN_VERSION_CLAIM,
     get_password_hash,
@@ -76,7 +76,7 @@ def set_csrf_cookie(response: Response, request: Request) -> str:
         httponly=False,
         secure=request_is_https(request),
         samesite="lax",
-        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=BROWSER_SESSION_EXPIRE_MINUTES * 60,
     )
     return csrf_token
 
@@ -501,6 +501,13 @@ def contract_read_for_user(
     """Serialize a contract with the caller's effective capabilities."""
     data = ContractRead.model_validate(contract).model_dump()
     data["business_timezone"] = BUSINESS_TIMEZONE_NAME
+    if user.role == "admin" and not user.show_other_user_workspaces:
+        data["lists"] = [
+            workspace
+            for workspace in data.get("lists", [])
+            if not workspace.get("is_default")
+            or workspace.get("owner_user_id") == user.id
+        ]
     if (
         assigned_level is _PERMISSION_NOT_LOADED
         or visible_list_ids is _VISIBLE_LISTS_NOT_LOADED
@@ -734,10 +741,15 @@ def direct_visible_contract_count_for_list(
     statement = (
         select(func.count(func.distinct(ContractListLink.contract_id)))
         .join(
+            Contract,
+            col(Contract.id) == col(ContractListLink.contract_id),
+        )
+        .join(
             ContractPermission,
             col(ContractPermission.contract_id) == col(ContractListLink.contract_id),
         )
         .where(col(ContractListLink.list_id) == list_id)
+        .where(col(Contract.deleted_at).is_(None))
         .where(col(ContractPermission.user_id) == user.id)
         .where(
             col(ContractPermission.permission_level).in_(
@@ -746,6 +758,32 @@ def direct_visible_contract_count_for_list(
         )
     )
     return session.exec(statement).one() or 0
+
+
+def has_direct_contract_access_for_list(
+    list_id: int,
+    user: User,
+    session: Session,
+) -> bool:
+    """Keep a workspace reachable while directly accessible documents are trashed."""
+    if user.id is None:
+        return False
+    permission_id = session.exec(
+        select(ContractPermission.id)
+        .join(
+            ContractListLink,
+            col(ContractListLink.contract_id) == col(ContractPermission.contract_id),
+        )
+        .where(col(ContractListLink.list_id) == list_id)
+        .where(col(ContractPermission.user_id) == user.id)
+        .where(
+            col(ContractPermission.permission_level).in_(
+                allowed_permission_levels("read")
+            )
+        )
+        .limit(1)
+    ).first()
+    return permission_id is not None
 
 
 def visible_contract_count_for_list(
@@ -763,7 +801,12 @@ def visible_contract_count_for_list(
 
     statement = (
         select(func.count(func.distinct(ContractListLink.contract_id)))
+        .join(
+            Contract,
+            col(Contract.id) == col(ContractListLink.contract_id),
+        )
         .where(col(ContractListLink.list_id) == list_id)
+        .where(col(Contract.deleted_at).is_(None))
     )
     return session.exec(statement).one() or 0
 
@@ -778,8 +821,10 @@ def get_visible_list_or_404(
         raise HTTPException(status_code=404, detail="List not found")
 
     has_workspace_access = check_workspace_permission(user, list_id, "read", session)
-    has_direct_document_access = (
-        direct_visible_contract_count_for_list(list_id, user, session) > 0
+    has_direct_document_access = has_direct_contract_access_for_list(
+        list_id,
+        user,
+        session,
     )
     if user.role != "admin" and not (
         has_workspace_access or has_direct_document_access

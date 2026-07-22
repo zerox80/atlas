@@ -183,7 +183,7 @@ def download_contract(
     session: Session = Depends(get_session),
 ):
     contract = session.get(Contract, contract_id)
-    if not contract:
+    if not contract or contract.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Contract not found")
     if not check_contract_permission(current_user, contract_id, "read", session):
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -242,7 +242,7 @@ async def update_contract(
     session: Session = Depends(get_session),
 ):
     contract = session.get(Contract, contract_id)
-    if not contract:
+    if not contract or contract.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Contract not found")
     if not check_contract_permission(current_user, contract_id, "write", session):
         raise HTTPException(status_code=404, detail="Contract not found")

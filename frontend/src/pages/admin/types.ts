@@ -7,6 +7,7 @@ export interface User {
   has_2fa: boolean;
   default_workspace_id: number | null;
   default_workspace_name: string | null;
+  show_other_user_workspaces: boolean;
 }
 
 export interface Permission {
@@ -44,7 +45,13 @@ export interface Tag {
   color: string;
 }
 
-export type AdminTab = "users" | "permissions" | "tags" | "backup";
+export type AdminTab =
+  | "users"
+  | "permissions"
+  | "settings"
+  | "tags"
+  | "trash"
+  | "backup";
 
 export interface AdminModalsProps {
   isAddUserModalOpen: boolean;

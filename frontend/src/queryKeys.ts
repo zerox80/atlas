@@ -27,6 +27,22 @@ export const queryKeys = {
   protectedContracts: ["protected-contracts"] as const,
   protectedContractPage: (listId: number | null) =>
     ["protected-contracts", "page", listId] as const,
+  trash: ["trash"] as const,
+  trashPage: (
+    listId: number | null,
+    documentType: string,
+    query: string,
+    offset: number,
+    isAdminView: boolean,
+  ) =>
+    [
+      "trash",
+      isAdminView ? "admin" : "workspace",
+      listId,
+      documentType,
+      query,
+      offset,
+    ] as const,
   lists: ["lists"] as const,
   tags: ["tags"] as const,
 };
@@ -37,6 +53,7 @@ export const invalidateDocumentQueries = (queryClient: QueryClient) =>
     queryClient.invalidateQueries(queryKeys.invoices),
     queryClient.invalidateQueries(queryKeys.workspaceDocuments),
     queryClient.invalidateQueries(queryKeys.protectedContracts),
+    queryClient.invalidateQueries(queryKeys.trash),
   ]);
 
 export const invalidateDocumentAndTagQueries = (queryClient: QueryClient) =>

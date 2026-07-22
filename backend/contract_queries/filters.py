@@ -59,7 +59,7 @@ def build_contract_query(
     load_relationships: bool = True,
 ):
     """Build the shared filtered contract query used by list and export endpoints."""
-    statement = select(Contract)
+    statement = select(Contract).where(col(Contract.deleted_at).is_(None))
 
     if document_type in {"contract", "invoice"}:
         statement = statement.where(col(Contract.document_type) == document_type)

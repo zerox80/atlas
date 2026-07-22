@@ -1,5 +1,12 @@
 import React from "react";
-import { FiArchive, FiLock, FiTag, FiUsers } from "react-icons/fi";
+import {
+  FiArchive,
+  FiLock,
+  FiSettings,
+  FiTag,
+  FiTrash2,
+  FiUsers,
+} from "react-icons/fi";
 import type { AdminTab } from "./types";
 
 interface AdminTabsProps {
@@ -41,11 +48,25 @@ const AdminTabs: React.FC<AdminTabsProps> = ({
       Berechtigungen ({permissionCount})
     </button>
     <button
+      onClick={() => setActiveTab("settings")}
+      className={tabButtonClassName(activeTab === "settings")}
+    >
+      <FiSettings />
+      Ansicht
+    </button>
+    <button
       onClick={() => setActiveTab("tags")}
       className={tabButtonClassName(activeTab === "tags")}
     >
       <FiTag />
       Tags ({tagCount})
+    </button>
+    <button
+      onClick={() => setActiveTab("trash")}
+      className={tabButtonClassName(activeTab === "trash")}
+    >
+      <FiTrash2 />
+      Papierkorb
     </button>
     <button
       onClick={() => setActiveTab("backup")}

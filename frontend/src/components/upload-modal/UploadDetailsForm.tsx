@@ -40,7 +40,7 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
             {controller.writableWorkspaces.map((workspace) => (
               <option key={workspace.id} value={workspace.id}>
                 {workspace.is_default
-                  ? "Persönlicher Workspace"
+                  ? "Workspace"
                   : workspace.name}
                 {workspace.owner_username
                   ? ` · ${workspace.owner_username}`

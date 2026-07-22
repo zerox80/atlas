@@ -48,16 +48,26 @@ def get_lists(
 ):
     """Get visible contract lists with permission-aware contract counts."""
     lists = session.exec(select(ContractList).order_by(col(ContractList.name).asc())).all()
+    if current_user.role == "admin" and not current_user.show_other_user_workspaces:
+        lists = [
+            workspace
+            for workspace in lists
+            if not workspace.is_default
+            or workspace.owner_user_id == current_user.id
+        ]
     owner_names = dict(session.exec(select(User.id, User.username)).all())
     all_counts = dict(session.exec(
         select(
             ContractListLink.list_id,
             func.count(func.distinct(ContractListLink.contract_id)),
         )
+        .join(Contract, col(Contract.id) == col(ContractListLink.contract_id))
+        .where(col(Contract.deleted_at).is_(None))
         .group_by(ContractListLink.list_id)
     ).all())
     workspace_levels: dict[int, str] = {}
     direct_counts: dict[int, int] = {}
+    direct_access_list_ids: set[int] = set()
     if current_user.role != "admin":
         workspace_levels = dict(session.exec(
             select(
@@ -76,7 +86,9 @@ def get_lists(
                 col(ContractPermission.contract_id)
                 == col(ContractListLink.contract_id),
             )
+            .join(Contract, col(Contract.id) == col(ContractListLink.contract_id))
             .where(col(ContractPermission.user_id) == current_user.id)
+            .where(col(Contract.deleted_at).is_(None))
             .where(
                 col(ContractPermission.permission_level).in_(
                     allowed_permission_levels("read")
@@ -84,6 +96,24 @@ def get_lists(
             )
             .group_by(ContractListLink.list_id)
         ).all())
+        direct_access_list_ids = set(
+            session.exec(
+                select(ContractListLink.list_id)
+                .join(
+                    ContractPermission,
+                    col(ContractPermission.contract_id)
+                    == col(ContractListLink.contract_id),
+                )
+                .where(col(ContractPermission.user_id) == current_user.id)
+                .where(
+                    col(ContractPermission.permission_level).in_(
+                        allowed_permission_levels("read")
+                    )
+                )
+                .distinct()
+            )
+            .all()
+        )
 
     result = []
     for lst in lists:
@@ -94,7 +124,12 @@ def get_lists(
         )
         has_workspace_read = permission_grants(assigned_level, "read")
         direct_count = int(direct_counts.get(lst.id, 0))
-        if current_user.role != "admin" and not has_workspace_read and direct_count == 0:
+        has_direct_access = lst.id in direct_access_list_ids
+        if (
+            current_user.role != "admin"
+            and not has_workspace_read
+            and not has_direct_access
+        ):
             continue
         count = (
             int(all_counts.get(lst.id, 0))
@@ -312,7 +347,9 @@ def move_contracts_to_personal_defaults(
     """Move every selected contract into its owner's isolated Default."""
     contract_ids = selection_data.contract_ids
     contracts = session.exec(
-        select(Contract).where(col(Contract.id).in_(contract_ids))
+        select(Contract)
+        .where(col(Contract.id).in_(contract_ids))
+        .where(col(Contract.deleted_at).is_(None))
     ).all()
     contracts_by_id = {
         contract.id: contract for contract in contracts if contract.id is not None
@@ -409,7 +446,9 @@ def update_contract_list_assignments(
 
     contract_ids = assignment_data.contract_ids
     contracts = session.exec(
-        select(Contract).where(col(Contract.id).in_(contract_ids))
+        select(Contract)
+        .where(col(Contract.id).in_(contract_ids))
+        .where(col(Contract.deleted_at).is_(None))
     ).all()
     contracts_by_id = {
         contract.id: contract for contract in contracts if contract.id is not None
@@ -533,7 +572,7 @@ def add_contract_to_list(
     
     # Check contract exists
     contract = session.get(Contract, contract_id)
-    if not contract:
+    if not contract or contract.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Contract not found")
     
     # Check if already linked
@@ -615,7 +654,7 @@ def remove_contract_from_list(
         )
 
     contract = session.get(Contract, contract_id)
-    if not contract:
+    if not contract or contract.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Contract not found")
 
     link = session.exec(
@@ -681,6 +720,7 @@ def get_list_contracts(
         select(Contract)
         .join(ContractListLink)
         .where(col(ContractListLink.list_id) == list_id)
+        .where(col(Contract.deleted_at).is_(None))
         .options(selectinload(Contract.tags), selectinload(Contract.lists))  # type: ignore[arg-type]
     )
     statement = filter_contracts_for_user(

@@ -1,4 +1,6 @@
 import React from "react";
+import TrashBrowser from "../../features/trash/TrashBrowser";
+import AdminSettingsSection from "./AdminSettingsSection";
 import AdminTabs from "./AdminTabs";
 import BackupSection from "./BackupSection";
 import PermissionsSection from "./PermissionsSection";
@@ -90,6 +92,7 @@ const AdminSections: React.FC<AdminSectionsProps> = ({
         onPageChange={setPermissionPage}
       />
     )}
+    {activeTab === "settings" && <AdminSettingsSection />}
     {activeTab === "tags" && (
       <TagsSection
         tags={tags}
@@ -98,6 +101,7 @@ const AdminSections: React.FC<AdminSectionsProps> = ({
         onDeleteTag={handleDeleteTag}
       />
     )}
+    {activeTab === "trash" && <TrashBrowser adminView listId={null} />}
     {activeTab === "backup" && (
       <BackupSection
         error={backupError}

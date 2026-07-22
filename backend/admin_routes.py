@@ -29,6 +29,8 @@ from models import (
     User,
 )
 from schemas import (
+    AdminWorkspaceVisibilityRead,
+    AdminWorkspaceVisibilityUpdate,
     DefaultWorkspaceOptionRead,
     DefaultWorkspaceUpdate,
     PermissionCreate,
@@ -70,6 +72,7 @@ def _user_read_payload(session: Session, user: User) -> dict[str, object]:
         "has_2fa": bool(user.totp_secret),
         "default_workspace_id": user.default_workspace_id,
         "default_workspace_name": workspace_name,
+        "show_other_user_workspaces": user.show_other_user_workspaces,
     }
 
 
@@ -147,6 +150,40 @@ def get_me(
         "has_2fa": bool(current_user.totp_secret),
         "can_create_documents": user_can_create_documents(current_user, session),
         "default_workspace_id": current_user.default_workspace_id,
+        "show_other_user_workspaces": current_user.show_other_user_workspaces,
+    }
+
+
+@router.put(
+    "/admin/preferences/workspace-visibility",
+    response_model=AdminWorkspaceVisibilityRead,
+)
+def update_workspace_visibility_preference(
+    preference: AdminWorkspaceVisibilityUpdate,
+    request: Request,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """Persist how this admin account displays other users' workspaces."""
+    previous_value = admin.show_other_user_workspaces
+    admin.show_other_user_workspaces = preference.show_other_user_workspaces
+    session.add(admin)
+    log_audit(
+        session,
+        admin.id,
+        "UPDATE_ADMIN_WORKSPACE_VISIBILITY",
+        (
+            "Changed other-user workspace visibility from "
+            f"{previous_value} to {admin.show_other_user_workspaces}"
+        ),
+        request.client.host if request.client else "unknown",
+        request.headers.get("user-agent"),
+        commit=False,
+    )
+    session.commit()
+    session.refresh(admin)
+    return {
+        "show_other_user_workspaces": admin.show_other_user_workspaces,
     }
 
 
@@ -440,6 +477,11 @@ def delete_user(
         .values(owner_user_id=replacement_owner_id)
     )
     session.exec(
+        update(Contract)
+        .where(Contract.deleted_by_user_id == user_id)
+        .values(deleted_by_user_id=None)
+    )
+    session.exec(
         update(ContractList)
         .where(ContractList.owner_user_id == user_id)
         .values(owner_user_id=replacement_owner_id)
@@ -540,6 +582,7 @@ def list_permissions(
             select(func.count(col(ContractPermission.id)))
             .join(User, col(User.id) == col(ContractPermission.user_id))
             .join(Contract, col(Contract.id) == col(ContractPermission.contract_id))
+            .where(col(Contract.deleted_at).is_(None))
         ).one()
         or 0
     )
@@ -587,6 +630,7 @@ def list_permissions(
             select(ContractPermission, User, Contract)
             .join(User, col(User.id) == col(ContractPermission.user_id))
             .join(Contract, col(Contract.id) == col(ContractPermission.contract_id))
+            .where(col(Contract.deleted_at).is_(None))
             .order_by(col(ContractPermission.id).desc())
             .offset(document_offset)
             .limit(remaining)
@@ -652,6 +696,7 @@ def get_user_permissions(
         .join(User, col(User.id) == col(ContractPermission.user_id))
         .join(Contract, col(Contract.id) == col(ContractPermission.contract_id))
         .where(ContractPermission.user_id == user_id)
+        .where(col(Contract.deleted_at).is_(None))
     ).all()
     for permission, user, contract in document_rows:
         result.append({
@@ -681,7 +726,7 @@ def create_permission(
         raise HTTPException(status_code=404, detail="User not found")
     
     contract = session.get(Contract, perm_data.contract_id)
-    if not contract:
+    if not contract or contract.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Contract not found")
     
     # Check if permission already exists

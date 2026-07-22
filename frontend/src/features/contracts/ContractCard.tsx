@@ -106,7 +106,7 @@ const ContractCard: React.FC<ContractCardProps> = ({
                 <FiFolder className="shrink-0" />
                 <span className="truncate">
                   {workspace.is_default
-                    ? `Persönlicher Workspace${
+                    ? `Workspace${
                         workspace.owner_username
                           ? ` · ${workspace.owner_username}`
                           : ""

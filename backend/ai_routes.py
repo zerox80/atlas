@@ -88,7 +88,7 @@ async def _read_contract_pdf_for_ai(
 ) -> bytes:
     """Authorize and read a contract file for a chat request."""
     contract = session.get(Contract, contract_id)
-    if not contract:
+    if not contract or contract.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Vertrag nicht gefunden")
 
     if not check_contract_permission(current_user, contract_id, "read", session):

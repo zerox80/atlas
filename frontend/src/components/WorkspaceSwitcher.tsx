@@ -12,7 +12,7 @@ interface WorkspaceSwitcherProps {
 
 const workspaceOptionLabel = (workspace: ContractList) =>
   [
-    workspace.is_default ? "Persönlicher Workspace" : workspace.name,
+    workspace.is_default ? "Workspace" : workspace.name,
     workspace.owner_username || null,
     workspace.is_preferred_default ? "Standard" : null,
     workspace.can_write === false ? "Nur Lesen" : null,

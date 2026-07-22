@@ -1,6 +1,6 @@
-"""Contract deletion and protection endpoints."""
+"""Contract trash and protection endpoints."""
 
-import logging
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import (
@@ -12,7 +12,7 @@ from fastapi import (
     Response,
     status,
 )
-from sqlmodel import Session, col, delete, update
+from sqlmodel import Session, col, update
 
 from api_core import (
     check_contract_permission,
@@ -20,19 +20,11 @@ from api_core import (
     get_current_user,
 )
 from database import get_session
-from file_utils import delete_upload_file
-from models import (
-    Contract,
-    ContractListLink,
-    ContractPermission,
-    ContractTagLink,
-    User,
-)
+from models import Contract, User
 from schemas import ContractRead
 from security_utils import log_audit
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 
 @router.delete("/contracts/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -44,7 +36,7 @@ def delete_contract(
     session: Session = Depends(get_session),
 ):
     contract = session.get(Contract, contract_id)
-    if not contract:
+    if not contract or contract.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Contract not found")
     if not check_contract_permission(current_user, contract_id, "full", session):
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -64,45 +56,20 @@ def delete_contract(
             detail="Contract was changed by another request; reload and retry",
         )
 
-    file_path_to_delete = contract.file_path
-    contract_title = contract.title
+    deleted_at = datetime.now(timezone.utc)
     try:
-        session.exec(
-            delete(ContractTagLink).where(
-                col(ContractTagLink.contract_id) == contract_id
-            )
-        )
-        session.exec(
-            delete(ContractListLink).where(
-                col(ContractListLink.contract_id) == contract_id
-            )
-        )
-        session.exec(
-            delete(ContractPermission).where(
-                col(ContractPermission.contract_id) == contract_id
-            )
-        )
-        log_audit(
-            session,
-            current_user.id,
-            "DELETE_CONTRACT",
-            f"[CID:{contract_id}] Deleted contract {contract_title}",
-            request.client.host if request.client else "unknown",
-            request.headers.get("user-agent"),
-            contract_id=contract_id,
-            commit=False,
-        )
-        session.exec(
-            update(Contract)
-            .where(col(Contract.parent_id) == contract_id)
-            .values(parent_id=None)
-        )
         delete_result = session.exec(
-            delete(Contract)
+            update(Contract)
             .where(
                 col(Contract.id) == contract_id,
                 col(Contract.version) == expected_version,
                 col(Contract.is_protected).is_(False),
+                col(Contract.deleted_at).is_(None),
+            )
+            .values(
+                deleted_at=deleted_at,
+                deleted_by_user_id=current_user.id,
+                version=expected_version + 1,
             )
             .execution_options(synchronize_session=False)
         )
@@ -114,16 +81,23 @@ def delete_contract(
                     "reload and retry"
                 ),
             )
+        document_label = (
+            "invoice" if contract.document_type == "invoice" else "contract"
+        )
+        log_audit(
+            session,
+            current_user.id,
+            "MOVE_TO_TRASH",
+            f"[CID:{contract_id}] Moved {document_label} {contract.title} to trash",
+            request.client.host if request.client else "unknown",
+            request.headers.get("user-agent"),
+            contract_id=contract_id,
+            commit=False,
+        )
         session.commit()
     except Exception:
         session.rollback()
         raise
-
-    if file_path_to_delete:
-        try:
-            delete_upload_file(file_path_to_delete)
-        except Exception:
-            logger.exception("Could not delete file for contract %s", contract_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -136,7 +110,7 @@ def toggle_contract_protection(
     session: Session = Depends(get_session),
 ):
     contract = session.get(Contract, contract_id)
-    if not contract:
+    if not contract or contract.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Contract not found")
     if not check_contract_permission(current_user, contract_id, "full", session):
         raise HTTPException(status_code=404, detail="Contract not found")
