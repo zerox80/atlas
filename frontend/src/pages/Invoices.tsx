@@ -6,9 +6,14 @@ import {
   FiFileText,
   FiFolder,
   FiPlus,
+  FiShield,
   FiX,
 } from "react-icons/fi";
-import api, { fetchContractPage, type ContractCursor } from "../api";
+import api, {
+  fetchContractPage,
+  protectContracts,
+  type ContractCursor,
+} from "../api";
 import { useUser } from "../App";
 import UploadModal from "../components/UploadModal";
 import AddToListModal from "../components/AddToListModal";
@@ -17,7 +22,11 @@ import InvoiceArchive from "../features/invoices/InvoiceArchive";
 import InvoiceStats from "../features/invoices/InvoiceStats";
 import { downloadDocument } from "../features/documents/downloadDocument";
 import { getListIdFromSearchParams } from "../features/documents/documentUtils";
-import { invalidateListAndDocumentQueries, queryKeys } from "../queryKeys";
+import {
+  invalidateDocumentQueries,
+  invalidateListAndDocumentQueries,
+  queryKeys,
+} from "../queryKeys";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import type { Contract, ContractPage } from "../types";
 
@@ -32,6 +41,7 @@ const Invoices: React.FC = () => {
   const [search, setSearch] = useState("");
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [isProtectingSelection, setIsProtectingSelection] = useState(false);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<number>>(
     () => new Set(),
   );
@@ -158,6 +168,28 @@ const Invoices: React.FC = () => {
     }
   };
 
+  const handleProtectSelection = async () => {
+    if (
+      selectedInvoices.length === 0 ||
+      selectedInvoices.every((invoice) => invoice.is_protected)
+    ) {
+      return;
+    }
+
+    setIsProtectingSelection(true);
+    try {
+      await protectContracts(selectedInvoices.map((invoice) => invoice.id));
+      await invalidateDocumentQueries(queryClient);
+      stopSelection();
+    } catch {
+      alert(
+        "Die ausgewählten Rechnungen konnten nicht geschützt werden. Bitte lade die Ansicht neu und versuche es erneut.",
+      );
+    } finally {
+      setIsProtectingSelection(false);
+    }
+  };
+
   if (isLoading) return <LoadingState label="Rechnungen werden geladen" />;
   if (isError)
     return (
@@ -222,8 +254,30 @@ const Invoices: React.FC = () => {
           </div>
           <div className="flex flex-wrap gap-2">
             <button
+              onClick={() => void handleProtectSelection()}
+              disabled={
+                isProtectingSelection ||
+                selectedInvoices.length === 0 ||
+                selectedInvoices.every((invoice) => invoice.is_protected)
+              }
+              title={
+                selectedInvoices.length > 0 &&
+                selectedInvoices.every((invoice) => invoice.is_protected)
+                  ? "Alle ausgewählten Rechnungen sind bereits geschützt"
+                  : undefined
+              }
+              className="btn-secondary disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <FiShield />
+              {isProtectingSelection
+                ? "Wird geschützt…"
+                : "Ausgewählte schützen"}
+            </button>
+            <button
               onClick={() => setListInvoices(selectedInvoices)}
-              disabled={selectedInvoices.length === 0}
+              disabled={
+                isProtectingSelection || selectedInvoices.length === 0
+              }
               className="btn-primary disabled:cursor-not-allowed disabled:opacity-40"
             >
               <FiFolder /> Workspaces verwalten

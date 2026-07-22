@@ -338,6 +338,11 @@ class ContractListBulkResult(BaseModel):
     assignments: List[ContractListAssignmentRead]
 
 
+class ContractProtectionBulkResult(BaseModel):
+    changed_count: int
+    already_protected_count: int
+
+
 # AI Feature Schemas
 class ContractAnalysisResult(BaseModel):
     """Result from AI contract analysis."""

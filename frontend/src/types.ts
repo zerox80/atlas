@@ -71,6 +71,11 @@ export interface ContractPage {
   next_cursor_id: number | null;
 }
 
+export interface ContractProtectionBulkResult {
+  changed_count: number;
+  already_protected_count: number;
+}
+
 export interface DashboardData {
   business_timezone?: string;
   summary: {
