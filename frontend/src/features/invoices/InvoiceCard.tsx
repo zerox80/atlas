@@ -42,7 +42,7 @@ const InvoiceCard: FC<InvoiceCardProps> = ({
   const workspaceNames = invoice.lists
     ?.map((workspace) =>
       workspace.is_default
-        ? `Persönlicher Workspace${
+        ? `Workspace${
             workspace.owner_username ? ` · ${workspace.owner_username}` : ""
           }`
         : workspace.name,

@@ -136,7 +136,7 @@ const Invoices: React.FC = () => {
       );
       return;
     }
-    if (!window.confirm(`Möchten Sie die Rechnung „${invoice.title}“ wirklich löschen?`)) {
+    if (!window.confirm(`Rechnung „${invoice.title}“ in den Papierkorb verschieben?`)) {
       return;
     }
 
@@ -146,7 +146,7 @@ const Invoices: React.FC = () => {
       });
       await invalidateListAndDocumentQueries(queryClient);
     } catch {
-      alert("Die Rechnung konnte nicht gelöscht werden.");
+      alert("Die Rechnung konnte nicht in den Papierkorb verschoben werden.");
     }
   };
 

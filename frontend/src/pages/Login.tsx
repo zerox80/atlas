@@ -247,6 +247,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 </span>
                 <FiArrowRight />
               </button>
+              <p className="flex items-center justify-center gap-2 text-xs text-white/34">
+                <FiCheck className="text-[#b8f15a]" />
+                Anmeldung bleibt auf diesem Gerät bis zu 2 Tage aktiv.
+              </p>
               {isTwoFactorInfo && (
                 <button
                   type="button"

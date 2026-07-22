@@ -36,6 +36,8 @@ class User(SQLModel, table=True):
     is_active: bool = Field(default=True)  # Account status managed through user editing
     # Incrementing this value invalidates every JWT issued with the previous value.
     token_version: int = Field(default=0, nullable=False)
+    # Per-account admin view preference. It never changes permissions.
+    show_other_user_workspaces: bool = Field(default=True, nullable=False)
     # Admin-selected upload target. This is intentionally separate from
     # workspace permissions: granting access must never change where uploads go.
     default_workspace_id: Optional[int] = Field(
@@ -108,6 +110,7 @@ class Contract(SQLModel, table=True):
     __table_args__ = (
         Index("ix_contract_document_uploaded_at", "document_type", "uploaded_at"),
         Index("ix_contract_end_date", "end_date"),
+        Index("ix_contract_deleted_at", "deleted_at"),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -121,6 +124,10 @@ class Contract(SQLModel, table=True):
     # consistently for both contracts and uploaded invoices.
     document_type: str = Field(default="contract", index=True)
     uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Documents stay linked to their workspaces while they are in the trash so
+    # every workspace has its own recoverable view of deleted content.
+    deleted_at: Optional[datetime] = None
+    deleted_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     
     # Cancellation Logic
     notice_period: Optional[int] = Field(default=30, description="Notice period in days")

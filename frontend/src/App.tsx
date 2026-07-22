@@ -13,6 +13,7 @@ import AdminPanel from "./pages/AdminPanel";
 import Lists from "./pages/Lists";
 import Calendar from "./pages/Calendar";
 import ProtectedContracts from "./pages/ProtectedContracts";
+import Trash from "./pages/Trash";
 import Layout from "./components/Layout";
 import { useState, useEffect, createContext, useContext } from "react";
 import api from "./api";
@@ -25,6 +26,7 @@ interface UserInfo {
   has_2fa: boolean;
   can_create_documents?: boolean;
   default_workspace_id?: number | null;
+  show_other_user_workspaces?: boolean;
 }
 
 const isUserInfo = (value: unknown): value is UserInfo => {
@@ -193,6 +195,18 @@ export function AppRoutes() {
             isAuthenticated ? (
               <Layout>
                 <ProtectedContracts />
+              </Layout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
+        />
+        <Route
+          path="/trash"
+          element={
+            isAuthenticated ? (
+              <Layout>
+                <Trash />
               </Layout>
             ) : (
               <Navigate to="/login" />

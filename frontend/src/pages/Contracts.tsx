@@ -150,7 +150,7 @@ const Contracts: React.FC = () => {
       );
       return;
     }
-    if (!window.confirm(`Möchten Sie den Vertrag „${contract.title}“ wirklich löschen?`)) {
+    if (!window.confirm(`Vertrag „${contract.title}“ in den Papierkorb verschieben?`)) {
       return;
     }
 
@@ -160,7 +160,7 @@ const Contracts: React.FC = () => {
       });
       await invalidateListAndDocumentQueries(queryClient);
     } catch {
-      alert("Der Vertrag konnte nicht gelöscht werden.");
+      alert("Der Vertrag konnte nicht in den Papierkorb verschoben werden.");
     }
   };
 

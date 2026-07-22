@@ -673,6 +673,41 @@ def migration_010_admin_selected_default_workspace(cursor: sqlite3.Cursor) -> No
     )
 
 
+def migration_011_document_trash(cursor: sqlite3.Cursor) -> None:
+    """Keep deleted documents recoverable and scoped by their workspace links."""
+    add_missing_columns(
+        cursor,
+        "contract",
+        (
+            ("deleted_at", "deleted_at DATETIME"),
+            ("deleted_by_user_id", "deleted_by_user_id INTEGER"),
+        ),
+    )
+    if table_exists(cursor, "contract"):
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS ix_contract_deleted_at "
+            "ON contract (deleted_at)"
+        )
+
+
+def migration_012_user_workspace_visibility_preference(
+    cursor: sqlite3.Cursor,
+) -> None:
+    """Persist each admin's preference for other users' personal workspaces."""
+    if not table_exists(cursor, "user"):
+        return
+    add_missing_columns(
+        cursor,
+        "user",
+        (
+            (
+                "show_other_user_workspaces",
+                "show_other_user_workspaces BOOLEAN NOT NULL DEFAULT 1",
+            ),
+        ),
+    )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     ("001_legacy_columns_and_permission_index", migration_001_legacy_columns),
     ("002_contract_document_type", migration_002_document_type),
@@ -689,6 +724,11 @@ MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     (
         "010_admin_selected_default_workspace",
         migration_010_admin_selected_default_workspace,
+    ),
+    ("011_document_trash", migration_011_document_trash),
+    (
+        "012_user_workspace_visibility_preference",
+        migration_012_user_workspace_visibility_preference,
     ),
 )
 

@@ -43,7 +43,7 @@ const AdminPanel: React.FC = () => {
       <PageHeader
         eyebrow="System / Control Center"
         title="Administration"
-        description="Benutzer, Workspace- und Dokumentrechte, Standard-Ablagen, Taxonomie und Datensicherungen zentral verwalten."
+        description="Benutzer, Rechte, Standard-Ablagen, Taxonomie, den allgemeinen Papierkorb und Datensicherungen zentral verwalten."
         actions={
           <span className="chip border-[#b8f15a]/20 bg-[#b8f15a]/[0.07] text-[#b8f15a]">
             <FiShield /> Admin access

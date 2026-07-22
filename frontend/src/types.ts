@@ -28,6 +28,9 @@ export interface Contract {
   start_date?: string | null;
   end_date?: string | null;
   uploaded_at: string;
+  deleted_at?: string | null;
+  deleted_by_user_id?: number | null;
+  deleted_by_username?: string | null;
   value?: number | null;
   annual_value?: number | null;
   tags: Tag[];
@@ -42,6 +45,13 @@ export interface Contract {
   can_write: boolean;
   can_delete: boolean;
   can_manage_protection: boolean;
+}
+
+export interface TrashDocumentPage {
+  items: Contract[];
+  total: number;
+  offset: number;
+  limit: number;
 }
 
 export interface ContractCollectionSummary {

@@ -144,6 +144,19 @@ class ContractRead(BaseModel):
     can_manage_protection: bool = False
 
 
+class TrashDocumentRead(ContractRead):
+    deleted_at: datetime
+    deleted_by_user_id: Optional[int] = None
+    deleted_by_username: Optional[str] = None
+
+
+class TrashDocumentPage(BaseModel):
+    items: List[TrashDocumentRead]
+    total: int
+    offset: int
+    limit: int
+
+
 class AuditLogRead(BaseModel):
     id: int
     user_id: Optional[int]
@@ -208,6 +221,15 @@ class UserRead(BaseModel):
     has_2fa: bool = False
     default_workspace_id: Optional[int] = None
     default_workspace_name: Optional[str] = None
+    show_other_user_workspaces: bool = True
+
+
+class AdminWorkspaceVisibilityUpdate(BaseModel):
+    show_other_user_workspaces: bool
+
+
+class AdminWorkspaceVisibilityRead(BaseModel):
+    show_other_user_workspaces: bool
 
 
 class UserUpdate(BaseModel):

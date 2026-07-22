@@ -175,7 +175,7 @@ const Lists: React.FC = () => {
                 {list.is_default && <span className="chip">Persönlich</span>}
               </div>
               <h2 className="mt-2 truncate text-xl font-semibold tracking-[-0.02em]">
-                {list.is_default ? "Persönlicher Workspace" : list.name}
+                {list.is_default ? "Workspace" : list.name}
               </h2>
               {list.owner_username && (
                 <p className="mt-1 text-xs text-white/34">

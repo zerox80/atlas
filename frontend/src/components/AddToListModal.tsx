@@ -250,7 +250,7 @@ const AddToListModal: React.FC<AddToListModalProps> = ({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-white">
-                      Persönlicher Workspace
+                      Workspace
                     </p>
                     <p className="mt-0.5 text-xs leading-5 muted">
                       {activeContracts.length > 1

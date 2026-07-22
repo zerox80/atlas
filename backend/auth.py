@@ -24,6 +24,20 @@ if (
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+# Persistent browser logins survive tab/browser restarts but never exceed 48 hours.
+MAX_BROWSER_SESSION_EXPIRE_MINUTES = 2 * 24 * 60
+BROWSER_SESSION_EXPIRE_MINUTES = min(
+    MAX_BROWSER_SESSION_EXPIRE_MINUTES,
+    max(
+        1,
+        int(
+            os.getenv(
+                "BROWSER_SESSION_EXPIRE_MINUTES",
+                str(MAX_BROWSER_SESSION_EXPIRE_MINUTES),
+            )
+        ),
+    ),
+)
 TOKEN_VERSION_CLAIM = "ver"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

@@ -12,7 +12,6 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 
 from api_core import (
-    ACCESS_TOKEN_EXPIRE_MINUTES,
     CSRF_COOKIE_NAME,
     RATE_LIMIT_LOGIN,
     get_current_user,
@@ -20,7 +19,12 @@ from api_core import (
     request_is_https,
     set_csrf_cookie,
 )
-from auth import TOKEN_VERSION_CLAIM, create_access_token, verify_password
+from auth import (
+    BROWSER_SESSION_EXPIRE_MINUTES,
+    TOKEN_VERSION_CLAIM,
+    create_access_token,
+    verify_password,
+)
 from database import get_session
 from models import User
 from schemas import OTPVerify, TwoFactorSetup
@@ -115,7 +119,7 @@ def login_for_access_token(
                 headers={"WWW-Authenticate": "Bearer"},
             )
     
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=BROWSER_SESSION_EXPIRE_MINUTES)
     # Add role to token claims
     access_token = create_access_token(
         data={
@@ -134,7 +138,7 @@ def login_for_access_token(
         httponly=True,
         secure=request_is_https(request),  # Only secure if actually using HTTPS
         samesite="lax",
-        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=BROWSER_SESSION_EXPIRE_MINUTES * 60,
         path="/",
     )
     set_csrf_cookie(response, request)

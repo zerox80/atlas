@@ -39,6 +39,7 @@ def get_tags(
         select(Tag)
         .join(ContractTagLink, col(ContractTagLink.tag_id) == col(Tag.id))
         .join(Contract, col(Contract.id) == col(ContractTagLink.contract_id))
+        .where(col(Contract.deleted_at).is_(None))
     )
     statement = filter_contracts_for_user(statement, current_user, "read")
     return session.exec(statement.distinct().order_by(col(Tag.name))).all()
@@ -178,7 +179,7 @@ def get_contract_audit_logs(
     session: Session = Depends(get_session),
 ):
     contract = session.get(Contract, contract_id)
-    if not contract:
+    if not contract or contract.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Contract not found")
 
     if not check_contract_permission(current_user, contract_id, "read", session):

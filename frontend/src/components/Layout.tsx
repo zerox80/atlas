@@ -13,6 +13,7 @@ import {
   FiPlus,
   FiSearch,
   FiShield,
+  FiTrash2,
   FiX,
 } from "react-icons/fi";
 import { useUser } from "../App";
@@ -42,6 +43,7 @@ const primaryNav = [
 const workspaceNav = [
   { to: "/lists", label: "Workspaces", icon: FiFolder },
   { to: "/protected", label: "Geschützt", icon: FiShield },
+  { to: "/trash", label: "Papierkorb", icon: FiTrash2 },
 ];
 
 const pageMeta: Record<string, { eyebrow: string; title: string }> = {
@@ -51,6 +53,7 @@ const pageMeta: Record<string, { eyebrow: string; title: string }> = {
   "/calendar": { eyebrow: "Planung", title: "Kalender" },
   "/lists": { eyebrow: "Organisation", title: "Workspaces" },
   "/protected": { eyebrow: "Sicherheit", title: "Geschützte Dokumente" },
+  "/trash": { eyebrow: "Workspace", title: "Papierkorb" },
   "/admin": { eyebrow: "System", title: "Administration" },
 };
 
@@ -81,7 +84,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const activeWorkspaceLabel = activeWorkspace
     ? `${
         activeWorkspace.is_default
-          ? "Persönlicher Workspace"
+          ? "Workspace"
           : activeWorkspace.name
       }${
         activeWorkspace.owner_username
