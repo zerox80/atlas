@@ -137,6 +137,18 @@ def _ensure_default_workspace_permission(
     return True
 
 
+def _is_personal_default_owner_permission(
+    user_id: int,
+    workspace: ContractList | None,
+) -> bool:
+    """Identify the mandatory owner ACL of one personal Default workspace."""
+    return bool(
+        workspace is not None
+        and workspace.is_default
+        and workspace.owner_user_id == user_id
+    )
+
+
 @router.get("/me")
 def get_me(
     current_user: User = Depends(get_current_user),
@@ -800,6 +812,15 @@ def create_workspace_permission(
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
+    if (
+        _is_personal_default_owner_permission(perm_data.user_id, workspace)
+        and perm_data.permission_level != "full"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="The owner of a personal Default must retain full access",
+        )
+
     permission = session.exec(
         select(ContractListPermission)
         .where(ContractListPermission.user_id == perm_data.user_id)
@@ -864,6 +885,12 @@ def delete_workspace_permission(
         raise HTTPException(status_code=404, detail="Permission not found")
     user = session.get(User, permission.user_id)
     workspace = session.get(ContractList, permission.list_id)
+    if _is_personal_default_owner_permission(permission.user_id, workspace):
+        raise HTTPException(
+            status_code=400,
+            detail="The owner permission of a personal Default cannot be removed",
+        )
+
     session.delete(permission)
     session.flush()
     if user is not None:

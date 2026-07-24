@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   source-limits:
-    name: Max 500 lines per file
+    name: Source line limits
     runs-on: ubuntu-latest
 
     steps:

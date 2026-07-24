@@ -32,6 +32,7 @@ from catalog_routes import router as catalog_router
 from contract_queries import router as contract_query_router
 from contract_routes import router as contract_router
 from database import create_db_and_tables, get_session
+from file_cleanup import process_pending_file_deletions
 from list_routes import router as list_router
 from migrate_db import get_default_db_path, migrate
 from models import Contract, Tag, User
@@ -120,6 +121,8 @@ def on_startup():
             session.commit()
 
         backfill_default_workspace_links(session)
+        backfill_existing_contract_read_permissions(session)
+        process_pending_file_deletions(session)
 
 
 @app.post("/admin/backup")

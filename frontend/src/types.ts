@@ -69,6 +69,7 @@ export interface ContractPage {
   has_more: boolean;
   next_cursor_uploaded_at: string | null;
   next_cursor_id: number | null;
+  next_offset?: number | null;
 }
 
 export interface ContractProtectionBulkResult {

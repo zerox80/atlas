@@ -2,15 +2,17 @@ import { useState } from "react";
 import { FiChevronDown, FiDownload } from "react-icons/fi";
 import { exportContracts } from "../../api";
 import { triggerBlobDownload } from "../../utils/downloadUtils";
+import type { DocumentType } from "../../types";
 import { getApiErrorMessage } from "../../utils/errorUtils";
 import type { FilterState } from "./useContractFilters";
 
 interface ExportMenuProps {
+  documentType: DocumentType;
   filters: FilterState;
   filterError: string | null;
 }
 
-const ExportMenu = ({ filters, filterError }: ExportMenuProps) => {
+const ExportMenu = ({ documentType, filters, filterError }: ExportMenuProps) => {
   const [isOpen, setIsOpen] = useState(false);
 
   const handleExport = async (format: "csv" | "excel") => {
@@ -20,10 +22,12 @@ const ExportMenu = ({ filters, filterError }: ExportMenuProps) => {
       return;
     }
     try {
-      const response = await exportContracts(filters, format);
+      const response = await exportContracts(filters, format, documentType);
+      const filePrefix =
+        documentType === "invoice" ? "rechnungen_export" : "vertraege_export";
       triggerBlobDownload(
         response.data,
-        `vertrage_export.${format === "excel" ? "xlsx" : "csv"}`,
+        `${filePrefix}.${format === "excel" ? "xlsx" : "csv"}`,
       );
     } catch (error: unknown) {
       console.error("Export failed", error);

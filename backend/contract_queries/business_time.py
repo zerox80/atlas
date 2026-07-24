@@ -1,7 +1,7 @@
 """Business-timezone boundaries and SQL date expressions."""
 
 import os
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -19,6 +19,21 @@ except ZoneInfoNotFoundError as error:
     raise RuntimeError(
         f"Unknown BUSINESS_TIMEZONE: {BUSINESS_TIMEZONE_NAME}"
     ) from error
+
+
+def business_date_start_utc(value: date) -> datetime:
+    """Return the UTC instant at which one local business date begins."""
+    return datetime(
+        value.year,
+        value.month,
+        value.day,
+        tzinfo=BUSINESS_TIMEZONE,
+    ).astimezone(timezone.utc)
+
+
+def business_date_end_exclusive_utc(value: date) -> datetime:
+    """Return the exclusive UTC boundary after one local business date."""
+    return business_date_start_utc(value + timedelta(days=1))
 
 
 def business_day_start_utc(now: datetime, day_offset: int = 0) -> datetime:

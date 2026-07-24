@@ -45,7 +45,9 @@ class User(SQLModel, table=True):
         foreign_key="contractlist.id",
         index=True,
     )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
 
 # Permission levels: "read" = view only, "write" = edit, "full" = edit + delete
@@ -79,7 +81,9 @@ class ContractList(SQLModel, table=True):
     description: Optional[str] = None
     color: str = "#6366f1"  # Default indigo
     is_default: bool = Field(default=False, nullable=False, index=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
     
     contracts: List["Contract"] = Relationship(back_populates="lists", link_model=ContractListLink)
 
@@ -154,6 +158,30 @@ class Contract(SQLModel, table=True):
     def file_extension(self) -> str:
         suffix = Path(self.file_path).suffix.lower() if self.file_path else ""
         return suffix or ".pdf"
+
+
+class PendingFileDeletion(SQLModel, table=True):
+    """Durable outbox entry for removing a document file after DB commit."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "file_path",
+            name="uq_pendingfiledeletion_file_path",
+        ),
+        Index(
+            "ix_pendingfiledeletion_created_at",
+            "created_at",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    file_path: str
+    attempts: int = Field(default=0, nullable=False)
+    last_error: Optional[str] = None
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
 
 class AuditLog(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

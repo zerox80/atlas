@@ -4,6 +4,7 @@ from contract_endpoints import router
 from contract_endpoints.documents import (
     create_contract,
     download_contract,
+    read_contract,
     update_contract,
 )
 from contract_endpoints.helpers import (
@@ -26,6 +27,7 @@ __all__ = [
     "_resolve_tags",
     "create_contract",
     "download_contract",
+    "read_contract",
     "update_contract",
     "delete_contract",
     "protect_contracts",

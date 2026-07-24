@@ -708,6 +708,29 @@ def migration_012_user_workspace_visibility_preference(
     )
 
 
+def migration_013_pending_file_deletion_queue(cursor: sqlite3.Cursor) -> None:
+    """Persist post-commit upload cleanup work until the file is removed."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pendingfiledeletion (
+            id INTEGER NOT NULL PRIMARY KEY,
+            file_path VARCHAR NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error VARCHAR,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_pendingfiledeletion_file_path "
+        "ON pendingfiledeletion (file_path)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS ix_pendingfiledeletion_created_at "
+        "ON pendingfiledeletion (created_at)"
+    )
+
+
 MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     ("001_legacy_columns_and_permission_index", migration_001_legacy_columns),
     ("002_contract_document_type", migration_002_document_type),
@@ -729,6 +752,10 @@ MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     (
         "012_user_workspace_visibility_preference",
         migration_012_user_workspace_visibility_preference,
+    ),
+    (
+        "013_pending_file_deletion_queue",
+        migration_013_pending_file_deletion_queue,
     ),
 )
 

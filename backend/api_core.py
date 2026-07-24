@@ -303,7 +303,14 @@ def ensure_default_workspace(session: Session, owner_user_id: int) -> ContractLi
         workspace.name = DEFAULT_WORKSPACE_NAME
         session.add(workspace)
         session.flush()
-    if created:
+
+    owner_permission = session.exec(
+        select(ContractListPermission)
+        .where(ContractListPermission.user_id == owner_user_id)
+        .where(ContractListPermission.list_id == workspace.id)
+    ).first()
+    permission_changed = False
+    if owner_permission is None:
         session.add(
             ContractListPermission(
                 user_id=owner_user_id,
@@ -311,10 +318,18 @@ def ensure_default_workspace(session: Session, owner_user_id: int) -> ContractLi
                 permission_level="full",
             )
         )
-        owner = session.get(User, owner_user_id)
-        if owner is not None and owner.default_workspace_id is None:
-            owner.default_workspace_id = workspace.id
-            session.add(owner)
+        permission_changed = True
+    elif owner_permission.permission_level != "full":
+        owner_permission.permission_level = "full"
+        session.add(owner_permission)
+        permission_changed = True
+
+    owner = session.get(User, owner_user_id)
+    if created and owner is not None and owner.default_workspace_id is None:
+        owner.default_workspace_id = workspace.id
+        session.add(owner)
+
+    if created or permission_changed:
         session.flush()
     return workspace
 

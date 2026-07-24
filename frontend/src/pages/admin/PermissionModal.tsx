@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import api, { fetchContractPage, type ContractCursor } from "../../api";
+import api, {
+  fetchContractPage,
+  getNextContractPageParam,
+  type ContractCursor,
+} from "../../api";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { queryKeys } from "../../queryKeys";
 import type { ContractList, ContractPage } from "../../types";
@@ -62,15 +66,7 @@ const PermissionModal: React.FC<PermissionModalProps> = ({
       ),
     {
       enabled: isOpen && scope === "document",
-      getNextPageParam: (lastPage) =>
-        lastPage.has_more &&
-        lastPage.next_cursor_uploaded_at &&
-        lastPage.next_cursor_id
-          ? {
-              uploadedAt: lastPage.next_cursor_uploaded_at,
-              id: lastPage.next_cursor_id,
-            }
-          : undefined,
+      getNextPageParam: getNextContractPageParam,
     },
   );
   const contracts = useMemo(
