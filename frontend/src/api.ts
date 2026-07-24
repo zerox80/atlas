@@ -102,14 +102,38 @@ export interface ContractPageParams {
   is_protected?: boolean;
   limit?: number;
   list_id?: number;
+  max_value?: number;
+  min_value?: number;
   q?: string;
+  sort_by?: "title" | "value" | "start_date" | "end_date" | "uploaded_at";
+  sort_order?: "asc" | "desc";
+  start_date_from?: string;
+  start_date_to?: string;
   state?: "active" | "attention" | "expired";
+  status?: "active" | "expired";
+  tags?: string;
 }
 
-export interface ContractCursor {
-  uploadedAt: string;
-  id: number;
-}
+export type ContractCursor =
+  | { kind: "keyset"; uploadedAt: string; id: number }
+  | { kind: "offset"; offset: number };
+
+export const getNextContractPageParam = (
+  page: ContractPage,
+): ContractCursor | undefined => {
+  if (!page.has_more) return undefined;
+  if (page.next_offset !== null && page.next_offset !== undefined) {
+    return { kind: "offset", offset: page.next_offset };
+  }
+  if (page.next_cursor_uploaded_at && page.next_cursor_id !== null) {
+    return {
+      kind: "keyset",
+      uploadedAt: page.next_cursor_uploaded_at,
+      id: page.next_cursor_id,
+    };
+  }
+  return undefined;
+};
 
 export const fetchContractPage = async (
   params: ContractPageParams = {},
@@ -118,12 +142,14 @@ export const fetchContractPage = async (
   const response = await api.get<ContractPage>("/contracts/page", {
     params: {
       ...params,
-      ...(cursor
-        ? {
-            cursor_uploaded_at: cursor.uploadedAt,
-            cursor_id: cursor.id,
-          }
-        : {}),
+      ...(cursor?.kind === "offset"
+        ? { offset: cursor.offset }
+        : cursor?.kind === "keyset"
+          ? {
+              cursor_uploaded_at: cursor.uploadedAt,
+              cursor_id: cursor.id,
+            }
+          : {}),
     },
   });
   return response.data;
@@ -154,9 +180,14 @@ export const fetchCalendarData = async (
 export const exportContracts = (
   filters: ContractFilterState,
   format: "csv" | "excel",
+  documentType: DocumentType = "contract",
 ) =>
   api.get<Blob>("/contracts/export", {
-    params: { ...buildContractQueryParams(filters), format },
+    params: {
+      ...buildContractQueryParams(filters),
+      document_type: documentType,
+      format,
+    },
     responseType: "blob",
   });
 

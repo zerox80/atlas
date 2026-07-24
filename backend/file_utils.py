@@ -270,14 +270,11 @@ def resolve_file_path(file_path: str) -> str:
     return abs_path
 
 
-def delete_upload_file(file_path: str) -> bool:
-    """Delete a stored upload, returning whether a file was removed."""
+def delete_upload_file_or_raise(file_path: str) -> bool:
+    """Delete one stored upload while surfacing operational failures."""
     try:
         abs_path = resolve_file_path(file_path)
     except FileNotFoundError:
-        return False
-    except (OSError, PermissionError):
-        logger.exception("Could not resolve upload for deletion: %s", file_path)
         return False
 
     try:
@@ -285,6 +282,12 @@ def delete_upload_file(file_path: str) -> bool:
         return True
     except FileNotFoundError:
         return False
+
+
+def delete_upload_file(file_path: str) -> bool:
+    """Delete a stored upload, returning whether a file was removed."""
+    try:
+        return delete_upload_file_or_raise(file_path)
     except OSError:
-        logger.exception("Could not delete upload: %s", abs_path)
+        logger.exception("Could not delete upload: %s", file_path)
         return False

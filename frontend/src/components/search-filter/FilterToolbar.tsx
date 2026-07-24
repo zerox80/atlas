@@ -1,12 +1,14 @@
 import { FiChevronDown, FiFilter, FiSearch, FiX } from "react-icons/fi";
+import type { DocumentType } from "../../types";
 import ExportMenu from "./ExportMenu";
 import type { ContractFilterController } from "./useContractFilters";
 
 interface FilterToolbarProps {
   controller: ContractFilterController;
+  documentType: DocumentType;
 }
 
-const FilterToolbar = ({ controller }: FilterToolbarProps) => (
+const FilterToolbar = ({ controller, documentType }: FilterToolbarProps) => (
   <div className="flex gap-3">
     <div className="relative flex-1">
       <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -31,6 +33,7 @@ const FilterToolbar = ({ controller }: FilterToolbarProps) => (
     </div>
 
     <ExportMenu
+      documentType={documentType}
       filters={controller.filters}
       filterError={controller.filterError}
     />

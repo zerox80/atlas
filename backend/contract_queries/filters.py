@@ -47,7 +47,7 @@ def build_contract_query(
     min_value: Optional[float] = None,
     max_value: Optional[float] = None,
     start_date_from: Optional[datetime] = None,
-    start_date_to: Optional[datetime] = None,
+    start_date_to_exclusive: Optional[datetime] = None,
     status_filter: Optional[str] = None,
     state_filter: Optional[Literal["active", "attention", "expired"]] = None,
     document_type: Optional[str] = None,
@@ -100,10 +100,10 @@ def build_contract_query(
             col(Contract.start_date).is_not(None),
             col(Contract.start_date) >= start_date_from,
         )
-    if start_date_to:
+    if start_date_to_exclusive:
         statement = statement.where(
             col(Contract.start_date).is_not(None),
-            col(Contract.start_date) <= start_date_to,
+            col(Contract.start_date) < start_date_to_exclusive,
         )
 
     now = datetime.now(timezone.utc)

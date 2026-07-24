@@ -195,9 +195,11 @@ const CommandPalette = ({
                   onSelect={() =>
                     go(
                       withWorkspacePath(
-                        contract.document_type === "invoice"
-                          ? "/invoices"
-                          : "/contracts",
+                        `${
+                          contract.document_type === "invoice"
+                            ? "/invoices"
+                            : "/contracts"
+                        }?document_id=${contract.id}`,
                         activeWorkspaceId,
                       ),
                     )

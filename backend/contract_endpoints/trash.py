@@ -1,6 +1,5 @@
 """Recoverable, workspace-scoped document trash endpoints."""
 
-import logging
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -18,7 +17,7 @@ from api_core import (
     has_direct_contract_access_for_list,
 )
 from database import get_session
-from file_utils import delete_upload_file
+from file_cleanup import enqueue_file_deletion, process_file_deletion_job
 from models import (
     Contract,
     ContractList,
@@ -31,7 +30,6 @@ from schemas import ContractRead, TrashDocumentPage
 from security_utils import log_audit
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 
 def _trash_statement(
@@ -237,7 +235,11 @@ def permanently_delete_document(
     file_path = contract.file_path
     document_title = contract.title
     document_type = contract.document_type
+    deletion_job_id: int | None = None
     try:
+        deletion_job = enqueue_file_deletion(session, file_path)
+        if deletion_job is not None:
+            deletion_job_id = deletion_job.id
         session.exec(
             delete(ContractTagLink).where(
                 col(ContractTagLink.contract_id) == contract_id
@@ -287,9 +289,6 @@ def permanently_delete_document(
         session.rollback()
         raise
 
-    if file_path:
-        try:
-            delete_upload_file(file_path)
-        except Exception:
-            logger.exception("Could not delete file for document %s", contract_id)
+    if deletion_job_id is not None:
+        process_file_deletion_job(session, deletion_job_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

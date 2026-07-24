@@ -10,6 +10,7 @@ import {
 } from "react-icons/fi";
 import {
   fetchContractPage,
+  getNextContractPageParam,
   type ContractCursor,
   toggleContractProtection,
 } from "../api";
@@ -52,15 +53,7 @@ const ProtectedContracts: React.FC = () => {
         pageParam as ContractCursor | undefined,
       ),
     {
-      getNextPageParam: (lastPage) =>
-        lastPage.has_more &&
-        lastPage.next_cursor_uploaded_at &&
-        lastPage.next_cursor_id
-          ? {
-              uploadedAt: lastPage.next_cursor_uploaded_at,
-              id: lastPage.next_cursor_id,
-            }
-          : undefined,
+      getNextPageParam: getNextContractPageParam,
     },
   );
   const contracts = useMemo(

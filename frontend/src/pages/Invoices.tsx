@@ -11,12 +11,14 @@ import {
 } from "react-icons/fi";
 import api, {
   fetchContractPage,
+  getNextContractPageParam,
   protectContracts,
   type ContractCursor,
 } from "../api";
 import { useUser } from "../App";
 import UploadModal from "../components/UploadModal";
 import AddToListModal from "../components/AddToListModal";
+import ContractDetailsModal from "../components/ContractDetailsModal";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import InvoiceArchive from "../features/invoices/InvoiceArchive";
 import InvoiceStats from "../features/invoices/InvoiceStats";
@@ -33,10 +35,12 @@ import type { Contract, ContractPage } from "../types";
 const Invoices: React.FC = () => {
   const { isAdmin, user } = useUser();
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const listId = getListIdFromSearchParams(searchParams);
+  const documentIdParam = searchParams.get("document_id");
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Contract | null>(null);
+  const [detailsInvoice, setDetailsInvoice] = useState<Contract | null>(null);
   const [listInvoices, setListInvoices] = useState<Contract[]>([]);
   const [search, setSearch] = useState("");
   const [openMenu, setOpenMenu] = useState<number | null>(null);
@@ -67,15 +71,7 @@ const Invoices: React.FC = () => {
         pageParam as ContractCursor | undefined,
       ),
     {
-      getNextPageParam: (lastPage) =>
-        lastPage.has_more &&
-        lastPage.next_cursor_uploaded_at &&
-        lastPage.next_cursor_id
-          ? {
-              uploadedAt: lastPage.next_cursor_uploaded_at,
-              id: lastPage.next_cursor_id,
-            }
-          : undefined,
+      getNextPageParam: getNextContractPageParam,
     },
   );
 
@@ -107,6 +103,36 @@ const Invoices: React.FC = () => {
     setOpenMenu(null);
   }, [listId]);
 
+  useEffect(() => {
+    if (!documentIdParam || !/^\d+$/.test(documentIdParam)) {
+      setDetailsInvoice(null);
+      return;
+    }
+
+    let isCurrent = true;
+    void api
+      .get<Contract>(`/contracts/${documentIdParam}`)
+      .then((response) => {
+        if (!isCurrent) return;
+        setDetailsInvoice(
+          response.data.document_type === "invoice" ? response.data : null,
+        );
+      })
+      .catch(() => {
+        if (isCurrent) setDetailsInvoice(null);
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [documentIdParam]);
+
+  const clearRequestedDocument = () => {
+    if (!searchParams.has("document_id")) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("document_id");
+    setSearchParams(nextParams, { replace: true });
+  };
+
   const toggleInvoiceSelection = (invoice: Contract) => {
     setSelectedInvoiceIds((current) => {
       const next = new Set(current);
@@ -132,6 +158,12 @@ const Invoices: React.FC = () => {
     setEditingInvoice(invoice);
     setIsUploadOpen(true);
     setOpenMenu(null);
+  };
+
+  const handleDetailsEdit = (invoice: Contract) => {
+    setDetailsInvoice(null);
+    clearRequestedDocument();
+    openUpload(invoice);
   };
 
   const handleDelete = async (invoice: Contract) => {
@@ -344,6 +376,15 @@ const Invoices: React.FC = () => {
         isOpen={listInvoices.length > 0}
         onClose={() => setListInvoices([])}
         contracts={listInvoices}
+      />
+      <ContractDetailsModal
+        contract={detailsInvoice}
+        onClose={() => {
+          setDetailsInvoice(null);
+          clearRequestedDocument();
+        }}
+        onDownload={handleDownload}
+        onEdit={handleDetailsEdit}
       />
     </div>
   );

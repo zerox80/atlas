@@ -1,23 +1,22 @@
 import React from "react";
-import { FiSearch } from "react-icons/fi";
-import { contractViewFilters, type ContractFilterCounts, type ContractViewFilter } from "./types";
+import {
+  contractViewFilters,
+  type ContractFilterCounts,
+  type ContractViewFilter,
+} from "./types";
 
 interface ContractToolbarProps {
   counts: ContractFilterCounts;
   filter: ContractViewFilter;
   onFilterChange: (filter: ContractViewFilter) => void;
-  searchQuery: string;
-  onSearchChange: (searchQuery: string) => void;
 }
 
 const ContractToolbar: React.FC<ContractToolbarProps> = ({
   counts,
   filter,
   onFilterChange,
-  searchQuery,
-  onSearchChange,
 }) => (
-  <div className="surface mb-5 flex flex-col gap-3 p-3 lg:flex-row lg:items-center lg:justify-between">
+  <div className="surface mb-5 p-3">
     <div className="flex gap-1 overflow-x-auto">
       {contractViewFilters.map(({ key, label }) => (
         <button
@@ -45,16 +44,6 @@ const ContractToolbar: React.FC<ContractToolbarProps> = ({
         </button>
       ))}
     </div>
-    <label className="relative block min-w-0 lg:w-72">
-      <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#667181]" />
-      <input
-        value={searchQuery}
-        maxLength={200}
-        onChange={(event) => onSearchChange(event.target.value)}
-        placeholder="Verträge durchsuchen…"
-        className="field py-2.5 pl-10"
-      />
-    </label>
   </div>
 );
 

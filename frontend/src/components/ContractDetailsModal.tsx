@@ -31,23 +31,59 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
 }) => {
   if (!contract) return null;
 
-  const fields = [
-    { label: "Startdatum", value: formatDate(contract.start_date, contract.business_timezone) },
-    {
-      label: "Enddatum",
-      value: contract.end_date ? formatDate(contract.end_date, contract.business_timezone) : "Unbefristet",
-    },
-    {
-      label: "Kündigungsfrist",
-      value:
-        contract.notice_period != null
-          ? `${contract.notice_period} Tage`
-          : "Nicht hinterlegt",
-    },
-    { label: "Gesamtwert", value: formatMoney(contract.value) },
-    { label: "Jährlicher Preis", value: formatMoney(contract.annual_value) },
-    { label: "Hochgeladen am", value: formatDate(contract.uploaded_at, contract.business_timezone) },
-  ];
+  const isInvoice = contract.document_type === "invoice";
+  const fields = isInvoice
+    ? [
+        {
+          label: "Rechnungsdatum",
+          value: formatDate(
+            contract.start_date ?? contract.uploaded_at,
+            contract.business_timezone,
+          ),
+        },
+        { label: "Betrag", value: formatMoney(contract.value) },
+        {
+          label: "Hochgeladen am",
+          value: formatDate(
+            contract.uploaded_at,
+            contract.business_timezone,
+          ),
+        },
+      ]
+    : [
+        {
+          label: "Startdatum",
+          value: formatDate(
+            contract.start_date,
+            contract.business_timezone,
+          ),
+        },
+        {
+          label: "Enddatum",
+          value: contract.end_date
+            ? formatDate(contract.end_date, contract.business_timezone)
+            : "Unbefristet",
+        },
+        {
+          label: "Kündigungsfrist",
+          value:
+            contract.notice_period != null
+              ? `${contract.notice_period} Tage`
+              : "Nicht hinterlegt",
+        },
+        { label: "Gesamtwert", value: formatMoney(contract.value) },
+        {
+          label: "Jährlicher Preis",
+          value: formatMoney(contract.annual_value),
+        },
+        {
+          label: "Hochgeladen am",
+          value: formatDate(
+            contract.uploaded_at,
+            contract.business_timezone,
+          ),
+        },
+      ];
 
   return (
     <AnimatePresence>
@@ -68,7 +104,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
         <section
           role="dialog"
           aria-modal="true"
-          aria-labelledby="contract-details-title"
+          aria-labelledby="document-details-title"
           className={[
             "pointer-events-auto flex max-h-[96vh] w-full max-w-2xl flex-col",
             "overflow-hidden rounded-[28px] border border-white/[0.1] bg-[#0c0f0d]",
@@ -86,9 +122,11 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
                 <FiFileText />
               </span>
               <div className="min-w-0">
-                <p className="eyebrow">Vertragsdetails</p>
+                <p className="eyebrow">
+                  {isInvoice ? "Rechnungsdetails" : "Vertragsdetails"}
+                </p>
                 <h2
-                  id="contract-details-title"
+                  id="document-details-title"
                   className="mt-1 truncate text-lg font-semibold"
                 >
                   {contract.title}

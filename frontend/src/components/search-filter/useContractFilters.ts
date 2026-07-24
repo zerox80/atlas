@@ -12,12 +12,17 @@ export type FilterState = ContractFilterState;
 
 export const useContractFilters = (
   onFiltersChange: (filters: FilterState) => void,
+  fixedListId?: number | null,
 ) => {
+  const isListSelectionLocked =
+    fixedListId !== undefined && fixedListId !== null;
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedListId, setSelectedListId] = useState<number | null>(null);
+  const [selectedListId, setSelectedListId] = useState<number | null>(
+    fixedListId ?? null,
+  );
   const [minValue, setMinValue] = useState("");
   const [maxValue, setMaxValue] = useState("");
   const [startDateFrom, setStartDateFrom] = useState("");
@@ -34,6 +39,10 @@ export const useContractFilters = (
     const response = await api.get<ContractList[]>("/lists");
     return response.data;
   });
+
+  useEffect(() => {
+    if (fixedListId !== undefined) setSelectedListId(fixedListId);
+  }, [fixedListId]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300);
@@ -86,7 +95,7 @@ export const useContractFilters = (
   const clearFilters = () => {
     setSearchQuery("");
     setSelectedTags([]);
-    setSelectedListId(null);
+    setSelectedListId(fixedListId ?? null);
     setMinValue("");
     setMaxValue("");
     setStartDateFrom("");
@@ -98,7 +107,7 @@ export const useContractFilters = (
 
   const activeFilterCount =
     selectedTags.length +
-    (selectedListId !== null ? 1 : 0) +
+    (!isListSelectionLocked && selectedListId !== null ? 1 : 0) +
     (status ? 1 : 0) +
     (minValue || maxValue ? 1 : 0) +
     (startDateFrom || startDateTo ? 1 : 0);
@@ -109,6 +118,7 @@ export const useContractFilters = (
     filterError,
     filters,
     isExpanded,
+    isListSelectionLocked,
     lists,
     maxValue,
     minValue,

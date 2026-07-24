@@ -23,6 +23,7 @@ class ContractPage(BaseModel):
     has_more: bool
     next_cursor_uploaded_at: Optional[datetime] = None
     next_cursor_id: Optional[int] = None
+    next_offset: Optional[int] = None
 
 
 class DashboardSummary(BaseModel):

@@ -1,6 +1,6 @@
 """Paged, dashboard, and calendar contract endpoints."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,6 +14,8 @@ from models import Contract, User
 from .business_time import (
     BUSINESS_TIMEZONE,
     BUSINESS_TIMEZONE_NAME,
+    business_date_end_exclusive_utc,
+    business_date_start_utc,
     business_day_start_utc,
     business_month_bounds_utc,
     business_month_key_bounds_utc,
@@ -128,11 +130,22 @@ def _collection_summary(statement, session: Session) -> ContractCollectionSummar
 @router.get("/contracts/page", response_model=ContractPage)
 def read_contract_page(
     q: Optional[str] = Query(default=None, max_length=200),
+    tags: Optional[str] = Query(default=None, max_length=500),
     list_id: Optional[int] = None,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
+    start_date_from: Optional[date] = None,
+    start_date_to: Optional[date] = None,
+    status: Optional[Literal["active", "expired"]] = None,
     document_type: Optional[Literal["contract", "invoice"]] = None,
     is_protected: Optional[bool] = None,
     state: Optional[Literal["active", "attention", "expired"]] = None,
+    sort_by: Literal[
+        "title", "value", "start_date", "end_date", "uploaded_at"
+    ] = "uploaded_at",
+    sort_order: Literal["asc", "desc"] = "desc",
     include_summary: bool = True,
+    offset: int = Query(default=0, ge=0),
     limit: int = Query(default=40, ge=1, le=100),
     cursor_uploaded_at: Optional[datetime] = None,
     cursor_id: Optional[int] = Query(default=None, ge=1),
@@ -140,38 +153,87 @@ def read_contract_page(
     session: Session = Depends(get_session),
 ):
     """Return one bounded document page, with aggregates only on the first page."""
+    start_date_from_utc = (
+        business_date_start_utc(start_date_from)
+        if start_date_from is not None
+        else None
+    )
+    start_date_to_exclusive_utc = (
+        business_date_end_exclusive_utc(start_date_to)
+        if start_date_to is not None
+        else None
+    )
+    uses_offset_pagination = sort_by != "uploaded_at" or offset > 0
+    if uses_offset_pagination and (
+        cursor_uploaded_at is not None or cursor_id is not None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Cursor and offset pagination cannot be combined.",
+        )
+
     page_statement = build_contract_query(
         current_user=current_user,
         q=q,
+        tags=tags,
         list_id=list_id,
+        min_value=min_value,
+        max_value=max_value,
+        start_date_from=start_date_from_utc,
+        start_date_to_exclusive=start_date_to_exclusive_utc,
+        status_filter=status,
         document_type=document_type,
         is_protected=is_protected,
         state_filter=state,
+        sort_by=sort_by,
+        sort_order=sort_order,
         cursor_uploaded_at=cursor_uploaded_at,
         cursor_id=cursor_id,
     )
+    is_first_page = (
+        offset == 0
+        if uses_offset_pagination
+        else cursor_uploaded_at is None and cursor_id is None
+    )
     summary: Optional[ContractCollectionSummary] = None
-    if include_summary and cursor_uploaded_at is None and cursor_id is None:
+    if include_summary and is_first_page:
         summary_statement = build_contract_query(
             current_user=current_user,
             q=q,
+            tags=tags,
             list_id=list_id,
+            min_value=min_value,
+            max_value=max_value,
+            start_date_from=start_date_from_utc,
+            start_date_to_exclusive=start_date_to_exclusive_utc,
+            status_filter=status,
             document_type=document_type,
             is_protected=is_protected,
             load_relationships=False,
         )
         summary = _collection_summary(summary_statement, session)
 
+    if uses_offset_pagination:
+        page_statement = page_statement.offset(offset)
     contracts = list(session.exec(page_statement.limit(limit + 1)).all())
     has_more = len(contracts) > limit
     visible_contracts = contracts[:limit]
-    last_contract = visible_contracts[-1] if has_more and visible_contracts else None
+    last_contract = (
+        visible_contracts[-1]
+        if has_more and visible_contracts and not uses_offset_pagination
+        else None
+    )
     return ContractPage(
         items=contract_reads_for_user(visible_contracts, current_user, session),
         summary=summary,
         has_more=has_more,
-        next_cursor_uploaded_at=last_contract.uploaded_at if last_contract else None,
+        next_cursor_uploaded_at=(
+            last_contract.uploaded_at if last_contract else None
+        ),
         next_cursor_id=last_contract.id if last_contract else None,
+        next_offset=(
+            offset + limit if has_more and uses_offset_pagination else None
+        ),
     )
 
 

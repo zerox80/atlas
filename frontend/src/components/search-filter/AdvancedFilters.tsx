@@ -42,47 +42,49 @@ const AdvancedFilters = ({ controller }: AdvancedFiltersProps) => (
       </div>
     </div>
 
-    {controller.lists && controller.lists.length > 0 && (
-      <div>
-        <FieldLabel>Liste</FieldLabel>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => controller.setSelectedListId(null)}
-            className={`rounded-full px-3 py-1 text-sm transition-colors ${
-              controller.selectedListId === null
-                ? "bg-blue-600 text-white"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-            }`}
-          >
-            Alle
-          </button>
-          {controller.lists.map((list) => {
-            const isSelected = controller.selectedListId === list.id;
-            return (
-              <button
-                key={list.id}
-                onClick={() => controller.setSelectedListId(list.id)}
-                className={`flex items-center gap-1 rounded-full px-3 py-1 text-sm transition-colors ${
-                  isSelected
-                    ? "text-white"
-                    : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                }`}
-                style={isSelected ? { backgroundColor: list.color } : {}}
-              >
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: list.color }}
-                />
-                {list.name}
-                <span className="text-xs opacity-70">
-                  ({list.contract_count})
-                </span>
-              </button>
-            );
-          })}
+    {!controller.isListSelectionLocked &&
+      controller.lists &&
+      controller.lists.length > 0 && (
+        <div>
+          <FieldLabel>Liste</FieldLabel>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => controller.setSelectedListId(null)}
+              className={`rounded-full px-3 py-1 text-sm transition-colors ${
+                controller.selectedListId === null
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+              }`}
+            >
+              Alle
+            </button>
+            {controller.lists.map((list) => {
+              const isSelected = controller.selectedListId === list.id;
+              return (
+                <button
+                  key={list.id}
+                  onClick={() => controller.setSelectedListId(list.id)}
+                  className={`flex items-center gap-1 rounded-full px-3 py-1 text-sm transition-colors ${
+                    isSelected
+                      ? "text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  }`}
+                  style={isSelected ? { backgroundColor: list.color } : {}}
+                >
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: list.color }}
+                  />
+                  {list.name}
+                  <span className="text-xs opacity-70">
+                    ({list.contract_count})
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
-    )}
+      )}
 
     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
       <div>

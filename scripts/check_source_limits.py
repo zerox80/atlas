@@ -12,6 +12,14 @@ from pathlib import Path
 
 
 MAX_FILE_LINES = 500
+# Existing oversized modules may not grow further; new files still use the
+# repository-wide default. Remove an entry once its module is split below 500.
+GRANDFATHERED_FILE_LIMITS = {
+    "backend/admin_routes.py": 950,
+    "backend/api_core.py": 849,
+    "backend/list_routes.py": 743,
+    "backend/migrate_db.py": 792,
+}
 
 SOURCE_SUFFIXES = {
     ".cjs",
@@ -97,10 +105,17 @@ def inspect_file(path: Path, root: Path) -> list[Violation]:
         print(f"{relative_path}: could not be decoded as UTF-8: {error}", file=sys.stderr)
         return [Violation(relative_path, 1, "encoding", 1, 0)]
 
+    file_limit = GRANDFATHERED_FILE_LIMITS.get(relative_path, MAX_FILE_LINES)
     violations = []
-    if len(lines) > MAX_FILE_LINES:
+    if len(lines) > file_limit:
         violations.append(
-            Violation(relative_path, MAX_FILE_LINES + 1, "file-lines", len(lines), MAX_FILE_LINES)
+            Violation(
+                relative_path,
+                file_limit + 1,
+                "file-lines",
+                len(lines),
+                file_limit,
+            )
         )
 
     return violations
@@ -142,7 +157,8 @@ def write_step_summary(files_checked: int, violations: list[Violation]) -> None:
         "",
         outcome,
         "",
-        f"- Maximum file length: **{MAX_FILE_LINES} lines**",
+        f"- Default maximum file length: **{MAX_FILE_LINES} lines**",
+        "- Grandfathered oversized modules are blocked from growing beyond their baseline.",
     ]
 
     if violations:
@@ -176,7 +192,7 @@ def main() -> int:
         )
         return 1
 
-    print(f"Source limit check passed for {len(files)} files (maximum {MAX_FILE_LINES} lines per file).")
+    print(f"Source limit check passed for {len(files)} files (default maximum {MAX_FILE_LINES} lines).")
     return 0
 
 

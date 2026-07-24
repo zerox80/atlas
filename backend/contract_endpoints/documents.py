@@ -175,6 +175,21 @@ async def create_contract(
     return contract_read_for_user(contract, current_user, session)
 
 
+@router.get("/contracts/{contract_id}", response_model=ContractRead)
+def read_contract(
+    contract_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Return one visible document for deep links and detail dialogs."""
+    contract = session.get(Contract, contract_id)
+    if contract is None or contract.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not check_contract_permission(current_user, contract_id, "read", session):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return contract_read_for_user(contract, current_user, session)
+
+
 @router.get("/contracts/{contract_id}/download")
 def download_contract(
     contract_id: int,

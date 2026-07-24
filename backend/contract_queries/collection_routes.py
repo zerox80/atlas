@@ -1,7 +1,7 @@
 """Filtered contract listing and export endpoints."""
 
 import io
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Literal, Optional
 
 import pandas as pd
@@ -14,6 +14,10 @@ from database import get_session
 from models import User
 from schemas import ContractRead
 
+from .business_time import (
+    business_date_end_exclusive_utc,
+    business_date_start_utc,
+)
 from .filters import build_contract_query
 
 
@@ -29,8 +33,8 @@ def read_contracts(
     list_id: Optional[int] = None,
     min_value: Optional[float] = None,
     max_value: Optional[float] = None,
-    start_date_from: Optional[datetime] = None,
-    start_date_to: Optional[datetime] = None,
+    start_date_from: Optional[date] = None,
+    start_date_to: Optional[date] = None,
     status: Optional[Literal["active", "expired"]] = None,
     document_type: Optional[Literal["contract", "invoice"]] = None,
     is_protected: Optional[bool] = None,
@@ -53,8 +57,16 @@ def read_contracts(
         list_id=list_id,
         min_value=min_value,
         max_value=max_value,
-        start_date_from=start_date_from,
-        start_date_to=start_date_to,
+        start_date_from=(
+            business_date_start_utc(start_date_from)
+            if start_date_from is not None
+            else None
+        ),
+        start_date_to_exclusive=(
+            business_date_end_exclusive_utc(start_date_to)
+            if start_date_to is not None
+            else None
+        ),
         status_filter=status,
         document_type=document_type,
         is_protected=is_protected,
@@ -74,8 +86,8 @@ def export_contracts(
     list_id: Optional[int] = None,
     min_value: Optional[float] = None,
     max_value: Optional[float] = None,
-    start_date_from: Optional[datetime] = None,
-    start_date_to: Optional[datetime] = None,
+    start_date_from: Optional[date] = None,
+    start_date_to: Optional[date] = None,
     status: Optional[Literal["active", "expired"]] = None,
     document_type: Optional[Literal["contract", "invoice"]] = None,
     sort_by: Literal[
@@ -94,8 +106,16 @@ def export_contracts(
         list_id=list_id,
         min_value=min_value,
         max_value=max_value,
-        start_date_from=start_date_from,
-        start_date_to=start_date_to,
+        start_date_from=(
+            business_date_start_utc(start_date_from)
+            if start_date_from is not None
+            else None
+        ),
+        start_date_to_exclusive=(
+            business_date_end_exclusive_utc(start_date_to)
+            if start_date_to is not None
+            else None
+        ),
         status_filter=status,
         document_type=document_type,
         sort_by=sort_by,

@@ -3,7 +3,7 @@ Tests for SQLite migrations.
 """
 import sqlite3
 
-from migrate_db import migrate
+from migrate_db import MIGRATIONS, migrate
 
 
 def test_migrate_adds_missing_columns_and_deduplicates_permissions(tmp_path):
@@ -79,7 +79,7 @@ def test_migrate_adds_missing_columns_and_deduplicates_permissions(tmp_path):
     with sqlite3.connect(db_path) as conn:
         migration_count = conn.execute("SELECT COUNT(*) FROM schema_migration").fetchone()[0]
 
-    assert migration_count == 3
+    assert migration_count == len(MIGRATIONS)
 
 
 def test_migrate_makes_legacy_end_date_nullable_without_losing_contracts(tmp_path):

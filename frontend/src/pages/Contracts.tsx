@@ -11,11 +11,16 @@ import {
 } from "react-icons/fi";
 import api, {
   fetchContractPage,
+  getNextContractPageParam,
   protectContracts,
   type ContractCursor,
+  type ContractPageParams,
   toggleContractProtection,
 } from "../api";
 import { useUser } from "../App";
+import SearchFilterBar, {
+  type FilterState,
+} from "../components/SearchFilterBar";
 import { EmptyState, LoadingState, PageHeader } from "../components/ui";
 import ContractCard from "../features/contracts/ContractCard";
 import ContractModals from "../features/contracts/ContractModals";
@@ -28,14 +33,28 @@ import {
   invalidateListAndDocumentQueries,
   queryKeys,
 } from "../queryKeys";
-import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import type { Contract, ContractPage } from "../types";
+import { buildContractQueryParams } from "../utils/filterParams";
+
+const INITIAL_FILTERS: FilterState = {
+  q: "",
+  tags: [],
+  listId: null,
+  minValue: "",
+  maxValue: "",
+  startDateFrom: "",
+  startDateTo: "",
+  status: "",
+  sortBy: "uploaded_at",
+  sortOrder: "desc",
+};
 
 const Contracts: React.FC = () => {
   const { isAdmin, user } = useUser();
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const listId = getListIdFromSearchParams(searchParams);
+  const documentIdParam = searchParams.get("document_id");
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [chatContract, setChatContract] = useState<Contract | null>(null);
@@ -43,7 +62,8 @@ const Contracts: React.FC = () => {
   const [auditContract, setAuditContract] = useState<Contract | null>(null);
   const [detailsContract, setDetailsContract] = useState<Contract | null>(null);
   const [filter, setFilter] = useState<ContractViewFilter>("all");
-  const [search, setSearch] = useState("");
+  const [advancedFilters, setAdvancedFilters] =
+    useState<FilterState>(INITIAL_FILTERS);
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isProtectingSelection, setIsProtectingSelection] = useState(false);
@@ -51,7 +71,24 @@ const Contracts: React.FC = () => {
     () => new Set(),
   );
 
-  const debouncedSearch = useDebouncedValue(search.trim());
+  const advancedFilterKey = useMemo(
+    () => JSON.stringify(advancedFilters),
+    [advancedFilters],
+  );
+  const advancedFilterParams = useMemo<ContractPageParams>(
+    () => buildContractQueryParams(advancedFilters) as ContractPageParams,
+    [advancedFilters],
+  );
+  const hasActiveFilters = Boolean(
+    advancedFilters.q ||
+      advancedFilters.tags.length > 0 ||
+      (listId === null && advancedFilters.listId !== null) ||
+      advancedFilters.minValue ||
+      advancedFilters.maxValue ||
+      advancedFilters.startDateFrom ||
+      advancedFilters.startDateTo ||
+      advancedFilters.status,
+  );
   const {
     data: contractPages,
     fetchNextPage,
@@ -60,28 +97,20 @@ const Contracts: React.FC = () => {
     isError,
     isLoading,
   } = useInfiniteQuery<ContractPage, unknown>(
-    queryKeys.contractPage(listId, filter, debouncedSearch),
+    queryKeys.contractPage(listId, filter, advancedFilterKey),
     ({ pageParam }) =>
       fetchContractPage(
         {
+          ...advancedFilterParams,
           document_type: "contract",
           limit: 40,
-          ...(debouncedSearch ? { q: debouncedSearch } : {}),
           ...(filter !== "all" ? { state: filter } : {}),
-          ...(listId ? { list_id: listId } : {}),
+          ...(listId !== null ? { list_id: listId } : {}),
         },
         pageParam as ContractCursor | undefined,
       ),
     {
-      getNextPageParam: (lastPage) =>
-        lastPage.has_more &&
-        lastPage.next_cursor_uploaded_at &&
-        lastPage.next_cursor_id
-          ? {
-              uploadedAt: lastPage.next_cursor_uploaded_at,
-              id: lastPage.next_cursor_id,
-            }
-          : undefined,
+      getNextPageParam: getNextContractPageParam,
     },
   );
 
@@ -112,7 +141,37 @@ const Contracts: React.FC = () => {
   useEffect(() => {
     setIsSelectionMode(false);
     setSelectedContractIds(new Set());
-  }, [listId]);
+  }, [advancedFilterKey, filter, listId]);
+
+  useEffect(() => {
+    if (!documentIdParam || !/^\d+$/.test(documentIdParam)) {
+      setDetailsContract(null);
+      return;
+    }
+
+    let isCurrent = true;
+    void api
+      .get<Contract>(`/contracts/${documentIdParam}`)
+      .then((response) => {
+        if (!isCurrent) return;
+        setDetailsContract(
+          response.data.document_type === "contract" ? response.data : null,
+        );
+      })
+      .catch(() => {
+        if (isCurrent) setDetailsContract(null);
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [documentIdParam]);
+
+  const clearRequestedDocument = () => {
+    if (!searchParams.has("document_id")) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("document_id");
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const toggleContractSelection = (contract: Contract) => {
     setSelectedContractIds((current) => {
@@ -213,6 +272,7 @@ const Contracts: React.FC = () => {
 
   const handleDetailsEdit = (contract: Contract) => {
     setDetailsContract(null);
+    clearRequestedDocument();
     openUpload(contract);
   };
 
@@ -269,11 +329,11 @@ const Contracts: React.FC = () => {
           setFilter(nextFilter);
           stopSelection();
         }}
-        searchQuery={search}
-        onSearchChange={(nextSearch) => {
-          setSearch(nextSearch);
-          stopSelection();
-        }}
+      />
+      <SearchFilterBar
+        documentType="contract"
+        fixedListId={listId}
+        onFiltersChange={setAdvancedFilters}
       />
 
       {isAdmin && isSelectionMode && contracts.length > 0 && (
@@ -364,17 +424,19 @@ const Contracts: React.FC = () => {
         <EmptyState
           icon={FiFileText}
           title={
-            search || filter !== "all"
+            hasActiveFilters || filter !== "all"
               ? "Keine passenden Verträge"
               : "Noch keine Verträge"
           }
           description={
-            search || filter !== "all"
+            hasActiveFilters || filter !== "all"
               ? "Passe Suche oder Filter an, um andere Ergebnisse zu sehen."
               : "Lade den ersten Vertrag hoch und lass Fristen automatisch erkennen."
           }
           action={
-            !search && filter === "all" && user?.can_create_documents ? (
+            !hasActiveFilters &&
+            filter === "all" &&
+            user?.can_create_documents ? (
               <button onClick={() => openUpload()} className="btn-primary">
                 <FiPlus /> Ersten Vertrag hochladen
               </button>
@@ -405,7 +467,10 @@ const Contracts: React.FC = () => {
         listContracts={listContracts}
         onAuditClose={() => setAuditContract(null)}
         onChatClose={() => setChatContract(null)}
-        onDetailsClose={() => setDetailsContract(null)}
+        onDetailsClose={() => {
+          setDetailsContract(null);
+          clearRequestedDocument();
+        }}
         onDownload={handleDownload}
         onEdit={handleDetailsEdit}
         onListClose={() => setListContracts([])}
