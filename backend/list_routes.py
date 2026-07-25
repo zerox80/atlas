@@ -728,7 +728,10 @@ def get_list_contracts(
         current_user,
         "read",
         list_id=list_id,
-    ).distinct()
+    ).distinct().order_by(
+        col(Contract.uploaded_at).desc(),
+        col(Contract.id).desc(),
+    )
     contracts = session.exec(statement.offset(offset).limit(limit)).all()
     
     return contract_reads_for_user(contracts, current_user, session)

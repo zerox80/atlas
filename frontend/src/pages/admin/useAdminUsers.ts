@@ -155,11 +155,8 @@ export const useAdminUsers = (loadData: ReloadAdminData) => {
       await api.put(`/admin/users/${selectedUser.id}`, {
         role: editRole,
         is_active: editIsActive,
+        default_workspace_id: editDefaultWorkspaceId || null,
       });
-      await api.put(
-        `/admin/users/${selectedUser.id}/default-workspace`,
-        { list_id: editDefaultWorkspaceId || null },
-      );
       setIsEditUserModalOpen(false);
       setSelectedUser(null);
       await loadData();

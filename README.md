@@ -126,10 +126,16 @@ MISTRAL_OCR_MODEL=mistral-ocr-4-0
 MISTRAL_OCR_TABLE_FORMAT=markdown
 MISTRAL_OCR_INCLUDE_BLOCKS=true
 MISTRAL_OCR_CONFIDENCE_GRANULARITY=page
+MISTRAL_USE_OCR=true
+MISTRAL_MAX_PDF_PAGES=100
+MISTRAL_MAX_IMAGE_PDF_PAGES=8
 MISTRAL_DOCUMENT_PROCESSING_ENABLED=true
 ```
 
 Setzen Sie `MISTRAL_DOCUMENT_PROCESSING_ENABLED=false`, um die externe KI Dokumentverarbeitung vollständig zu deaktivieren.
+
+Wenn `MISTRAL_USE_OCR=false` gesetzt ist, werden PDFs als Bilder verarbeitet und
+bereits bei der Validierung auf `MISTRAL_MAX_IMAGE_PDF_PAGES` begrenzt.
 
 Starten Sie die Anwendung mit folgendem Befehl im Hauptverzeichnis:
 

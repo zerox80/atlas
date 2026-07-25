@@ -54,9 +54,19 @@ class TestAuthentication:
     def test_logout(self, auth_client: TestClient):
         """Test logout clears cookie."""
         response = auth_client.post("/logout")
+
         assert response.status_code == 200
-        # Cookie is cleared by setting max_age=0
-        assert "access_token" in response.cookies or response.status_code == 200
+        cookie_headers = [
+            header.lower() for header in response.headers.get_list("set-cookie")
+        ]
+        assert any(
+            header.startswith("access_token=") and "max-age=0" in header
+            for header in cookie_headers
+        )
+        assert any(
+            header.startswith("csrf_token=") and "max-age=0" in header
+            for header in cookie_headers
+        )
 
     def test_cookie_authenticated_mutation_requires_csrf_token(self, client: TestClient):
         """Cookie-authenticated mutations require a matching CSRF header."""

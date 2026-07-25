@@ -21,6 +21,9 @@ OCR_CONFIDENCE_GRANULARITY = os.getenv(
     "MISTRAL_OCR_CONFIDENCE_GRANULARITY", "page"
 ).lower()
 MAX_PDF_PAGES = max(1, int(os.getenv("MISTRAL_MAX_PDF_PAGES", "100")))
+MAX_IMAGE_PDF_PAGES = max(
+    1, int(os.getenv("MISTRAL_MAX_IMAGE_PDF_PAGES", "8"))
+)
 MAX_OCR_CHARACTERS = max(
     1, int(os.getenv("MISTRAL_MAX_OCR_CHARACTERS", "100000"))
 )
@@ -145,9 +148,14 @@ def _validate_pdf_limits(pdf_bytes: bytes) -> None:
                 raise ValueError("Passwortgeschützte PDFs werden nicht unterstützt.")
             if len(pdf_doc) == 0:
                 raise ValueError("Das PDF enthält keine Seiten.")
-            if len(pdf_doc) > MAX_PDF_PAGES:
+            page_limit = (
+                MAX_PDF_PAGES
+                if use_ocr_mode()
+                else min(MAX_PDF_PAGES, MAX_IMAGE_PDF_PAGES)
+            )
+            if len(pdf_doc) > page_limit:
                 raise ValueError(
-                    f"Das PDF überschreitet das Limit von {MAX_PDF_PAGES} Seiten."
+                    f"Das PDF überschreitet das Limit von {page_limit} Seiten."
                 )
     except ValueError:
         raise
@@ -161,7 +169,7 @@ async def validate_pdf_for_ai(pdf_bytes: bytes) -> None:
 
 
 async def process_pdf_to_images(
-    pdf_bytes: bytes, max_pages: int = 8
+    pdf_bytes: bytes, max_pages: int = MAX_IMAGE_PDF_PAGES
 ) -> list[str]:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(

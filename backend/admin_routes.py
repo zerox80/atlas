@@ -137,6 +137,45 @@ def _ensure_default_workspace_permission(
     return True
 
 
+def _get_default_workspace_target(
+    session: Session,
+    user: User,
+    workspace_id: int | None,
+) -> ContractList | None:
+    if workspace_id is None:
+        return None
+    workspace = session.get(ContractList, workspace_id)
+    if workspace is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if not workspace_can_be_selected_as_default(user, workspace):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Another user's personal Default cannot be selected as the "
+                "upload target"
+            ),
+        )
+    return workspace
+
+
+def _apply_default_workspace_target(
+    session: Session,
+    user: User,
+    workspace: ContractList | None,
+) -> tuple[int | None, int | None, bool]:
+    previous_workspace_id = user.default_workspace_id
+    permission_changed = (
+        _ensure_default_workspace_permission(session, user, workspace)
+        if workspace is not None
+        else False
+    )
+    user.default_workspace_id = workspace.id if workspace is not None else None
+    session.add(user)
+    if workspace is None:
+        resolve_user_default_workspace(session, user)
+    return previous_workspace_id, user.default_workspace_id, permission_changed
+
+
 def _is_personal_default_owner_permission(
     user_id: int,
     workspace: ContractList | None,
@@ -262,7 +301,19 @@ def update_user(
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
+    default_workspace_requested = (
+        "default_workspace_id" in user_data.model_fields_set
+    )
+    requested_workspace = (
+        _get_default_workspace_target(
+            session,
+            user,
+            user_data.default_workspace_id,
+        )
+        if default_workspace_requested
+        else None
+    )
     changes = []
     password_changed = False
 
@@ -300,11 +351,32 @@ def update_user(
         if user_data.is_active != user.is_active:
             changes.append(f"is_active: {user.is_active} -> {user_data.is_active}")
             user.is_active = user_data.is_active
-    
+
+    if default_workspace_requested:
+        previous_workspace_id, current_workspace_id, permission_changed = (
+            _apply_default_workspace_target(session, user, requested_workspace)
+        )
+        if previous_workspace_id != current_workspace_id:
+            changes.append(
+                "default_workspace_id: "
+                f"'{previous_workspace_id}' -> '{current_workspace_id}'"
+            )
+        if permission_changed:
+            changes.append("default_workspace_permission: updated")
+
     if changes:
         session.add(user)
         if password_changed:
             _increment_token_version(session, user)
+        session.flush()
+        if not default_workspace_requested:
+            previous_workspace_id = user.default_workspace_id
+            resolve_user_default_workspace(session, user)
+            if previous_workspace_id != user.default_workspace_id:
+                changes.append(
+                    "default_workspace_id: "
+                    f"'{previous_workspace_id}' -> '{user.default_workspace_id}'"
+                )
         log_audit(
             session,
             admin.id,
@@ -314,8 +386,6 @@ def update_user(
             request.headers.get("user-agent"),
             commit=False,
         )
-        session.flush()
-        resolve_user_default_workspace(session, user)
         session.commit()
         session.refresh(user)
 
@@ -372,35 +442,16 @@ def set_default_workspace(
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    workspace = (
-        session.get(ContractList, workspace_data.list_id)
-        if workspace_data.list_id is not None
-        else None
+    workspace = _get_default_workspace_target(
+        session,
+        user,
+        workspace_data.list_id,
     )
-    if workspace_data.list_id is not None and workspace is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    if workspace is not None and not workspace_can_be_selected_as_default(
+    previous_workspace_id, _, permission_changed = _apply_default_workspace_target(
+        session,
         user,
         workspace,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Another user's personal Default cannot be selected as the "
-                "upload target"
-            ),
-        )
-
-    previous_workspace_id = user.default_workspace_id
-    permission_changed = (
-        _ensure_default_workspace_permission(session, user, workspace)
-        if workspace is not None
-        else False
     )
-    user.default_workspace_id = workspace.id if workspace is not None else None
-    session.add(user)
-    if workspace is None:
-        resolve_user_default_workspace(session, user)
     log_audit(
         session,
         admin.id,

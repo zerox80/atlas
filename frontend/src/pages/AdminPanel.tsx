@@ -19,7 +19,6 @@ const AdminPanel: React.FC = () => {
     loadData,
     loadError,
     loadTags,
-    loadUsers,
     permissionPage,
     permissionPageSize,
     permissionTotal,
@@ -30,7 +29,7 @@ const AdminPanel: React.FC = () => {
     users,
   } = useAdminData();
   const backup = useAdminBackup();
-  const userManagement = useAdminUsers(loadUsers);
+  const userManagement = useAdminUsers(loadData);
   const permissionManagement = useAdminPermissions(loadData);
   const tagManagement = useAdminTags(loadTags);
 
