@@ -34,6 +34,7 @@ from contract_queries import (
     validate_contract_form,
 )
 from database import get_session
+from file_cleanup import enqueue_file_deletion, process_file_deletion_job
 from file_utils import (
     delete_upload_file,
     resolve_file_path,
@@ -304,6 +305,7 @@ async def update_contract(
 
     new_file_path: str | None = None
     old_file_path: str | None = None
+    deletion_job_id: int | None = None
     if file:
         enforce_upload_rate_limit(request)
         try:
@@ -360,6 +362,11 @@ async def update_contract(
                 contract_id=contract_id,
                 commit=False,
             )
+            if old_file_path and old_file_path != contract.file_path:
+                deletion_job = enqueue_file_deletion(session, old_file_path)
+                if deletion_job is None or deletion_job.id is None:
+                    raise RuntimeError("File cleanup job could not be created")
+                deletion_job_id = deletion_job.id
             session.commit()
     except Exception:
         session.rollback()
@@ -369,7 +376,8 @@ async def update_contract(
 
     if changes:
         session.refresh(contract)
-    if old_file_path and old_file_path != contract.file_path:
-        delete_upload_file(old_file_path)
+    response_payload = contract_read_for_user(contract, current_user, session)
+    if deletion_job_id is not None:
+        process_file_deletion_job(session, deletion_job_id)
 
-    return contract_read_for_user(contract, current_user, session)
+    return response_payload

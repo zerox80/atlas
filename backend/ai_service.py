@@ -19,6 +19,7 @@ from ai_client import (
     stream_chunks_with_timeout,
 )
 from ai_document_processing import (
+    MAX_IMAGE_PDF_PAGES,
     build_ocr_options as _build_ocr_options,
     format_ocr_text as _format_ocr_text,
     process_pdf_to_images,
@@ -119,7 +120,7 @@ async def _processed_document_payload(
     processing_options = (
         json.dumps(_build_ocr_options(), sort_keys=True)
         if processing_mode == "ocr"
-        else "max_pages=8"
+        else f"max_pages={MAX_IMAGE_PDF_PAGES}"
     )
     digest = hashlib.sha256(pdf_bytes).hexdigest()
     cache_key = f"{processing_mode}:{processing_options}:{digest}"

@@ -237,6 +237,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = Field(None, min_length=8, max_length=128)
     role: Optional[str] = Field(None, pattern="^(admin|user)$")
     is_active: Optional[bool] = None
+    default_workspace_id: Optional[int] = Field(None, ge=1)
 
     @field_validator('username')
     @classmethod

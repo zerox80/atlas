@@ -38,28 +38,23 @@ async def retry_on_rate_limit(func: Callable, *args, **kwargs) -> Any:
         except SDKError as error:
             if error.status_code != 429:
                 raise
-            delay = BASE_DELAY * (2**attempt)
-            logger.warning(
-                "Rate limit hit, waiting %ss before retry %s/%s",
-                delay,
-                attempt + 1,
-                MAX_RETRIES,
-            )
-            await asyncio.sleep(delay)
             last_exception = error
         except Exception as error:
             error_text = str(error).lower()
             if "429" not in error_text and "rate limit" not in error_text:
                 raise
-            delay = BASE_DELAY * (2**attempt)
-            logger.warning(
-                "Rate limit hit, waiting %ss before retry %s/%s",
-                delay,
-                attempt + 1,
-                MAX_RETRIES,
-            )
-            await asyncio.sleep(delay)
             last_exception = error
+
+        if attempt == MAX_RETRIES - 1:
+            break
+        delay = BASE_DELAY * (2**attempt)
+        logger.warning(
+            "Rate limit hit, waiting %ss before retry %s/%s",
+            delay,
+            attempt + 1,
+            MAX_RETRIES,
+        )
+        await asyncio.sleep(delay)
 
     logger.error("Max retries (%s) exhausted for rate limit", MAX_RETRIES)
     raise last_exception or RuntimeError("Max retries exhausted")
