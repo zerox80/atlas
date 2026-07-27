@@ -31,6 +31,15 @@ const WorkspaceSwitcher: FC<WorkspaceSwitcherProps> = ({
     (workspace) => workspace.id === activeWorkspaceId,
   );
   const activeColor = activeWorkspace?.color || "#b8f15a";
+  const activeWorkspaceName = activeWorkspace
+    ? activeWorkspace.is_default
+      ? "Workspace"
+      : activeWorkspace.name
+    : activeWorkspaceId !== null
+      ? isLoading
+        ? "Workspace wird geladen \u2026"
+        : `Workspace #${activeWorkspaceId}`
+      : "Alle Workspaces";
 
   const workspaceKind = activeWorkspace
     ? activeWorkspace.is_default
@@ -61,7 +70,7 @@ const WorkspaceSwitcher: FC<WorkspaceSwitcherProps> = ({
       >
         Aktiver Workspace
       </label>
-      <div className="relative flex items-center gap-2.5">
+      <div className="flex items-center gap-2.5">
         <span
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border"
           style={{
@@ -72,30 +81,47 @@ const WorkspaceSwitcher: FC<WorkspaceSwitcherProps> = ({
         >
           <FiFolder size={16} />
         </span>
-        <select
-          id="active-workspace"
-          value={activeWorkspaceId ?? ""}
-          onChange={(event) =>
-            onChange(event.target.value ? Number(event.target.value) : null)
-          }
-          disabled={isLoading}
-          className="min-w-0 flex-1 appearance-none bg-transparent py-1 pr-7 text-sm font-semibold text-white outline-none disabled:opacity-50 [&>option]:bg-[var(--panel)] [&>option]:text-[var(--ink)]"
+        <div
+          className={[
+            "relative min-w-0 flex-1 rounded-lg py-1",
+            isLoading ? "opacity-50" : "",
+          ].join(" ")}
         >
-          <option value="">Alle Workspaces · Übersicht</option>
-          {activeWorkspaceId !== null && !activeWorkspace && !isLoading && (
-            <option value={activeWorkspaceId}>
-              Workspace #{activeWorkspaceId} · nicht verfügbar
-            </option>
-          )}
-          {workspaces.map((workspace) => (
-            <option key={workspace.id} value={workspace.id}>
-              {workspaceOptionLabel(workspace)}
-            </option>
-          ))}
-        </select>
-        <FiChevronDown className="pointer-events-none absolute right-0 text-[#657080]" />
+          <span
+            className="pointer-events-none line-clamp-2 pr-7 text-sm font-semibold leading-5 text-white"
+            title={activeWorkspaceName}
+          >
+            {activeWorkspaceName}
+          </span>
+          <select
+            id="active-workspace"
+            value={activeWorkspaceId ?? ""}
+            onChange={(event) =>
+              onChange(event.target.value ? Number(event.target.value) : null)
+            }
+            disabled={isLoading}
+            aria-describedby="active-workspace-context"
+            className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none rounded-lg bg-transparent pr-7 text-transparent outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b8f15a] disabled:cursor-wait [&>option]:bg-[var(--panel)] [&>option]:text-[var(--ink)]"
+          >
+            <option value="">Alle Workspaces · Übersicht</option>
+            {activeWorkspaceId !== null && !activeWorkspace && !isLoading && (
+              <option value={activeWorkspaceId}>
+                Workspace #{activeWorkspaceId} · nicht verfügbar
+              </option>
+            )}
+            {workspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspaceOptionLabel(workspace)}
+              </option>
+            ))}
+          </select>
+          <FiChevronDown className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-[#657080]" />
+        </div>
       </div>
-      <p className="mt-2 truncate text-[11px] text-[#697384]">
+      <p
+        id="active-workspace-context"
+        className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#697384]"
+      >
         {isLoading ? "Workspaces werden geladen …" : contextDescription}
       </p>
     </div>
