@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import logging
+import math
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -24,9 +25,18 @@ MAX_PDF_PAGES = max(1, int(os.getenv("MISTRAL_MAX_PDF_PAGES", "100")))
 MAX_IMAGE_PDF_PAGES = max(
     1, int(os.getenv("MISTRAL_MAX_IMAGE_PDF_PAGES", "8"))
 )
+IMAGE_PDF_RENDER_DPI = 150
+MAX_IMAGE_PDF_RENDER_WIDTH = 4096
+MAX_IMAGE_PDF_RENDER_HEIGHT = 4096
+MAX_IMAGE_PDF_PAGE_PIXELS = 16_000_000
+MAX_IMAGE_PDF_TOTAL_PIXELS = 24_000_000
+MAX_IMAGE_PDF_TOTAL_DECODED_BYTES = 96_000_000
 MAX_OCR_CHARACTERS = max(
     1, int(os.getenv("MISTRAL_MAX_OCR_CHARACTERS", "100000"))
 )
+
+_IMAGE_PDF_RENDER_SCALE = IMAGE_PDF_RENDER_DPI / 72
+_IMAGE_PDF_DECODED_BYTES_PER_PIXEL = 4
 
 logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=3)
@@ -121,15 +131,62 @@ def format_ocr_text(ocr_response: Any) -> str:
     return result
 
 
+def _image_render_dimensions(page: Any) -> tuple[int, int]:
+    width = float(page.rect.width) * _IMAGE_PDF_RENDER_SCALE
+    height = float(page.rect.height) * _IMAGE_PDF_RENDER_SCALE
+    if (
+        not math.isfinite(width)
+        or not math.isfinite(height)
+        or width <= 0
+        or height <= 0
+    ):
+        raise ValueError("Das PDF enthält eine Seite mit ungültigen Abmessungen.")
+    return math.ceil(width), math.ceil(height)
+
+
+def _validate_image_render_limits(pdf_doc: Any, max_pages: int) -> None:
+    total_pixels = 0
+    total_decoded_bytes = 0
+    for page_num in range(min(max_pages, len(pdf_doc))):
+        width, height = _image_render_dimensions(pdf_doc[page_num])
+        if (
+            width > MAX_IMAGE_PDF_RENDER_WIDTH
+            or height > MAX_IMAGE_PDF_RENDER_HEIGHT
+        ):
+            raise ValueError(
+                f"PDF-Seite {page_num + 1} überschreitet das Rasterlimit von "
+                f"{MAX_IMAGE_PDF_RENDER_WIDTH} x "
+                f"{MAX_IMAGE_PDF_RENDER_HEIGHT} Pixeln."
+            )
+
+        page_pixels = width * height
+        if page_pixels > MAX_IMAGE_PDF_PAGE_PIXELS:
+            raise ValueError(
+                f"PDF-Seite {page_num + 1} überschreitet das Rasterlimit von "
+                f"{MAX_IMAGE_PDF_PAGE_PIXELS} Pixeln."
+            )
+
+        total_pixels += page_pixels
+        total_decoded_bytes += page_pixels * _IMAGE_PDF_DECODED_BYTES_PER_PIXEL
+        if (
+            total_pixels > MAX_IMAGE_PDF_TOTAL_PIXELS
+            or total_decoded_bytes > MAX_IMAGE_PDF_TOTAL_DECODED_BYTES
+        ):
+            raise ValueError("Das PDF überschreitet das gesamte Rasterlimit.")
+
+
 def _process_pdf_to_images(pdf_bytes: bytes, max_pages: int) -> list[str]:
     import fitz
 
     images_base64 = []
     try:
         with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf_doc:
-            for page_num in range(min(max_pages, len(pdf_doc))):
+            page_count = min(max_pages, len(pdf_doc))
+            _validate_image_render_limits(pdf_doc, page_count)
+            matrix = fitz.Matrix(_IMAGE_PDF_RENDER_SCALE, _IMAGE_PDF_RENDER_SCALE)
+            for page_num in range(page_count):
                 page = pdf_doc[page_num]
-                pix = page.get_pixmap(matrix=fitz.Matrix(150 / 72, 150 / 72))
+                pix = page.get_pixmap(matrix=matrix)
                 image_bytes = pix.tobytes("jpeg")
                 encoded = base64.b64encode(image_bytes).decode()
                 images_base64.append(f"data:image/jpeg;base64,{encoded}")
@@ -148,15 +205,18 @@ def _validate_pdf_limits(pdf_bytes: bytes) -> None:
                 raise ValueError("Passwortgeschützte PDFs werden nicht unterstützt.")
             if len(pdf_doc) == 0:
                 raise ValueError("Das PDF enthält keine Seiten.")
+            ocr_mode = use_ocr_mode()
             page_limit = (
                 MAX_PDF_PAGES
-                if use_ocr_mode()
+                if ocr_mode
                 else min(MAX_PDF_PAGES, MAX_IMAGE_PDF_PAGES)
             )
             if len(pdf_doc) > page_limit:
                 raise ValueError(
                     f"Das PDF überschreitet das Limit von {page_limit} Seiten."
                 )
+            if not ocr_mode:
+                _validate_image_render_limits(pdf_doc, page_limit)
     except ValueError:
         raise
     except Exception as error:
