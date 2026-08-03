@@ -15,7 +15,7 @@ from pydantic import ValidationError
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
-from ai_errors import InvalidStructuredAIResponse
+from ai_errors import AIProcessingCapacityError, InvalidStructuredAIResponse
 from api_core import (
     MISTRAL_DOCUMENT_PROCESSING_ENABLED,
     check_contract_permission,
@@ -134,14 +134,24 @@ def _sse_data(payload: str) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
-async def _stream_chat_response(pdf_bytes: bytes, question: str) -> AsyncIterator[str]:
+async def _stream_chat_response(
+    pdf_bytes: bytes,
+    question: str,
+    owner_id: int | None,
+) -> AsyncIterator[str]:
     """Yield chat chunks as server-sent events and convert failures to an event."""
     try:
         from ai_service import chat_about_contract_stream
 
-        async for chunk in chat_about_contract_stream(pdf_bytes, question):
+        async for chunk in chat_about_contract_stream(
+            pdf_bytes,
+            question,
+            owner_id=owner_id,
+        ):
             yield _sse_data(chunk)
         yield _sse_data("[DONE]")
+    except AIProcessingCapacityError as error:
+        yield _sse_data(f"[ERROR] {error}")
     except Exception:
         error_id = str(uuid.uuid4())
         logger.exception("AI chat stream failed (error_id=%s)", error_id)
@@ -171,8 +181,14 @@ async def analyze_contract_pdf(
     try:
         from ai_service import analyze_contract_pdf as analyze_pdf
 
-        result = await analyze_pdf(pdf_bytes, document_type=document_type)
+        result = await analyze_pdf(
+            pdf_bytes,
+            document_type=document_type,
+            owner_id=current_user.id,
+        )
         return ContractAnalysisResult(**result)
+    except AIProcessingCapacityError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except (ValidationError, InvalidStructuredAIResponse):
         logger.warning("AI contract analysis returned invalid structured data")
         raise HTTPException(
@@ -205,8 +221,14 @@ async def chat_with_contract(
     try:
         from ai_service import chat_about_contract
 
-        answer = await chat_about_contract(pdf_bytes, chat_request.question)
+        answer = await chat_about_contract(
+            pdf_bytes,
+            chat_request.question,
+            owner_id=current_user.id,
+        )
         return ChatResponse(answer=answer)
+    except AIProcessingCapacityError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except Exception:
@@ -231,7 +253,11 @@ async def chat_with_contract_stream(
     pdf_bytes = await _read_contract_pdf_for_ai(contract_id, current_user, session)
 
     return StreamingResponse(
-        _stream_chat_response(pdf_bytes, chat_request.question),
+        _stream_chat_response(
+            pdf_bytes,
+            chat_request.question,
+            current_user.id,
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
