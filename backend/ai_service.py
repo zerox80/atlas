@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Any
 
 from ai_client import (
@@ -27,7 +28,7 @@ from ai_document_processing import (
     use_ocr_mode,
     validate_pdf_for_ai,
 )
-from ai_errors import InvalidStructuredAIResponse
+from ai_errors import AIProcessingCapacityError, InvalidStructuredAIResponse
 from ai_prompts import (
     CONTRACT_ANALYSIS_PROMPT,
     CONTRACT_ANALYSIS_SYSTEM_PROMPT,
@@ -53,11 +54,30 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 DocumentPayload = str | list[str]
+DocumentOwnerId = int | None
+
+
+@dataclass(slots=True)
+class _DocumentProcessingWork:
+    task: asyncio.Task[DocumentPayload]
+    owner_id: DocumentOwnerId
+    retained_bytes: int
+    waiters: int = 0
+
+
 _DOCUMENT_CACHE_MAX_ENTRIES = 16
 _DOCUMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
+_DOCUMENT_PROCESSING_MAX_TASKS = 4
+_DOCUMENT_PROCESSING_MAX_BYTES = 32 * 1024 * 1024
+_DOCUMENT_PROCESSING_MAX_BYTES_PER_USER = 16 * 1024 * 1024
+_AI_PROCESSING_CAPACITY_MESSAGE = (
+    "KI-Dokumentverarbeitung ist ausgelastet. Bitte erneut versuchen."
+)
 _document_cache: OrderedDict[str, tuple[DocumentPayload, int]] = OrderedDict()
 _document_cache_bytes = 0
-_document_processing_tasks: dict[str, asyncio.Task[DocumentPayload]] = {}
+_document_processing_tasks: dict[str, _DocumentProcessingWork] = {}
+_document_processing_bytes = 0
+_document_processing_bytes_by_user: dict[DocumentOwnerId, int] = {}
 
 
 def _copy_document_payload(payload: DocumentPayload) -> DocumentPayload:
@@ -102,8 +122,23 @@ async def _process_document_payload(
 def _finish_document_processing(
     key: str, task: asyncio.Future[DocumentPayload]
 ) -> None:
-    if _document_processing_tasks.get(key) is task:
-        _document_processing_tasks.pop(key, None)
+    global _document_processing_bytes
+
+    work = _document_processing_tasks.get(key)
+    if work is None or work.task is not task:
+        return
+
+    _document_processing_tasks.pop(key, None)
+    _document_processing_bytes -= work.retained_bytes
+    owner_bytes = (
+        _document_processing_bytes_by_user.get(work.owner_id, 0)
+        - work.retained_bytes
+    )
+    if owner_bytes > 0:
+        _document_processing_bytes_by_user[work.owner_id] = owner_bytes
+    else:
+        _document_processing_bytes_by_user.pop(work.owner_id, None)
+
     if task.cancelled():
         return
     try:
@@ -113,8 +148,47 @@ def _finish_document_processing(
     _cache_document_payload(key, payload)
 
 
+def _start_document_processing(
+    key: str,
+    pdf_bytes: bytes,
+    processing_mode: str,
+    owner_id: DocumentOwnerId,
+) -> _DocumentProcessingWork:
+    global _document_processing_bytes
+
+    retained_bytes = len(pdf_bytes)
+    owner_bytes = _document_processing_bytes_by_user.get(owner_id, 0)
+    if (
+        len(_document_processing_tasks) >= _DOCUMENT_PROCESSING_MAX_TASKS
+        or _document_processing_bytes + retained_bytes
+        > _DOCUMENT_PROCESSING_MAX_BYTES
+        or owner_bytes + retained_bytes
+        > _DOCUMENT_PROCESSING_MAX_BYTES_PER_USER
+    ):
+        raise AIProcessingCapacityError(_AI_PROCESSING_CAPACITY_MESSAGE)
+
+    task = asyncio.create_task(
+        _process_document_payload(pdf_bytes, processing_mode)
+    )
+    work = _DocumentProcessingWork(
+        task=task,
+        owner_id=owner_id,
+        retained_bytes=retained_bytes,
+    )
+    _document_processing_tasks[key] = work
+    _document_processing_bytes += retained_bytes
+    _document_processing_bytes_by_user[owner_id] = owner_bytes + retained_bytes
+    task.add_done_callback(
+        lambda completed, task_key=key: _finish_document_processing(
+            task_key, completed
+        )
+    )
+    return work
+
+
 async def _processed_document_payload(
     pdf_bytes: bytes,
+    owner_id: DocumentOwnerId,
 ) -> tuple[str, DocumentPayload]:
     processing_mode = "ocr" if use_ocr_mode() else "images"
     processing_options = (
@@ -130,19 +204,22 @@ async def _processed_document_payload(
         _document_cache[cache_key] = cached
         return processing_mode, _copy_document_payload(cached[0])
 
-    task = _document_processing_tasks.get(cache_key)
-    if task is None:
-        task = asyncio.create_task(
-            _process_document_payload(pdf_bytes, processing_mode)
-        )
-        _document_processing_tasks[cache_key] = task
-        task.add_done_callback(
-            lambda completed, key=cache_key: _finish_document_processing(
-                key, completed
-            )
+    work = _document_processing_tasks.get(cache_key)
+    if work is None:
+        work = _start_document_processing(
+            cache_key,
+            pdf_bytes,
+            processing_mode,
+            owner_id,
         )
 
-    payload = await asyncio.shield(task)
+    work.waiters += 1
+    try:
+        payload = await asyncio.shield(work.task)
+    finally:
+        work.waiters -= 1
+        if work.waiters == 0 and not work.task.done():
+            work.task.cancel()
     return processing_mode, _copy_document_payload(payload)
 
 
@@ -177,7 +254,10 @@ def _parse_analysis_response(response_content: str) -> dict[str, Any]:
 
 
 async def analyze_contract_pdf(
-    pdf_bytes: bytes, document_type: str = "contract"
+    pdf_bytes: bytes,
+    document_type: str = "contract",
+    *,
+    owner_id: DocumentOwnerId = None,
 ) -> dict:
     """Analyze a PDF and extract structured contract or invoice data."""
     if document_type not in {"contract", "invoice"}:
@@ -185,7 +265,9 @@ async def analyze_contract_pdf(
 
     await validate_pdf_for_ai(pdf_bytes)
     client = get_client()
-    processing_mode, document_payload = await _processed_document_payload(pdf_bytes)
+    processing_mode, document_payload = await _processed_document_payload(
+        pdf_bytes, owner_id
+    )
     if processing_mode == "ocr":
         logger.info("Using OCR mode for contract analysis")
         if not isinstance(document_payload, str):
@@ -240,9 +322,13 @@ async def analyze_contract_pdf(
 
 
 async def _question_content(
-    pdf_bytes: bytes, question: str
+    pdf_bytes: bytes,
+    question: str,
+    owner_id: DocumentOwnerId,
 ) -> list[dict[str, str]]:
-    processing_mode, document_payload = await _processed_document_payload(pdf_bytes)
+    processing_mode, document_payload = await _processed_document_payload(
+        pdf_bytes, owner_id
+    )
     if processing_mode == "ocr":
         if not isinstance(document_payload, str):
             raise RuntimeError("Invalid cached OCR payload")
@@ -266,7 +352,12 @@ async def _question_content(
     return content
 
 
-async def chat_about_contract(pdf_bytes: bytes, question: str) -> str:
+async def chat_about_contract(
+    pdf_bytes: bytes,
+    question: str,
+    *,
+    owner_id: DocumentOwnerId = None,
+) -> str:
     """Answer a question about a PDF contract."""
     await validate_pdf_for_ai(pdf_bytes)
     client = get_client()
@@ -274,7 +365,7 @@ async def chat_about_contract(pdf_bytes: bytes, question: str) -> str:
         "Using %s mode for contract chat", "OCR" if use_ocr_mode() else "image"
     )
     try:
-        content = await _question_content(pdf_bytes, question)
+        content = await _question_content(pdf_bytes, question, owner_id)
     except ValueError as error:
         if str(error) == "OCR konnte keinen Text aus dem PDF extrahieren.":
             return f"Fehler: {error}"
@@ -294,7 +385,12 @@ async def chat_about_contract(pdf_bytes: bytes, question: str) -> str:
     return response_content
 
 
-async def chat_about_contract_stream(pdf_bytes: bytes, question: str):
+async def chat_about_contract_stream(
+    pdf_bytes: bytes,
+    question: str,
+    *,
+    owner_id: DocumentOwnerId = None,
+):
     """Stream an answer about a PDF contract token by token."""
     await validate_pdf_for_ai(pdf_bytes)
     client = get_client()
@@ -303,7 +399,7 @@ async def chat_about_contract_stream(pdf_bytes: bytes, question: str):
         "OCR" if use_ocr_mode() else "image",
     )
     try:
-        content = await _question_content(pdf_bytes, question)
+        content = await _question_content(pdf_bytes, question, owner_id)
     except ValueError as error:
         if str(error) == "OCR konnte keinen Text aus dem PDF extrahieren.":
             yield f"Fehler: {error}"
