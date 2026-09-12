@@ -68,6 +68,19 @@ def cancellation_day(end_date_column, notice_period_column):
     return end_date_column - (notice_period * literal(timedelta(days=1)))
 
 
+def cancellation_deadline_utc(end_date: datetime, notice_period: int | None) -> datetime:
+    """Compute a deadline, raising OverflowError for unrepresentable dates."""
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
+    local_end_date = end_date.astimezone(BUSINESS_TIMEZONE).date()
+    local_deadline_date = local_end_date - timedelta(
+        days=notice_period if notice_period is not None else 30
+    )
+    return datetime.combine(
+        local_deadline_date, time.min, tzinfo=BUSINESS_TIMEZONE
+    ).astimezone(timezone.utc)
+
+
 def sqlite_business_cancellation_julianday(
     end_date_value: object,
     notice_period_value: object,
@@ -95,15 +108,12 @@ def sqlite_business_cancellation_julianday(
     except (TypeError, ValueError, OverflowError):
         notice_period = 30
 
-    local_end_date = end_date.astimezone(BUSINESS_TIMEZONE).date()
-    local_deadline_date = local_end_date - timedelta(days=notice_period)
-    local_deadline = datetime.combine(
-        local_deadline_date,
-        time.min,
-        tzinfo=BUSINESS_TIMEZONE,
-    )
-    deadline_utc = local_deadline.astimezone(timezone.utc)
-    return deadline_utc.timestamp() / 86_400 + 2_440_587.5
+    try:
+        deadline_utc = cancellation_deadline_utc(end_date, notice_period)
+        return deadline_utc.timestamp() / 86_400 + 2_440_587.5
+    except (OverflowError, ValueError):
+        # Legacy data has no valid deadline; never invent one or abort the query.
+        return None
 
 
 def cancellation_boundary(value):

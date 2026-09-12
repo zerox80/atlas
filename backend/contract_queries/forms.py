@@ -12,7 +12,7 @@ from api_core import AI_SUPPORTED_FILE_EXTENSION
 from models import Contract
 from schemas import MAX_CONTRACT_TAGS, MAX_FINANCIAL_VALUE, MAX_NOTICE_PERIOD_DAYS
 
-from .business_time import BUSINESS_TIMEZONE
+from .business_time import BUSINESS_TIMEZONE, cancellation_deadline_utc
 
 
 def parse_date_form(val: Optional[str]) -> Optional[datetime]:
@@ -20,11 +20,27 @@ def parse_date_form(val: Optional[str]) -> Optional[datetime]:
         return None
     try:
         parsed = datetime.fromisoformat(val.replace("Z", "+00:00"))
-    except ValueError:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=BUSINESS_TIMEZONE)
+        normalized = parsed.astimezone(timezone.utc)
+        normalized.astimezone(BUSINESS_TIMEZONE)
+        return normalized
+    except (ValueError, OverflowError):
         raise HTTPException(status_code=422, detail="Invalid date format")
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=BUSINESS_TIMEZONE)
-    return parsed.astimezone(timezone.utc)
+
+
+def validate_cancellation_date(
+    end_date: datetime | None, notice_period: int | None
+) -> None:
+    """Require the effective stored date/notice pair to have a valid deadline."""
+    if end_date is None:
+        return
+    try:
+        cancellation_deadline_utc(end_date, notice_period)
+    except (ValueError, OverflowError) as error:
+        raise HTTPException(
+            status_code=422, detail="Cancellation date is outside the supported range"
+        ) from error
 
 
 def parse_float_form(val: Optional[str]) -> Optional[float]:

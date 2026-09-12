@@ -33,6 +33,7 @@ from contract_queries import (
     parse_tags_form,
     validate_contract_form,
 )
+from contract_queries.forms import validate_cancellation_date
 from database import get_session
 from file_cleanup import enqueue_file_deletion, process_file_deletion_job
 from file_utils import (
@@ -115,6 +116,7 @@ async def create_contract(
         document_type=document_type,
     )
 
+    validate_cancellation_date(contract_data.end_date, contract_data.notice_period)
     try:
         await validate_file(file)
     except HTTPException:
@@ -282,6 +284,15 @@ async def update_contract(
         notice_period=parse_int_form(notice_period),
         tags=parse_tags_form(tags) if tags is not None else None,
     )
+    if end_date is not None or notice_period is not None:
+        validate_cancellation_date(
+            update_data.end_date if end_date is not None else contract.end_date,
+            (
+                update_data.notice_period
+                if notice_period is not None
+                else contract.notice_period
+            ),
+        )
     changes: list[str] = []
 
     def check_and_update(field_name, new_value, provided):
