@@ -123,14 +123,14 @@ class TestContractCRUD:
     
     def test_delete_nonexistent_contract(self, auth_client: TestClient):
         """Test deleting a contract that doesn't exist."""
-        response = auth_client.delete("/contracts/99999")
+        response = auth_client.delete("/contracts/99999?version=1")
         assert response.status_code == 404
     
     def test_update_nonexistent_contract(self, auth_client: TestClient):
         """Test updating a contract that doesn't exist."""
         response = auth_client.put(
             "/contracts/99999",
-            data={"title": "Updated Title"}
+            data={"title": "Updated Title", "version": "1"}
         )
         assert response.status_code == 404
 
@@ -144,10 +144,10 @@ class TestContractCRUD:
         session.add(ContractPermission(user_id=test_user.id, contract_id=contract.id, permission_level="full"))
         session.commit()
 
-        response = auth_client.delete(f"/contracts/{contract.id}")
+        response = auth_client.delete(f"/contracts/{contract.id}?version={contract.version}")
 
         assert response.status_code == 204
-        audit_log = session.exec(select(AuditLog).where(AuditLog.action == "DELETE_CONTRACT")).one()
+        audit_log = session.exec(select(AuditLog).where(AuditLog.action == "MOVE_TO_TRASH")).one()
         assert audit_log.user_id == test_user.id
         assert f"[CID:{contract.id}]" in audit_log.details
 

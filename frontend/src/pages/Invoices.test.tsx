@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen, render } from "../test/utils";
+import { fireEvent, screen, render } from "../test/utils";
 import type { Contract } from "../types";
 import Invoices from "./Invoices";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn() }));
 
-vi.mock("../api", () => ({
+vi.mock("../api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../api")>(),
   default: { get: mocks.get },
   fetchContractPage: () =>
     mocks.get().then((response: { data: Contract[] }) => {
@@ -62,12 +63,15 @@ describe("Invoices", () => {
     render(<Invoices />);
 
     expect(await screen.findByText("Telekom · Juni 2026")).toBeInTheDocument();
-    expect(screen.getAllByText("Datum")).toHaveLength(2);
-    expect(screen.getAllByText("Status")).toHaveLength(2);
-    expect(screen.getAllByText("Betrag")).toHaveLength(2);
+    expect(screen.getByText("Rechnungsdatum")).toBeInTheDocument();
+    expect(screen.getByText("15.6.2026")).toBeInTheDocument();
+    expect(screen.getByText("Status")).toBeInTheDocument();
+    expect(screen.getByText("Erfasst")).toBeInTheDocument();
+    expect(screen.getByText("Betrag")).toBeInTheDocument();
     expect(screen.getAllByText("50 €")).toHaveLength(4);
-    expect(screen.getByTitle("Herunterladen")).toBeEnabled();
-    expect(screen.getByTitle("Bearbeiten")).toBeEnabled();
-    expect(screen.getByTitle("Löschen")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Download" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
+    expect(screen.getByRole("button", { name: "Bearbeiten" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Löschen" })).toBeEnabled();
   });
 });

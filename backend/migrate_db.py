@@ -326,15 +326,14 @@ def migration_008_sanitize_contract_numeric_values(cursor: sqlite3.Cursor) -> No
         return
 
     def normalize_financial(value: object, fallback: float | None) -> float | None:
-        if value is None:
+        if not isinstance(value, (str, int, float, bytes, bytearray)):
             return fallback
         try:
             parsed = float(value)
         except (TypeError, ValueError, OverflowError):
             return fallback
-        if not math.isfinite(parsed) or parsed < 0:
-            return fallback
-        return min(parsed, 1_000_000_000_000_000.0)
+        valid = math.isfinite(parsed) and parsed >= 0
+        return min(parsed, 1_000_000_000_000_000.0) if valid else fallback
 
     rows = cursor.execute(
         "SELECT id, value, annual_value, notice_period FROM contract"
@@ -572,7 +571,8 @@ def migration_009_workspace_permissions_and_default(cursor: sqlite3.Cursor) -> N
                 """,
                 (user_id,),
             )
-            default_list_id = int(cursor.lastrowid)
+            assert cursor.lastrowid is not None
+            default_list_id = cursor.lastrowid
         cursor.execute(
             "UPDATE contractlist SET name = 'Default' WHERE id = ?",
             (default_list_id,),

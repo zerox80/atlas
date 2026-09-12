@@ -1,6 +1,6 @@
 """Recoverable, workspace-scoped document trash endpoints."""
 
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, or_
@@ -34,9 +34,9 @@ router = APIRouter()
 
 def _trash_statement(
     current_user: User,
-    list_id: Optional[int],
-    document_type: Optional[str],
-    query: Optional[str],
+    list_id: int | None,
+    document_type: str | None,
+    query: str | None,
 ):
     statement = select(Contract).where(col(Contract.deleted_at).is_not(None))
     if list_id is not None:
@@ -63,9 +63,9 @@ def _trash_statement(
 
 @router.get("/trash", response_model=TrashDocumentPage)
 def read_trash(
-    list_id: Optional[int] = None,
-    document_type: Optional[Literal["contract", "invoice"]] = None,
-    q: Optional[str] = Query(default=None, max_length=200),
+    list_id: int | None = None,
+    document_type: Literal["contract", "invoice"] | None = None,
+    q: str | None = Query(default=None, max_length=200),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
@@ -107,7 +107,7 @@ def read_trash(
         session.exec(
             statement.distinct()
             .options(
-                selectinload(Contract.tags),
+                selectinload(Contract.tags),  # type: ignore[arg-type]  # SQLModel relationship
                 selectinload(Contract.lists),  # type: ignore[arg-type]
             )
             .order_by(col(Contract.deleted_at).desc(), col(Contract.id).desc())

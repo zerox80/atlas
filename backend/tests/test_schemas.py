@@ -1,24 +1,26 @@
 """
 Tests for Pydantic schemas and validation.
 """
-import pytest
-from pydantic import ValidationError
-from datetime import datetime
+import os
 
 # Add parent directory to path
 import sys
-import os
+from datetime import UTC, datetime
+
+import pytest
+from pydantic import ValidationError
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from schemas import (
-    UserCreate, 
-    UserUpdate,
-    TagCreate, 
-    TagUpdate,
-    ContractCreate, 
-    ContractUpdate,
+    ContractCreate,
     ContractListCreate,
-    OTPVerify
+    ContractUpdate,
+    OTPVerify,
+    TagCreate,
+    TagUpdate,
+    UserCreate,
+    UserUpdate,
 )
 
 
@@ -113,8 +115,8 @@ class TestContractSchemas:
         """Test valid contract creation."""
         contract = ContractCreate(
             title="Test Contract",
-            start_date=datetime(2024, 1, 1),
-            end_date=datetime(2024, 12, 31),
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 12, 31, tzinfo=UTC),
             value=1000.0
         )
         assert contract.title == "Test Contract"
@@ -125,8 +127,8 @@ class TestContractSchemas:
         with pytest.raises(ValidationError):
             ContractCreate(
                 title="a" * 256,  # Max 255
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 12, 31)
+                start_date=datetime(2024, 1, 1, tzinfo=UTC),
+                end_date=datetime(2024, 12, 31, tzinfo=UTC)
             )
     
     def test_contract_negative_value(self):
@@ -134,8 +136,8 @@ class TestContractSchemas:
         with pytest.raises(ValidationError):
             ContractCreate(
                 title="Test",
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 12, 31),
+                start_date=datetime(2024, 1, 1, tzinfo=UTC),
+                end_date=datetime(2024, 12, 31, tzinfo=UTC),
                 value=-100.0
             )
     

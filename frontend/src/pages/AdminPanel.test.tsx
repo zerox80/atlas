@@ -8,7 +8,8 @@ const { mockGet, mockPost, mockDelete } = vi.hoisted(() => ({
   mockDelete: vi.fn(),
 }));
 
-vi.mock("../api", () => ({
+vi.mock("../api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../api")>(),
   default: {
     get: mockGet,
     post: mockPost,

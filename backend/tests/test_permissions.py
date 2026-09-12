@@ -4,8 +4,7 @@ Regression tests for contract access control and related data cleanup.
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from main import app, get_current_user
-from main import backfill_existing_contract_read_permissions
+from main import app, backfill_existing_contract_read_permissions, get_current_user
 from models import (
     AuditLog,
     Contract,
@@ -131,13 +130,14 @@ class TestContractPermissions:
         session.add(AuditLog(
             user_id=test_user.id,
             action="UPDATE_CONTRACT",
+            contract_id=contract.id,
             details=f"[CID:{contract.id}] Changed confidential details",
         ))
         session.commit()
 
         authenticate_as(test_user)
         response = client.get(f"/contracts/{contract.id}/audit")
-        assert response.status_code == 403
+        assert response.status_code == 404
 
         grant_permission(session, test_user, contract, "read")
         response = client.get(f"/contracts/{contract.id}/audit")
@@ -225,10 +225,21 @@ class TestContractDeleteCleanup:
         grant_permission(session, test_user, contract, "full")
         session.commit()
 
-        response = admin_client.delete(f"/contracts/{contract.id}")
+        contract_id = contract.id
+        response = admin_client.delete(f"/contracts/{contract_id}?version={contract.version}")
+        assert response.status_code == 204
+        session.refresh(contract)
+        assert contract.deleted_at is not None
+        # Moving to trash retains associations until permanent deletion.
+        assert session.exec(select(ContractTagLink)).first() is not None
+        assert session.exec(select(ContractListLink)).first() is not None
+        assert session.exec(select(ContractPermission)).first() is not None
+        response = admin_client.delete(
+            f"/trash/{contract_id}/permanent?version={contract.version}"
+        )
         assert response.status_code == 204
 
-        assert session.get(Contract, contract.id) is None
-        assert session.exec(select(ContractTagLink).where(ContractTagLink.contract_id == contract.id)).all() == []
-        assert session.exec(select(ContractListLink).where(ContractListLink.contract_id == contract.id)).all() == []
-        assert session.exec(select(ContractPermission).where(ContractPermission.contract_id == contract.id)).all() == []
+        assert session.get(Contract, contract_id) is None
+        assert session.exec(select(ContractTagLink).where(ContractTagLink.contract_id == contract_id)).all() == []
+        assert session.exec(select(ContractListLink).where(ContractListLink.contract_id == contract_id)).all() == []
+        assert session.exec(select(ContractPermission).where(ContractPermission.contract_id == contract_id)).all() == []

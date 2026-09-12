@@ -1,7 +1,6 @@
 """Tag and audit-log routes."""
 
 from datetime import datetime
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import or_
@@ -18,7 +17,6 @@ from models import AuditLog, Contract, ContractTagLink, Tag, User
 from schemas import (
     AuditLogRead,
     ContractAuditLogPage,
-    ContractAuditLogRead,
     TagCreate,
     TagRead,
     TagUpdate,
@@ -27,7 +25,7 @@ from security_utils import log_audit
 
 router = APIRouter()
 
-@router.get("/tags", response_model=List[TagRead])
+@router.get("/tags", response_model=list[TagRead])
 def get_tags(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
@@ -149,7 +147,7 @@ def delete_tag(
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@router.get("/audit-logs", response_model=List[AuditLogRead])
+@router.get("/audit-logs", response_model=list[AuditLogRead])
 def get_audit_logs(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -173,8 +171,8 @@ def get_audit_logs(current_user: User = Depends(get_current_user), session: Sess
 def get_contract_audit_logs(
     contract_id: int,
     limit: int = Query(default=50, ge=1, le=100),
-    cursor_timestamp: Optional[datetime] = None,
-    cursor_id: Optional[int] = Query(default=None, ge=1),
+    cursor_timestamp: datetime | None = None,
+    cursor_id: int | None = Query(default=None, ge=1),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):

@@ -1,8 +1,8 @@
 """
 Tests for authentication endpoints.
 """
-from fastapi.testclient import TestClient
 import pyotp
+from fastapi.testclient import TestClient
 from sqlmodel import select
 
 from auth import get_password_hash, verify_password

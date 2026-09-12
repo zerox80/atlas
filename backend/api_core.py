@@ -6,14 +6,16 @@ import logging
 import os
 import secrets
 from collections.abc import Sequence
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from fastapi import Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import and_, exists, false, func, insert, literal, or_, select as sa_select, true
+from sqlalchemy import and_, exists, false, func, insert, inspect, literal, or_, true
+from sqlalchemy import select as sa_select
+from sqlalchemy.engine import CursorResult
 from sqlmodel import Session, col, select
 
 from auth import (
@@ -83,7 +85,7 @@ def set_csrf_cookie(response: Response, request: Request) -> str:
 
 def bootstrap_admin_user(session: Session) -> None:
     """Create the initial admin account without resetting existing credentials."""
-    user = session.exec(select(User).where(User.username == "admin")).first()
+    user = session.exec(select(User).where(col(User.username) == "admin")).first()
     if user:
         if os.getenv("ADMIN_PASSWORD"):
             logger.warning(
@@ -144,7 +146,7 @@ def get_current_user(
         )
 
     user = session.exec(
-        select(User).where(User.auth_subject == auth_subject)
+        select(User).where(col(User.auth_subject) == auth_subject)
     ).first()
     if user is None:
         raise HTTPException(
@@ -231,8 +233,8 @@ def workspace_permission_level(
 
     permission = session.exec(
         select(ContractListPermission)
-        .where(ContractListPermission.user_id == user.id)
-        .where(ContractListPermission.list_id == list_id)
+        .where(col(ContractListPermission.user_id) == user.id)
+        .where(col(ContractListPermission.list_id) == list_id)
     ).first()
     return permission.permission_level if permission else None
 
@@ -261,7 +263,7 @@ def user_can_create_documents(user: User, session: Session) -> bool:
             ContractList,
             col(ContractList.id) == col(ContractListPermission.list_id),
         )
-        .where(ContractListPermission.user_id == user.id)
+        .where(col(ContractListPermission.user_id) == user.id)
         .where(
             col(ContractListPermission.permission_level).in_(
                 allowed_permission_levels("write")
@@ -270,7 +272,7 @@ def user_can_create_documents(user: User, session: Session) -> bool:
         .where(
             or_(
                 col(ContractList.is_default).is_(False),
-                ContractList.owner_user_id == user.id,
+                col(ContractList.owner_user_id) == user.id,
             )
         )
         .limit(1)
@@ -306,8 +308,8 @@ def ensure_default_workspace(session: Session, owner_user_id: int) -> ContractLi
 
     owner_permission = session.exec(
         select(ContractListPermission)
-        .where(ContractListPermission.user_id == owner_user_id)
-        .where(ContractListPermission.list_id == workspace.id)
+        .where(col(ContractListPermission.user_id) == owner_user_id)
+        .where(col(ContractListPermission.list_id) == workspace.id)
     ).first()
     permission_changed = False
     if owner_permission is None:
@@ -350,7 +352,7 @@ def workspace_can_be_default_for_user(
     session: Session,
 ) -> bool:
     """A default target must be writable and never another user's personal area."""
-    if not workspace_can_be_selected_as_default(user, workspace):
+    if workspace.id is None or not workspace_can_be_selected_as_default(user, workspace):
         return False
     return check_workspace_permission(user, workspace.id, "write", session)
 
@@ -409,8 +411,8 @@ def backfill_default_workspace_links(session: Session) -> int:
         .where(
             ~exists(
                 sa_select(1)
-                .select_from(ContractListLink.__table__)
-                .where(ContractListLink.contract_id == Contract.id)
+                .select_from(inspect(ContractListLink).local_table)
+                .where(col(ContractListLink.contract_id) == Contract.id)
             )
         )
     ).all()
@@ -452,8 +454,8 @@ def _contract_access_context(
 
     direct = session.exec(
         select(ContractPermission.permission_level)
-        .where(ContractPermission.user_id == user.id)
-        .where(ContractPermission.contract_id == contract_id)
+        .where(col(ContractPermission.user_id) == user.id)
+        .where(col(ContractPermission.contract_id) == contract_id)
     ).first()
     workspace_rows = session.exec(
         select(
@@ -464,8 +466,8 @@ def _contract_access_context(
             ContractListLink,
             col(ContractListLink.list_id) == col(ContractListPermission.list_id),
         )
-        .where(ContractListPermission.user_id == user.id)
-        .where(ContractListLink.contract_id == contract_id)
+        .where(col(ContractListPermission.user_id) == user.id)
+        .where(col(ContractListLink.contract_id) == contract_id)
     ).all()
     effective_level = strongest_permission_level(
         [direct, *(permission_level for _, permission_level in workspace_rows)]
@@ -512,7 +514,7 @@ def contract_read_for_user(
     session: Session,
     assigned_level: str | None | object = _PERMISSION_NOT_LOADED,
     visible_list_ids: set[int] | None | object = _VISIBLE_LISTS_NOT_LOADED,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Serialize a contract with the caller's effective capabilities."""
     data = ContractRead.model_validate(contract).model_dump()
     data["business_timezone"] = BUSINESS_TIMEZONE_NAME
@@ -555,7 +557,7 @@ def contract_reads_for_user(
     contracts: Sequence[Contract],
     user: User,
     session: Session,
-) -> list[dict[str, object]]:
+) -> list[dict[str, Any]]:
     """Serialize many contracts while loading ACLs in a single query."""
     if user.role == "admin":
         return [
@@ -569,7 +571,7 @@ def contract_reads_for_user(
     if user.id is not None and contract_ids:
         permissions = session.exec(
             select(ContractPermission)
-            .where(ContractPermission.user_id == user.id)
+            .where(col(ContractPermission.user_id) == user.id)
             .where(col(ContractPermission.contract_id).in_(contract_ids))
         ).all()
         direct_permissions_by_contract = {
@@ -586,15 +588,16 @@ def contract_reads_for_user(
                 ContractListPermission,
                 col(ContractListPermission.list_id) == col(ContractListLink.list_id),
             )
-            .where(ContractListPermission.user_id == user.id)
+            .where(col(ContractListPermission.user_id) == user.id)
             .where(col(ContractListLink.contract_id).in_(contract_ids))
         ).all()
         for contract_id, list_id, permission_level in workspace_permissions:
-            workspace_permissions_by_contract.setdefault(contract_id, []).append(
-                (list_id, permission_level)
-            )
+            if contract_id is None:
+                continue
+            levels = workspace_permissions_by_contract.setdefault(contract_id, [])
+            levels.append((list_id, permission_level))
 
-    result: list[dict[str, object]] = []
+    result: list[dict[str, Any]] = []
     for contract in contracts:
         direct_level = (
             direct_permissions_by_contract.get(contract.id)
@@ -638,9 +641,9 @@ def backfill_existing_contract_read_permissions(session: Session) -> int:
     if already_ran:
         return 0
 
-    users = User.__table__
-    contracts = Contract.__table__
-    permissions = ContractPermission.__table__
+    users = inspect(User).local_table
+    contracts = inspect(Contract).local_table
+    permissions = inspect(ContractPermission).local_table
     permission_exists = exists(
         sa_select(1)
         .select_from(permissions)
@@ -651,7 +654,7 @@ def backfill_existing_contract_read_permissions(session: Session) -> int:
             )
         )
     )
-    insert_missing_permissions = insert(permissions).from_select(
+    insert_missing_permissions = insert(ContractPermission).from_select(
         ["user_id", "contract_id", "permission_level"],
         sa_select(users.c.id, contracts.c.id, literal("read"))
         .select_from(users.join(contracts, true()))
@@ -660,7 +663,7 @@ def backfill_existing_contract_read_permissions(session: Session) -> int:
         .where(~permission_exists),
     )
     result = session.execute(insert_missing_permissions)
-    created = max(result.rowcount or 0, 0)
+    created = max(cast(CursorResult, result).rowcount or 0, 0)
 
     session.add(
         AuditLog(
@@ -672,10 +675,7 @@ def backfill_existing_contract_read_permissions(session: Session) -> int:
     session.commit()
 
     if created:
-        logger.info(
-            "Granted read access for %d existing user-contract pairs.",
-            created,
-        )
+        logger.info("Granted read access for %d existing user-contract pairs.", created)
 
     return created
 
@@ -704,7 +704,7 @@ def filter_contracts_for_user(
     if user.id is None:
         return statement.where(false())
 
-    contract_permissions = ContractPermission.__table__
+    contract_permissions = inspect(ContractPermission).local_table
     direct_permission_exists = exists(
         sa_select(1)
         .select_from(contract_permissions)
@@ -717,8 +717,8 @@ def filter_contracts_for_user(
         )
     )
 
-    list_permissions = ContractListPermission.__table__
-    list_links = ContractListLink.__table__
+    list_permissions = inspect(ContractListPermission).local_table
+    list_links = inspect(ContractListLink).local_table
     workspace_conditions = [
         list_links.c.contract_id == Contract.id,
         list_permissions.c.user_id == user.id,

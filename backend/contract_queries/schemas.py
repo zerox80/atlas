@@ -1,7 +1,6 @@
 """Response models for contract collection endpoints."""
 
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -18,12 +17,12 @@ class ContractCollectionSummary(BaseModel):
 
 
 class ContractPage(BaseModel):
-    items: List[ContractRead]
-    summary: Optional[ContractCollectionSummary] = None
+    items: list[ContractRead]
+    summary: ContractCollectionSummary | None = None
     has_more: bool
-    next_cursor_uploaded_at: Optional[datetime] = None
-    next_cursor_id: Optional[int] = None
-    next_offset: Optional[int] = None
+    next_cursor_uploaded_at: datetime | None = None
+    next_cursor_id: int | None = None
+    next_offset: int | None = None
 
 
 class DashboardSummary(BaseModel):
@@ -44,12 +43,12 @@ class DashboardChartPoint(BaseModel):
 class DashboardData(BaseModel):
     business_timezone: str
     summary: DashboardSummary
-    chart: List[DashboardChartPoint]
-    upcoming: List[ContractRead]
-    recent: List[ContractRead]
+    chart: list[DashboardChartPoint]
+    upcoming: list[ContractRead]
+    recent: list[ContractRead]
 
 
 class CalendarData(BaseModel):
     business_timezone: str
-    items: List[ContractRead]
+    items: list[ContractRead]
     truncated: bool

@@ -4,8 +4,8 @@ import os
 
 from fastapi import HTTPException, Request
 from limits import parse
-from sqlalchemy.exc import IntegrityError
 from slowapi.util import get_remote_address
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select
 
 from api_core import limiter
@@ -57,9 +57,9 @@ def resolve_tags(
                 session.flush()
             tags_by_name[tag_name] = tag
         except IntegrityError:
-            tag = session.exec(select(Tag).where(Tag.name == tag_name)).first()
-            if tag is None:
+            existing_tag = session.exec(select(Tag).where(Tag.name == tag_name)).first()
+            if existing_tag is None:
                 raise
-            tags_by_name[tag_name] = tag
+            tags_by_name[tag_name] = existing_tag
 
     return [tags_by_name[name] for name in unique_names]

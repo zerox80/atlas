@@ -1,8 +1,9 @@
 """Password hashing and JWT creation helpers."""
 
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Any, Mapping
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from jose import jwt
 from passlib.context import CryptContext
@@ -60,6 +61,6 @@ def create_access_token(
     """Create a signed JWT using the configured or explicitly supplied lifetime."""
     to_encode = dict(data)
     lifetime = expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    expire = datetime.now(timezone.utc) + lifetime
+    expire = datetime.now(UTC) + lifetime
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)

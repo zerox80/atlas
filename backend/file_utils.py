@@ -73,7 +73,7 @@ def detect_mime_with_libmagic(header: bytes) -> str | None:
 
     try:
         detected_mime = magic.from_buffer(header, mime=True)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - MIME detection failure rejects the upload
         logger.warning("libmagic could not inspect an upload: %s", error)
         return None
 

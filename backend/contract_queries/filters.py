@@ -1,7 +1,7 @@
 """Shared SQL query construction for contract collections."""
 
-from datetime import datetime, timezone
-from typing import Any, Literal, Optional
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_
@@ -13,7 +13,6 @@ from database import IS_SQLITE
 from models import Contract, ContractListLink, ContractTagLink, Tag, User
 
 from .business_time import business_day_start_utc, contract_state_condition
-
 
 CONTRACT_SORT_COLUMNS: dict[str, Any] = {
     "title": col(Contract.title),
@@ -41,21 +40,21 @@ def _case_insensitive_contains(column, value: str):
 
 def build_contract_query(
     current_user: User,
-    q: Optional[str] = None,
-    tags: Optional[str] = None,
-    list_id: Optional[int] = None,
-    min_value: Optional[float] = None,
-    max_value: Optional[float] = None,
-    start_date_from: Optional[datetime] = None,
-    start_date_to_exclusive: Optional[datetime] = None,
-    status_filter: Optional[str] = None,
-    state_filter: Optional[Literal["active", "attention", "expired"]] = None,
-    document_type: Optional[str] = None,
-    is_protected: Optional[bool] = None,
-    sort_by: Optional[str] = "uploaded_at",
-    sort_order: Optional[str] = "desc",
-    cursor_uploaded_at: Optional[datetime] = None,
-    cursor_id: Optional[int] = None,
+    q: str | None = None,
+    tags: str | None = None,
+    list_id: int | None = None,
+    min_value: float | None = None,
+    max_value: float | None = None,
+    start_date_from: datetime | None = None,
+    start_date_to_exclusive: datetime | None = None,
+    status_filter: str | None = None,
+    state_filter: Literal["active", "attention", "expired"] | None = None,
+    document_type: str | None = None,
+    is_protected: bool | None = None,
+    sort_by: str | None = "uploaded_at",
+    sort_order: str | None = "desc",
+    cursor_uploaded_at: datetime | None = None,
+    cursor_id: int | None = None,
     load_relationships: bool = True,
 ):
     """Build the shared filtered contract query used by list and export endpoints."""
@@ -106,7 +105,7 @@ def build_contract_query(
             col(Contract.start_date) < start_date_to_exclusive,
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     today_start = business_day_start_utc(now)
     if status_filter == "active":
         statement = statement.where(
@@ -164,7 +163,7 @@ def build_contract_query(
     statement = statement.distinct()
     if load_relationships:
         statement = statement.options(
-            selectinload(Contract.tags),
+            selectinload(Contract.tags),  # type: ignore[arg-type]  # SQLModel relationship
             selectinload(Contract.lists),  # type: ignore[arg-type]
         )
     return statement

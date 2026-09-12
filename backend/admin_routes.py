@@ -1,15 +1,19 @@
 """Current-user, user administration, and permission routes."""
 
-from datetime import datetime, timezone
-from typing import List
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, update
 from sqlmodel import Session, col, delete, select
 
+from admin_workspace_helpers import (
+    _apply_default_workspace_target,
+    _get_default_workspace_target,
+    _is_personal_default_owner_permission,
+)
 from api_core import (
-    ensure_default_workspace,
     ensure_active_admin_remains,
+    ensure_default_workspace,
     get_current_user,
     require_admin,
     resolve_user_default_workspace,
@@ -84,108 +88,11 @@ def _increment_token_version(session: Session, user: User) -> None:
     session.flush()
     session.exec(
         update(User)
-        .where(User.id == user.id)
+        .where(col(User.id) == user.id)
         .values(token_version=User.token_version + 1)
         .execution_options(synchronize_session=False)
     )
     session.expire(user, ["token_version"])
-
-
-def _ensure_default_workspace_permission(
-    session: Session,
-    user: User,
-    workspace: ContractList,
-) -> bool:
-    """Grant the minimum workspace permission implied by a default target."""
-    if user.role == "admin":
-        return False
-    if user.id is None or workspace.id is None:
-        raise RuntimeError("Default workspace permission could not be resolved")
-
-    desired_level = (
-        "full"
-        if workspace.is_default and workspace.owner_user_id == user.id
-        else "write"
-    )
-    permission = session.exec(
-        select(ContractListPermission)
-        .where(ContractListPermission.user_id == user.id)
-        .where(ContractListPermission.list_id == workspace.id)
-    ).first()
-    if permission is None:
-        session.add(
-            ContractListPermission(
-                user_id=user.id,
-                list_id=workspace.id,
-                permission_level=desired_level,
-            )
-        )
-        session.flush()
-        return True
-
-    current_level = permission.permission_level
-    needs_upgrade = (
-        desired_level == "full" and current_level != "full"
-    ) or (
-        desired_level == "write" and current_level not in {"write", "full"}
-    )
-    if not needs_upgrade:
-        return False
-    permission.permission_level = desired_level
-    session.add(permission)
-    session.flush()
-    return True
-
-
-def _get_default_workspace_target(
-    session: Session,
-    user: User,
-    workspace_id: int | None,
-) -> ContractList | None:
-    if workspace_id is None:
-        return None
-    workspace = session.get(ContractList, workspace_id)
-    if workspace is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    if not workspace_can_be_selected_as_default(user, workspace):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Another user's personal Default cannot be selected as the "
-                "upload target"
-            ),
-        )
-    return workspace
-
-
-def _apply_default_workspace_target(
-    session: Session,
-    user: User,
-    workspace: ContractList | None,
-) -> tuple[int | None, int | None, bool]:
-    previous_workspace_id = user.default_workspace_id
-    permission_changed = (
-        _ensure_default_workspace_permission(session, user, workspace)
-        if workspace is not None
-        else False
-    )
-    user.default_workspace_id = workspace.id if workspace is not None else None
-    session.add(user)
-    if workspace is None:
-        resolve_user_default_workspace(session, user)
-    return previous_workspace_id, user.default_workspace_id, permission_changed
-
-
-def _is_personal_default_owner_permission(
-    user_id: int,
-    workspace: ContractList | None,
-) -> bool:
-    """Identify the mandatory owner ACL of one personal Default workspace."""
-    return bool(
-        workspace is not None
-        and workspace.is_default
-        and workspace.owner_user_id == user_id
-    )
 
 
 @router.get("/me")
@@ -239,7 +146,7 @@ def update_workspace_visibility_preference(
 
 
 # --- User Management Endpoints ---
-@router.get("/admin/users", response_model=List[UserRead])
+@router.get("/admin/users", response_model=list[UserRead])
 def list_users(
     admin: User = Depends(require_admin), 
     session: Session = Depends(get_session)
@@ -258,7 +165,7 @@ def create_user(
 ):
     """Create a new user (Admin only)"""
     # Check if username exists
-    existing = session.exec(select(User).where(User.username == user_data.username)).first()
+    existing = session.exec(select(User).where(col(User.username) == user_data.username)).first()
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
     
@@ -267,7 +174,7 @@ def create_user(
         hashed_password=get_password_hash(user_data.password),
         role="user",
         is_active=True,
-        created_at=datetime.now(timezone.utc)
+        created_at=datetime.now(UTC)
     )
     session.add(new_user)
     session.flush()
@@ -332,7 +239,7 @@ def update_user(
     
     if user_data.username is not None and user_data.username != user.username:
         # Check if new username exists
-        existing = session.exec(select(User).where(User.username == user_data.username)).first()
+        existing = session.exec(select(User).where(col(User.username) == user_data.username)).first()
         if existing:
             raise HTTPException(status_code=400, detail="Username already exists")
         changes.append(f"username: '{user.username}' -> '{user_data.username}'")
@@ -347,10 +254,10 @@ def update_user(
         changes.append(f"role: '{user.role}' -> '{user_data.role}'")
         user.role = user_data.role
     
-    if user_data.is_active is not None and hasattr(user, 'is_active'):
-        if user_data.is_active != user.is_active:
-            changes.append(f"is_active: {user.is_active} -> {user_data.is_active}")
-            user.is_active = user_data.is_active
+    if (user_data.is_active is not None and hasattr(user, 'is_active')
+            and user_data.is_active != user.is_active):
+        changes.append(f"is_active: {user.is_active} -> {user_data.is_active}")
+        user.is_active = user_data.is_active
 
     if default_workspace_requested:
         previous_workspace_id, current_workspace_id, permission_changed = (
@@ -394,7 +301,7 @@ def update_user(
 
 @router.get(
     "/admin/users/{user_id}/default-workspace-options",
-    response_model=List[DefaultWorkspaceOptionRead],
+    response_model=list[DefaultWorkspaceOptionRead],
 )
 def get_default_workspace_options(
     user_id: int,
@@ -496,11 +403,11 @@ def delete_user(
         raise RuntimeError("Replacement Default workspace could not be resolved")
 
     owned_default_ids = list(session.exec(
-        select(ContractList.id)
-        .where(ContractList.owner_user_id == user_id)
+        select(col(ContractList.id))
+        .where(col(ContractList.owner_user_id) == user_id)
         .where(col(ContractList.is_default).is_(True))
     ).all())
-    affected_contract_ids: list[int] = []
+    affected_contract_ids: list[int | None] = []
     users_needing_default_fallback: list[User] = []
     if owned_default_ids:
         default_users = session.exec(
@@ -536,21 +443,23 @@ def delete_user(
 
     session.exec(
         update(Contract)
-        .where(Contract.owner_user_id == user_id)
+        .where(col(Contract.owner_user_id) == user_id)
         .values(owner_user_id=replacement_owner_id)
     )
     session.exec(
         update(Contract)
-        .where(Contract.deleted_by_user_id == user_id)
+        .where(col(Contract.deleted_by_user_id) == user_id)
         .values(deleted_by_user_id=None)
     )
     session.exec(
         update(ContractList)
-        .where(ContractList.owner_user_id == user_id)
+        .where(col(ContractList.owner_user_id) == user_id)
         .values(owner_user_id=replacement_owner_id)
     )
     session.flush()
     for contract_id in affected_contract_ids:
+        if contract_id is None:
+            continue
         if session.exec(
             select(ContractListLink).where(
                 col(ContractListLink.contract_id) == contract_id
@@ -573,7 +482,7 @@ def delete_user(
     )
     session.exec(
         update(AuditLog)
-        .where(AuditLog.user_id == user_id)
+        .where(col(AuditLog.user_id) == user_id)
         .values(user_id=None)
     )
     session.delete(user)
@@ -698,13 +607,13 @@ def list_permissions(
             .offset(document_offset)
             .limit(remaining)
         ).all()
-        for permission, user, contract in document_rows:
+        for document_permission, user, contract in document_rows:
             result.append({
-                "id": permission.id,
-                "user_id": permission.user_id,
+                "id": document_permission.id,
+                "user_id": document_permission.user_id,
                 "scope_type": "document",
-                "contract_id": permission.contract_id,
-                "permission_level": permission.permission_level,
+                "contract_id": document_permission.contract_id,
+                "permission_level": document_permission.permission_level,
                 "username": user.username,
                 "contract_title": contract.title,
                 "target_name": contract.title,
@@ -718,7 +627,7 @@ def list_permissions(
     }
 
 
-@router.get("/admin/users/{user_id}/permissions", response_model=List[PermissionRead])
+@router.get("/admin/users/{user_id}/permissions", response_model=list[PermissionRead])
 def get_user_permissions(
     user_id: int,
     admin: User = Depends(require_admin),
@@ -733,7 +642,7 @@ def get_user_permissions(
             ContractList,
             col(ContractList.id) == col(ContractListPermission.list_id),
         )
-        .where(ContractListPermission.user_id == user_id)
+        .where(col(ContractListPermission.user_id) == user_id)
     ).all()
     for permission, user, workspace in workspace_rows:
         owner = (
@@ -758,16 +667,16 @@ def get_user_permissions(
         select(ContractPermission, User, Contract)
         .join(User, col(User.id) == col(ContractPermission.user_id))
         .join(Contract, col(Contract.id) == col(ContractPermission.contract_id))
-        .where(ContractPermission.user_id == user_id)
+        .where(col(ContractPermission.user_id) == user_id)
         .where(col(Contract.deleted_at).is_(None))
     ).all()
-    for permission, user, contract in document_rows:
+    for document_permission, user, contract in document_rows:
         result.append({
-            "id": permission.id,
-            "user_id": permission.user_id,
+            "id": document_permission.id,
+            "user_id": document_permission.user_id,
             "scope_type": "document",
-            "contract_id": permission.contract_id,
-            "permission_level": permission.permission_level,
+            "contract_id": document_permission.contract_id,
+            "permission_level": document_permission.permission_level,
             "username": user.username,
             "contract_title": contract.title,
             "target_name": contract.title,
@@ -795,8 +704,8 @@ def create_permission(
     # Check if permission already exists
     existing = session.exec(
         select(ContractPermission)
-        .where(ContractPermission.user_id == perm_data.user_id)
-        .where(ContractPermission.contract_id == perm_data.contract_id)
+        .where(col(ContractPermission.user_id) == perm_data.user_id)
+        .where(col(ContractPermission.contract_id) == perm_data.contract_id)
     ).first()
     
     if existing:
@@ -874,8 +783,8 @@ def create_workspace_permission(
 
     permission = session.exec(
         select(ContractListPermission)
-        .where(ContractListPermission.user_id == perm_data.user_id)
-        .where(ContractListPermission.list_id == perm_data.list_id)
+        .where(col(ContractListPermission.user_id) == perm_data.user_id)
+        .where(col(ContractListPermission.list_id) == perm_data.list_id)
     ).first()
     action = "UPDATE_WORKSPACE_PERMISSION" if permission else "CREATE_WORKSPACE_PERMISSION"
     if permission:

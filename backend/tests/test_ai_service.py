@@ -105,7 +105,7 @@ async def test_pending_document_work_is_bounded_and_deduplicated(monkeypatch):
         service, "_DOCUMENT_PROCESSING_MAX_BYTES_PER_USER", 1024
     )
     monkeypatch.setattr(service, "use_ocr_mode", lambda: True)
-    monkeypatch.setattr(service, "_build_ocr_options", lambda: {})
+    monkeypatch.setattr(service, "_build_ocr_options", dict)
     monkeypatch.setattr(service, "_process_document_payload", process_document)
 
     first = asyncio.create_task(
@@ -156,7 +156,7 @@ async def test_pending_document_work_enforces_byte_budgets(monkeypatch):
         service, "_DOCUMENT_PROCESSING_MAX_BYTES_PER_USER", 4
     )
     monkeypatch.setattr(service, "use_ocr_mode", lambda: True)
-    monkeypatch.setattr(service, "_build_ocr_options", lambda: {})
+    monkeypatch.setattr(service, "_build_ocr_options", dict)
     monkeypatch.setattr(service, "_process_document_payload", process_document)
 
     first = asyncio.create_task(
@@ -205,7 +205,7 @@ async def test_document_processing_is_cancelled_without_waiters(monkeypatch):
             stopped.set()
 
     monkeypatch.setattr(service, "use_ocr_mode", lambda: True)
-    monkeypatch.setattr(service, "_build_ocr_options", lambda: {})
+    monkeypatch.setattr(service, "_build_ocr_options", dict)
     monkeypatch.setattr(service, "_process_document_payload", process_document)
 
     caller = asyncio.create_task(

@@ -1,6 +1,6 @@
 """Security audit helpers shared by API routes."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session
 
@@ -24,7 +24,7 @@ def log_audit(
         contract_id=contract_id,
         action=action,
         details=details,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         ip_address=ip_address,
         user_agent=user_agent,
     )

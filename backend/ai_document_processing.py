@@ -16,7 +16,6 @@ from ai_client import (
     retry_on_rate_limit,
 )
 
-
 OCR_TABLE_FORMAT = os.getenv("MISTRAL_OCR_TABLE_FORMAT", "markdown").lower()
 OCR_CONFIDENCE_GRANULARITY = os.getenv(
     "MISTRAL_OCR_CONFIDENCE_GRANULARITY", "page"
