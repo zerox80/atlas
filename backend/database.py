@@ -2,7 +2,7 @@ import os
 from typing import Any
 
 from sqlalchemy import event
-from sqlmodel import SQLModel, create_engine, Session
+from sqlmodel import Session, SQLModel, create_engine
 
 sqlite_url = os.getenv("DATABASE_URL", "sqlite:///./data/ze_dashboard.db")
 debug_mode = os.getenv("DEBUG_MODE", "false").lower() == "true"

@@ -3,7 +3,7 @@
 import logging
 import mimetypes
 import os
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import (
     APIRouter,
@@ -55,15 +55,15 @@ async def create_contract(
     request: Request,
     title: Annotated[str, Form()],
     file: UploadFile = File(...),
-    start_date: Annotated[Optional[str], Form()] = None,
-    end_date: Annotated[Optional[str], Form()] = None,
-    value: Annotated[Optional[str], Form()] = None,
-    annual_value: Annotated[Optional[str], Form()] = None,
-    notice_period: Annotated[Optional[str], Form()] = "30",
-    description: Annotated[Optional[str], Form()] = None,
-    tags: Annotated[Optional[str], Form(max_length=2_550)] = "",
+    start_date: Annotated[str | None, Form()] = None,
+    end_date: Annotated[str | None, Form()] = None,
+    value: Annotated[str | None, Form()] = None,
+    annual_value: Annotated[str | None, Form()] = None,
+    notice_period: Annotated[str | None, Form()] = "30",
+    description: Annotated[str | None, Form()] = None,
+    tags: Annotated[str | None, Form(max_length=2_550)] = "",
     document_type: Annotated[str, Form()] = "contract",
-    list_id: Annotated[Optional[int], Form()] = None,
+    list_id: Annotated[int | None, Form()] = None,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -247,14 +247,14 @@ async def update_contract(
     contract_id: int,
     request: Request,
     version: Annotated[int, Form(ge=1)],
-    title: Annotated[Optional[str], Form()] = None,
-    description: Annotated[Optional[str], Form()] = None,
-    start_date: Annotated[Optional[str], Form()] = None,
-    end_date: Annotated[Optional[str], Form()] = None,
-    value: Annotated[Optional[str], Form()] = None,
-    annual_value: Annotated[Optional[str], Form()] = None,
-    notice_period: Annotated[Optional[str], Form()] = None,
-    tags: Annotated[Optional[str], Form(max_length=2_550)] = None,
+    title: Annotated[str | None, Form()] = None,
+    description: Annotated[str | None, Form()] = None,
+    start_date: Annotated[str | None, Form()] = None,
+    end_date: Annotated[str | None, Form()] = None,
+    value: Annotated[str | None, Form()] = None,
+    annual_value: Annotated[str | None, Form()] = None,
+    notice_period: Annotated[str | None, Form()] = None,
+    tags: Annotated[str | None, Form(max_length=2_550)] = None,
     file: UploadFile = File(None),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),

@@ -1,16 +1,19 @@
 """
 Test fixtures and configuration for backend tests.
 """
-import pytest
-from fastapi.testclient import TestClient
-from httpx import AsyncClient, ASGITransport
-from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
-from typing import Generator, AsyncGenerator
+import os
 
 # Import the app and dependencies
 import sys
-import os
+from collections.abc import AsyncGenerator, Generator
+
+import pytest
+from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
+from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel.pool import StaticPool
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Set SECRET_KEY for testing before importing main/auth
@@ -18,8 +21,8 @@ os.environ["SECRET_KEY"] = "test_secret_key_with_at_least_32_chars"
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["ADMIN_PASSWORD"] = "test-admin-password-123"
 
+from database import _configure_sqlite_connection, get_session
 from main import app, get_current_user
-from database import get_session
 from models import User
 
 
@@ -32,6 +35,7 @@ def session_fixture() -> Generator[Session, None, None]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    event.listen(engine, "connect", _configure_sqlite_connection)
     SQLModel.metadata.create_all(engine)
     
     with Session(engine) as session:

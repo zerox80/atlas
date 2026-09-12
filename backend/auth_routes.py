@@ -177,12 +177,12 @@ def setup_2fa(
     if not verify_password(setup_data.password, current_user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid password")
 
-    if current_user.totp_secret:
-        if not setup_data.current_otp or not pyotp.TOTP(current_user.totp_secret).verify(
-            setup_data.current_otp,
-            valid_window=1,
-        ):
-            raise HTTPException(status_code=401, detail="Valid current 2FA code required")
+    if current_user.totp_secret and (
+        not setup_data.current_otp or not pyotp.TOTP(current_user.totp_secret).verify(
+            setup_data.current_otp, valid_window=1,
+        )
+    ):
+        raise HTTPException(status_code=401, detail="Valid current 2FA code required")
 
     secret = pyotp.random_base32()
     current_user.pending_totp_secret = secret

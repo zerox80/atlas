@@ -11,8 +11,8 @@ from typing import Annotated
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from pydantic import ValidationError
 from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
 from sqlmodel import Session
 
 from ai_errors import AIProcessingCapacityError, InvalidStructuredAIResponse

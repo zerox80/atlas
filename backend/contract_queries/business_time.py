@@ -1,7 +1,7 @@
 """Business-timezone boundaries and SQL date expressions."""
 
 import os
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -10,7 +10,6 @@ from sqlmodel import col
 
 from database import IS_SQLITE
 from models import Contract
-
 
 BUSINESS_TIMEZONE_NAME = os.getenv("BUSINESS_TIMEZONE", "Europe/Berlin")
 try:
@@ -28,7 +27,7 @@ def business_date_start_utc(value: date) -> datetime:
         value.month,
         value.day,
         tzinfo=BUSINESS_TIMEZONE,
-    ).astimezone(timezone.utc)
+    ).astimezone(UTC)
 
 
 def business_date_end_exclusive_utc(value: date) -> datetime:
@@ -44,7 +43,7 @@ def business_day_start_utc(now: datetime, day_offset: int = 0) -> datetime:
         local_now.day,
         tzinfo=BUSINESS_TIMEZONE,
     ) + timedelta(days=day_offset)
-    return local_start.astimezone(timezone.utc)
+    return local_start.astimezone(UTC)
 
 
 def business_month_bounds_utc(now: datetime) -> tuple[datetime, datetime]:
@@ -55,7 +54,7 @@ def business_month_bounds_utc(now: datetime) -> tuple[datetime, datetime]:
         if local_now.month == 12
         else datetime(local_now.year, local_now.month + 1, 1, tzinfo=BUSINESS_TIMEZONE)
     )
-    return month_start.astimezone(timezone.utc), next_month.astimezone(timezone.utc)
+    return month_start.astimezone(UTC), next_month.astimezone(UTC)
 
 
 def cancellation_day(end_date_column, notice_period_column):
@@ -71,14 +70,14 @@ def cancellation_day(end_date_column, notice_period_column):
 def cancellation_deadline_utc(end_date: datetime, notice_period: int | None) -> datetime:
     """Compute a deadline, raising OverflowError for unrepresentable dates."""
     if end_date.tzinfo is None:
-        end_date = end_date.replace(tzinfo=timezone.utc)
+        end_date = end_date.replace(tzinfo=UTC)
     local_end_date = end_date.astimezone(BUSINESS_TIMEZONE).date()
     local_deadline_date = local_end_date - timedelta(
         days=notice_period if notice_period is not None else 30
     )
     return datetime.combine(
         local_deadline_date, time.min, tzinfo=BUSINESS_TIMEZONE
-    ).astimezone(timezone.utc)
+    ).astimezone(UTC)
 
 
 def sqlite_business_cancellation_julianday(
@@ -94,16 +93,18 @@ def sqlite_business_cancellation_julianday(
     else:
         try:
             end_date = datetime.fromisoformat(
-                str(end_date_value).replace("Z", "+00:00")
+                str(end_date_value)
             )
         except ValueError:
             return None
     if end_date.tzinfo is None:
-        end_date = end_date.replace(tzinfo=timezone.utc)
+        end_date = end_date.replace(tzinfo=UTC)
 
     try:
         notice_period = (
-            int(notice_period_value) if notice_period_value is not None else 30
+            int(notice_period_value)
+            if isinstance(notice_period_value, (str, int, float, bytes, bytearray))
+            else 30
         )
     except (TypeError, ValueError, OverflowError):
         notice_period = 30
@@ -159,4 +160,4 @@ def business_month_key_bounds_utc(month_key: str) -> tuple[datetime, datetime]:
         if month == 12
         else datetime(year, month + 1, 1, tzinfo=BUSINESS_TIMEZONE)
     )
-    return month_start.astimezone(timezone.utc), next_month.astimezone(timezone.utc)
+    return month_start.astimezone(UTC), next_month.astimezone(UTC)

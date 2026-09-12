@@ -63,7 +63,7 @@ def process_pending_file_deletions(session: Session) -> tuple[int, int]:
     """Retry every durable cleanup job, returning success/failure counts."""
     job_ids = list(
         session.exec(
-            select(PendingFileDeletion.id)
+            select(col(PendingFileDeletion.id))
             .where(col(PendingFileDeletion.id).is_not(None))
             .order_by(
                 col(PendingFileDeletion.created_at),
@@ -74,6 +74,8 @@ def process_pending_file_deletions(session: Session) -> tuple[int, int]:
     deleted_count = 0
     failed_count = 0
     for job_id in job_ids:
+        if job_id is None:
+            continue
         if process_file_deletion_job(session, job_id):
             deleted_count += 1
         else:

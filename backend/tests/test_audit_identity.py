@@ -1,7 +1,7 @@
 """Regression coverage for retained history and reusable document IDs."""
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlmodel import select
@@ -24,7 +24,7 @@ def test_deleted_document_history_does_not_follow_new_owner(
         file_path="uploads/missing.pdf",
         owner_user_id=admin_user.id,
         document_type=document_type,
-        deleted_at=datetime.now(timezone.utc),
+        deleted_at=datetime.now(UTC),
     )
     session.add(victim)
     session.flush()

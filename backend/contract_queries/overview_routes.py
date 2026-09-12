@@ -1,15 +1,17 @@
 """Paged, dashboard, and calendar contract endpoints."""
 
-from datetime import date, datetime, timezone
-from typing import Any, Literal, Optional
+from datetime import UTC, date, datetime
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func
+from sqlalchemy import select as sa_select
 from sqlmodel import Session, col, select
 
 from api_core import contract_reads_for_user, get_current_user
 from database import get_session
 from models import Contract, User
+from schemas import ContractRead
 
 from .business_time import (
     BUSINESS_TIMEZONE,
@@ -34,7 +36,6 @@ from .schemas import (
     DashboardSummary,
 )
 
-
 router = APIRouter()
 CALENDAR_MAX_ROWS = 1_000
 
@@ -53,11 +54,11 @@ def _collection_summary(statement, session: Session) -> ContractCollectionSummar
         .distinct()
         .subquery()
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     month_start, next_month = business_month_bounds_utc(now)
     document_date = func.coalesce(scope.c.start_date, scope.c.uploaded_at)
-    row = session.exec(
-        select(
+    row = session.execute(
+        sa_select(
             func.count(scope.c.id),
             func.coalesce(func.sum(scope.c.value), 0.0),
             func.coalesce(
@@ -129,17 +130,17 @@ def _collection_summary(statement, session: Session) -> ContractCollectionSummar
 
 @router.get("/contracts/page", response_model=ContractPage)
 def read_contract_page(
-    q: Optional[str] = Query(default=None, max_length=200),
-    tags: Optional[str] = Query(default=None, max_length=500),
-    list_id: Optional[int] = None,
-    min_value: Optional[float] = None,
-    max_value: Optional[float] = None,
-    start_date_from: Optional[date] = None,
-    start_date_to: Optional[date] = None,
-    status: Optional[Literal["active", "expired"]] = None,
-    document_type: Optional[Literal["contract", "invoice"]] = None,
-    is_protected: Optional[bool] = None,
-    state: Optional[Literal["active", "attention", "expired"]] = None,
+    q: str | None = Query(default=None, max_length=200),
+    tags: str | None = Query(default=None, max_length=500),
+    list_id: int | None = None,
+    min_value: float | None = None,
+    max_value: float | None = None,
+    start_date_from: date | None = None,
+    start_date_to: date | None = None,
+    status: Literal["active", "expired"] | None = None,
+    document_type: Literal["contract", "invoice"] | None = None,
+    is_protected: bool | None = None,
+    state: Literal["active", "attention", "expired"] | None = None,
     sort_by: Literal[
         "title", "value", "start_date", "end_date", "uploaded_at"
     ] = "uploaded_at",
@@ -147,8 +148,8 @@ def read_contract_page(
     include_summary: bool = True,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=40, ge=1, le=100),
-    cursor_uploaded_at: Optional[datetime] = None,
-    cursor_id: Optional[int] = Query(default=None, ge=1),
+    cursor_uploaded_at: datetime | None = None,
+    cursor_id: int | None = Query(default=None, ge=1),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -195,7 +196,7 @@ def read_contract_page(
         if uses_offset_pagination
         else cursor_uploaded_at is None and cursor_id is None
     )
-    summary: Optional[ContractCollectionSummary] = None
+    summary: ContractCollectionSummary | None = None
     if include_summary and is_first_page:
         summary_statement = build_contract_query(
             current_user=current_user,
@@ -224,7 +225,10 @@ def read_contract_page(
         else None
     )
     return ContractPage(
-        items=contract_reads_for_user(visible_contracts, current_user, session),
+        items=[
+            ContractRead.model_validate(item)
+            for item in contract_reads_for_user(visible_contracts, current_user, session)
+        ],
         summary=summary,
         has_more=has_more,
         next_cursor_uploaded_at=(
@@ -239,12 +243,12 @@ def read_contract_page(
 
 @router.get("/contracts/dashboard", response_model=DashboardData)
 def read_contract_dashboard(
-    list_id: Optional[int] = None,
+    list_id: int | None = None,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     """Return only the aggregates and top-N rows needed by the dashboard."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     today_start = business_day_start_utc(now)
     deadline_end_exclusive = business_day_start_utc(now, 61)
     base_statement = build_contract_query(
@@ -269,8 +273,8 @@ def read_contract_dashboard(
     )
     cancellation = cancellation_day(scope.c.end_date, scope.c.notice_period)
     is_contract = scope.c.document_type == "contract"
-    summary_row = session.exec(
-        select(
+    summary_row = session.execute(
+        sa_select(
             func.count(scope.c.id),
             func.coalesce(func.sum(scope.c.value), 0.0),
             func.coalesce(
@@ -401,8 +405,14 @@ def read_contract_dashboard(
             )
             for key in keys
         ],
-        upcoming=contract_reads_for_user(upcoming, current_user, session),
-        recent=contract_reads_for_user(recent, current_user, session),
+        upcoming=[
+            ContractRead.model_validate(item)
+            for item in contract_reads_for_user(upcoming, current_user, session)
+        ],
+        recent=[
+            ContractRead.model_validate(item)
+            for item in contract_reads_for_user(recent, current_user, session)
+        ],
     )
 
 
@@ -410,7 +420,7 @@ def read_contract_dashboard(
 def read_contract_calendar(
     start: datetime,
     end: datetime,
-    list_id: Optional[int] = None,
+    list_id: int | None = None,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -431,8 +441,8 @@ def read_contract_calendar(
             status_code=422,
             detail="Calendar range must span between 1 and 62 days.",
         )
-    start_utc = start_local.astimezone(timezone.utc)
-    end_utc = end_local.astimezone(timezone.utc)
+    start_utc = start_local.astimezone(UTC)
+    end_utc = end_local.astimezone(UTC)
 
     cancellation = cancellation_day(
         col(Contract.end_date), col(Contract.notice_period)
@@ -445,14 +455,12 @@ def read_contract_calendar(
         )
         .order_by(None)
         .where(
-            (
-                ((col(Contract.start_date) >= start_utc) & (col(Contract.start_date) < end_utc))
-                | ((col(Contract.end_date) >= start_utc) & (col(Contract.end_date) < end_utc))
-                | (
-                    col(Contract.end_date).is_not(None)
-                    & (cancellation >= cancellation_boundary(start_utc))
-                    & (cancellation < cancellation_boundary(end_utc))
-                )
+            ((col(Contract.start_date) >= start_utc) & (col(Contract.start_date) < end_utc))
+            | ((col(Contract.end_date) >= start_utc) & (col(Contract.end_date) < end_utc))
+            | (
+                col(Contract.end_date).is_not(None)
+                & (cancellation >= cancellation_boundary(start_utc))
+                & (cancellation < cancellation_boundary(end_utc))
             )
         )
         .order_by(col(Contract.start_date).asc(), col(Contract.id).asc())
@@ -462,6 +470,9 @@ def read_contract_calendar(
     visible_contracts = contracts[:CALENDAR_MAX_ROWS]
     return CalendarData(
         business_timezone=BUSINESS_TIMEZONE_NAME,
-        items=contract_reads_for_user(visible_contracts, current_user, session),
+        items=[
+            ContractRead.model_validate(item)
+            for item in contract_reads_for_user(visible_contracts, current_user, session)
+        ],
         truncated=truncated,
     )

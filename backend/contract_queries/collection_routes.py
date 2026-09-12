@@ -2,7 +2,7 @@
 
 import io
 from datetime import date, datetime
-from typing import List, Literal, Optional
+from typing import Literal
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -20,32 +20,31 @@ from .business_time import (
 )
 from .filters import build_contract_query
 
-
 router = APIRouter()
 EXPORT_MAX_ROWS = 10_000
 SPREADSHEET_FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 
-@router.get("/contracts", response_model=List[ContractRead])
+@router.get("/contracts", response_model=list[ContractRead])
 def read_contracts(
-    q: Optional[str] = Query(default=None, max_length=200),
-    tags: Optional[str] = Query(default=None, max_length=500),
-    list_id: Optional[int] = None,
-    min_value: Optional[float] = None,
-    max_value: Optional[float] = None,
-    start_date_from: Optional[date] = None,
-    start_date_to: Optional[date] = None,
-    status: Optional[Literal["active", "expired"]] = None,
-    document_type: Optional[Literal["contract", "invoice"]] = None,
-    is_protected: Optional[bool] = None,
+    q: str | None = Query(default=None, max_length=200),
+    tags: str | None = Query(default=None, max_length=500),
+    list_id: int | None = None,
+    min_value: float | None = None,
+    max_value: float | None = None,
+    start_date_from: date | None = None,
+    start_date_to: date | None = None,
+    status: Literal["active", "expired"] | None = None,
+    document_type: Literal["contract", "invoice"] | None = None,
+    is_protected: bool | None = None,
     sort_by: Literal[
         "title", "value", "start_date", "end_date", "uploaded_at"
     ] = "uploaded_at",
     sort_order: Literal["asc", "desc"] = "desc",
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
-    cursor_uploaded_at: Optional[datetime] = None,
-    cursor_id: Optional[int] = Query(default=None, ge=1),
+    cursor_uploaded_at: datetime | None = None,
+    cursor_id: int | None = Query(default=None, ge=1),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -81,15 +80,15 @@ def read_contracts(
 
 @router.get("/contracts/export")
 def export_contracts(
-    q: Optional[str] = Query(default=None, max_length=200),
-    tags: Optional[str] = Query(default=None, max_length=500),
-    list_id: Optional[int] = None,
-    min_value: Optional[float] = None,
-    max_value: Optional[float] = None,
-    start_date_from: Optional[date] = None,
-    start_date_to: Optional[date] = None,
-    status: Optional[Literal["active", "expired"]] = None,
-    document_type: Optional[Literal["contract", "invoice"]] = None,
+    q: str | None = Query(default=None, max_length=200),
+    tags: str | None = Query(default=None, max_length=500),
+    list_id: int | None = None,
+    min_value: float | None = None,
+    max_value: float | None = None,
+    start_date_from: date | None = None,
+    start_date_to: date | None = None,
+    status: Literal["active", "expired"] | None = None,
+    document_type: Literal["contract", "invoice"] | None = None,
     sort_by: Literal[
         "title", "value", "start_date", "end_date", "uploaded_at"
     ] = "uploaded_at",

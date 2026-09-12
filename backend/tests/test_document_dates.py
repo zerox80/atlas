@@ -1,14 +1,15 @@
 """Stored-date validation and legacy SQLite query resilience."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
+from sqlmodel import select
+
 from api_core import ensure_default_workspace, limiter
 from contract_queries.business_time import sqlite_business_cancellation_julianday
 from contract_queries.forms import parse_date_form
 from main import app, get_current_user
 from models import Contract, ContractPermission
-from sqlmodel import select
 
 
 @pytest.fixture(autouse=True)
@@ -53,7 +54,7 @@ def test_update_validates_merged_date_and_notice(
 ):
     document = Contract(
         title="Original", file_path="uploads/test.txt",
-        end_date=datetime(50, 1, 1, 12, tzinfo=timezone.utc), notice_period=30,
+        end_date=datetime(50, 1, 1, 12, tzinfo=UTC), notice_period=30,
     )
     session.add(document)
     session.flush()
@@ -66,8 +67,8 @@ def test_update_validates_merged_date_and_notice(
     )
     assert response.status_code == 422, response.text
     session.refresh(document)
-    assert document.end_date.replace(tzinfo=timezone.utc) == datetime(
-        50, 1, 1, 12, tzinfo=timezone.utc
+    assert document.end_date.replace(tzinfo=UTC) == datetime(
+        50, 1, 1, 12, tzinfo=UTC
     )
     assert document.notice_period == 30
     assert document.version == 1
@@ -94,8 +95,8 @@ def test_legacy_dates_do_not_break_admin_views(client, session, admin_user, test
         "business_cancellation_julianday", 2, sqlite_business_cancellation_julianday
     )
     for end_date in [
-        datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone.utc),
-        datetime(1, 1, 2, 12, tzinfo=timezone.utc),
+        datetime(9999, 12, 31, 23, 59, 59, tzinfo=UTC),
+        datetime(1, 1, 2, 12, tzinfo=UTC),
     ]:
         session.add(Contract(
             title="Legacy invalid date", file_path="uploads/test.txt",
@@ -139,12 +140,12 @@ def test_normal_dates_remain_writable(auth_client, session, test_user, notice):
 
 def test_timezone_and_dst_semantics_remain_intact():
     assert parse_date_form("") is None
-    assert parse_date_form("2026-10-25") == datetime(2026, 10, 24, 22, tzinfo=timezone.utc)
+    assert parse_date_form("2026-10-25") == datetime(2026, 10, 24, 22, tzinfo=UTC)
     assert parse_date_form("2026-10-25T12:00:00+01:00") == datetime(
-        2026, 10, 25, 11, tzinfo=timezone.utc
+        2026, 10, 25, 11, tzinfo=UTC
     )
     # Thirty local calendar days before the DST transition: midnight CEST.
-    expected = datetime(2026, 9, 25, tzinfo=timezone.utc).timestamp() - 7200
+    expected = datetime(2026, 9, 25, tzinfo=UTC).timestamp() - 7200
     assert sqlite_business_cancellation_julianday(
         "2026-10-25T12:00:00Z", None
     ) == pytest.approx(expected / 86400 + 2440587.5)

@@ -1,27 +1,27 @@
 """Database models for users, contracts, lists, permissions, and audit logs."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import List, Optional
 from uuid import uuid4
 
 from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
+
 # Join table for Contracts and Tags
 class ContractTagLink(SQLModel, table=True):
-    contract_id: Optional[int] = Field(default=None, foreign_key="contract.id", primary_key=True)
-    tag_id: Optional[int] = Field(default=None, foreign_key="tag.id", primary_key=True)
+    contract_id: int | None = Field(default=None, foreign_key="contract.id", primary_key=True)
+    tag_id: int | None = Field(default=None, foreign_key="tag.id", primary_key=True)
 
 class Tag(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True)
     color: str = "#3b82f6" # Hex color
     
-    contracts: List["Contract"] = Relationship(back_populates="tags", link_model=ContractTagLink)
+    contracts: list["Contract"] = Relationship(back_populates="tags", link_model=ContractTagLink)
 
 class User(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     auth_subject: str = Field(
         default_factory=lambda: str(uuid4()),
         index=True,
@@ -31,8 +31,8 @@ class User(SQLModel, table=True):
     username: str = Field(index=True, unique=True)
     hashed_password: str
     role: str = Field(default="user") # 'admin' or 'user'
-    totp_secret: Optional[str] = None # Active 2FA secret
-    pending_totp_secret: Optional[str] = None # Secret waiting for first OTP verification
+    totp_secret: str | None = None # Active 2FA secret
+    pending_totp_secret: str | None = None # Secret waiting for first OTP verification
     is_active: bool = Field(default=True)  # Account status managed through user editing
     # Incrementing this value invalidates every JWT issued with the previous value.
     token_version: int = Field(default=0, nullable=False)
@@ -40,13 +40,13 @@ class User(SQLModel, table=True):
     show_other_user_workspaces: bool = Field(default=True, nullable=False)
     # Admin-selected upload target. This is intentionally separate from
     # workspace permissions: granting access must never change where uploads go.
-    default_workspace_id: Optional[int] = Field(
+    default_workspace_id: int | None = Field(
         default=None,
         foreign_key="contractlist.id",
         index=True,
     )
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
 
 
@@ -62,7 +62,7 @@ class ContractPermission(SQLModel, table=True):
         ),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
     contract_id: int = Field(foreign_key="contract.id", index=True)
     permission_level: str = Field(default="read")  # "read", "write", "full"
@@ -70,22 +70,22 @@ class ContractPermission(SQLModel, table=True):
 
 # Join table for Contracts and Lists
 class ContractListLink(SQLModel, table=True):
-    contract_id: Optional[int] = Field(default=None, foreign_key="contract.id", primary_key=True)
-    list_id: Optional[int] = Field(default=None, foreign_key="contractlist.id", primary_key=True)
+    contract_id: int | None = Field(default=None, foreign_key="contract.id", primary_key=True)
+    list_id: int | None = Field(default=None, foreign_key="contractlist.id", primary_key=True)
 
 
 class ContractList(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    id: int | None = Field(default=None, primary_key=True)
+    owner_user_id: int | None = Field(default=None, foreign_key="user.id", index=True)
     name: str = Field(index=True)
-    description: Optional[str] = None
+    description: str | None = None
     color: str = "#6366f1"  # Default indigo
     is_default: bool = Field(default=False, nullable=False, index=True)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
     
-    contracts: List["Contract"] = Relationship(back_populates="lists", link_model=ContractListLink)
+    contracts: list["Contract"] = Relationship(back_populates="lists", link_model=ContractListLink)
 
 
 # A workspace permission applies to every document linked to the collection.
@@ -104,7 +104,7 @@ class ContractListPermission(SQLModel, table=True):
         ),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
     list_id: int = Field(foreign_key="contractlist.id", index=True)
     permission_level: str = Field(default="read")  # "read", "write", "full"
@@ -118,39 +118,39 @@ class Contract(SQLModel, table=True):
         {"sqlite_autoincrement": True},
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    owner_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    id: int | None = Field(default=None, primary_key=True)
+    owner_user_id: int | None = Field(default=None, foreign_key="user.id", index=True)
     title: str
-    description: Optional[str] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
+    description: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
     file_path: str
     # Kept in the existing document table so permissions, tags and downloads work
     # consistently for both contracts and uploaded invoices.
     document_type: str = Field(default="contract", index=True)
-    uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    uploaded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     # Documents stay linked to their workspaces while they are in the trash so
     # every workspace has its own recoverable view of deleted content.
-    deleted_at: Optional[datetime] = None
-    deleted_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    deleted_at: datetime | None = None
+    deleted_by_user_id: int | None = Field(default=None, foreign_key="user.id")
     
     # Cancellation Logic
-    notice_period: Optional[int] = Field(default=30, description="Notice period in days")
+    notice_period: int | None = Field(default=30, description="Notice period in days")
     
     # Financials
     value: float = Field(default=0.0)
-    annual_value: Optional[float] = Field(default=None)
+    annual_value: float | None = Field(default=None)
     
     # Status
     is_protected: bool = Field(default=False, description="Protected from deletion")
     
     # Versioning
     version: int = Field(default=1)
-    parent_id: Optional[int] = Field(default=None, foreign_key="contract.id")
+    parent_id: int | None = Field(default=None, foreign_key="contract.id")
     
     # Relationships
-    tags: List[Tag] = Relationship(back_populates="contracts", link_model=ContractTagLink)
-    lists: List["ContractList"] = Relationship(back_populates="contracts", link_model=ContractListLink)
+    tags: list[Tag] = Relationship(back_populates="contracts", link_model=ContractTagLink)
+    lists: list["ContractList"] = Relationship(back_populates="contracts", link_model=ContractListLink)
     
     # We could adding a children relationship for version history if needed
     # children: List["Contract"] = Relationship(sa_relationship_kwargs={"remote_side": "Contract.parent_id"})
@@ -175,22 +175,22 @@ class PendingFileDeletion(SQLModel, table=True):
         ),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     file_path: str
     attempts: int = Field(default=0, nullable=False)
-    last_error: Optional[str] = None
+    last_error: str | None = None
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
 
 
 class AuditLog(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: Optional[int] = Field(default=None, foreign_key="user.id")
-    contract_id: Optional[int] = Field(default=None, index=True)
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int | None = Field(default=None, foreign_key="user.id")
+    contract_id: int | None = Field(default=None, index=True)
     document_history_visible: bool = Field(default=True)
     action: str
     details: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    ip_address: str | None = None
+    user_agent: str | None = None

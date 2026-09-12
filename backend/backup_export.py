@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
-from html import escape
 import os
-from pathlib import Path
 import re
 import tempfile
-from typing import Sequence
 import zipfile
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from html import escape
+from pathlib import Path
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -21,7 +21,6 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 from file_utils import resolve_file_path
 from models import Contract
-
 
 MISSING_VALUE = "Nicht hinterlegt"
 _INVALID_WINDOWS_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -96,7 +95,7 @@ def _format_datetime(value: date | datetime | None) -> str:
         return MISSING_VALUE
     if isinstance(value, datetime):
         if value.tzinfo is not None:
-            value = value.astimezone(timezone.utc)
+            value = value.astimezone(UTC)
         return value.strftime("%d.%m.%Y %H:%M") + " UTC"
     return value.strftime("%d.%m.%Y")
 
@@ -260,7 +259,7 @@ def create_document_backup(
     generated_at: datetime | None = None,
 ) -> DocumentBackupResult:
     """Write a ZIP backup to a temporary file and return its metadata."""
-    generated_at = (generated_at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    generated_at = (generated_at or datetime.now(UTC)).astimezone(UTC)
     filename = f"atlas-datensicherung-{generated_at.strftime('%Y-%m-%d_%H-%M-%SZ')}.zip"
     file_descriptor, temporary_path = tempfile.mkstemp(prefix="atlas-backup-", suffix=".zip")
     os.close(file_descriptor)

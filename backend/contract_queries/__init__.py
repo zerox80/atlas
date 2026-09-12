@@ -15,7 +15,6 @@ from .forms import (
 )
 from .overview_routes import router as overview_router
 
-
 router = APIRouter()
 router.include_router(overview_router)
 router.include_router(collection_router)

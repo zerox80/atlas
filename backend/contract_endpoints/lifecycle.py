@@ -1,6 +1,6 @@
 """Contract trash and protection endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import (
@@ -143,7 +143,7 @@ def delete_contract(
             detail="Contract was changed by another request; reload and retry",
         )
 
-    deleted_at = datetime.now(timezone.utc)
+    deleted_at = datetime.now(UTC)
     try:
         delete_result = session.exec(
             update(Contract)

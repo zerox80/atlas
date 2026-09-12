@@ -7,6 +7,7 @@ import logging
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from ai_client import (
@@ -21,12 +22,16 @@ from ai_client import (
 )
 from ai_document_processing import (
     MAX_IMAGE_PDF_PAGES,
-    build_ocr_options as _build_ocr_options,
-    format_ocr_text as _format_ocr_text,
     process_pdf_to_images,
     process_pdf_with_ocr,
     use_ocr_mode,
     validate_pdf_for_ai,
+)
+from ai_document_processing import (
+    build_ocr_options as _build_ocr_options,
+)
+from ai_document_processing import (
+    format_ocr_text as _format_ocr_text,
 )
 from ai_errors import AIProcessingCapacityError, InvalidStructuredAIResponse
 from ai_prompts import (
@@ -37,7 +42,6 @@ from ai_prompts import (
     build_contract_question_prompt,
     build_ocr_analysis_prompt,
 )
-
 
 __all__ = [
     "OCR_MODEL",
@@ -143,7 +147,7 @@ def _finish_document_processing(
         return
     try:
         payload = task.result()
-    except Exception:
+    except Exception:  # noqa: BLE001 - the awaiting request receives the task exception
         return
     _cache_document_payload(key, payload)
 
@@ -179,9 +183,7 @@ def _start_document_processing(
     _document_processing_bytes += retained_bytes
     _document_processing_bytes_by_user[owner_id] = owner_bytes + retained_bytes
     task.add_done_callback(
-        lambda completed, task_key=key: _finish_document_processing(
-            task_key, completed
-        )
+        partial(_finish_document_processing, key)
     )
     return work
 
@@ -281,7 +283,7 @@ async def analyze_contract_pdf(
     else:
         logger.info("Using image mode for contract analysis")
         if isinstance(document_payload, str):
-            raise RuntimeError("Invalid cached image payload")
+            raise TypeError("Invalid cached image payload")
         images_base64 = document_payload
         content = [
             {"type": "image_url", "image_url": image} for image in images_base64
@@ -343,7 +345,7 @@ async def _question_content(
         ]
 
     if isinstance(document_payload, str):
-        raise RuntimeError("Invalid cached image payload")
+        raise TypeError("Invalid cached image payload")
     images_base64 = document_payload
     content = [
         {"type": "image_url", "image_url": image} for image in images_base64

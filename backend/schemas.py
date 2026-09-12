@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -20,7 +20,7 @@ class Token(BaseModel):
     token_type: str
 
 class TokenData(BaseModel):
-    auth_subject: Optional[str] = None
+    auth_subject: str | None = None
 
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=32)
@@ -46,18 +46,18 @@ class TagCreate(BaseModel):
 
 
 class TagUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=50)
-    color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
+    name: str | None = Field(None, min_length=1, max_length=50)
+    color: str | None = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
 
 
 class ContractListRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    owner_user_id: Optional[int] = None
-    owner_username: Optional[str] = None
+    owner_user_id: int | None = None
+    owner_username: str | None = None
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     color: str
     is_default: bool = False
     created_at: datetime
@@ -69,13 +69,13 @@ class ContractListRead(BaseModel):
 
 class ContractCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=2000)
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    value: Optional[float] = Field(default=None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
-    annual_value: Optional[float] = Field(default=None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
-    tags: List[str] = Field(default_factory=list, max_length=MAX_CONTRACT_TAGS)
-    notice_period: Optional[int] = Field(default=30, ge=0, le=MAX_NOTICE_PERIOD_DAYS, description="Notice period in days")
+    description: str | None = Field(None, max_length=2000)
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    value: float | None = Field(default=None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
+    annual_value: float | None = Field(default=None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
+    tags: list[str] = Field(default_factory=list, max_length=MAX_CONTRACT_TAGS)
+    notice_period: int | None = Field(default=30, ge=0, le=MAX_NOTICE_PERIOD_DAYS, description="Notice period in days")
     document_type: Literal["contract", "invoice"] = "contract"
 
     @field_validator('title')
@@ -88,22 +88,22 @@ class ContractCreate(BaseModel):
 
     @field_validator('tags')
     @classmethod
-    def normalize_tags(cls, values: List[str]) -> List[str]:
+    def normalize_tags(cls, values: list[str]) -> list[str]:
         return normalize_tag_names(values)
 
 class ContractUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=2000)
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    value: Optional[float] = Field(None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
-    annual_value: Optional[float] = Field(None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
-    tags: Optional[List[str]] = Field(default=None, max_length=MAX_CONTRACT_TAGS)
-    notice_period: Optional[int] = Field(None, ge=0, le=MAX_NOTICE_PERIOD_DAYS)
+    title: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = Field(None, max_length=2000)
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    value: float | None = Field(None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
+    annual_value: float | None = Field(None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
+    tags: list[str] | None = Field(default=None, max_length=MAX_CONTRACT_TAGS)
+    notice_period: int | None = Field(None, ge=0, le=MAX_NOTICE_PERIOD_DAYS)
 
     @field_validator('title')
     @classmethod
-    def title_not_blank(cls, v: Optional[str]) -> Optional[str]:
+    def title_not_blank(cls, v: str | None) -> str | None:
         if v is None:
             return v
         cleaned = v.strip()
@@ -113,7 +113,7 @@ class ContractUpdate(BaseModel):
 
     @field_validator('tags')
     @classmethod
-    def normalize_tags(cls, values: Optional[List[str]]) -> Optional[List[str]]:
+    def normalize_tags(cls, values: list[str] | None) -> list[str] | None:
         if values is None:
             return None
         return normalize_tag_names(values)
@@ -123,17 +123,17 @@ class ContractRead(BaseModel):
 
     id: int
     title: str
-    description: Optional[str] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
+    description: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
     # file_path removed - internal server path should not be exposed!
     uploaded_at: datetime
-    value: Optional[float] = None
-    annual_value: Optional[float] = None
+    value: float | None = None
+    annual_value: float | None = None
     version: int
-    tags: List[TagRead] = Field(default_factory=list)
-    lists: List[ContractListRead] = Field(default_factory=list)
-    notice_period: Optional[int] = None
+    tags: list[TagRead] = Field(default_factory=list)
+    lists: list[ContractListRead] = Field(default_factory=list)
+    notice_period: int | None = None
     is_protected: bool
     file_extension: str
     document_type: Literal["contract", "invoice"] = "contract"
@@ -146,12 +146,12 @@ class ContractRead(BaseModel):
 
 class TrashDocumentRead(ContractRead):
     deleted_at: datetime
-    deleted_by_user_id: Optional[int] = None
-    deleted_by_username: Optional[str] = None
+    deleted_by_user_id: int | None = None
+    deleted_by_username: str | None = None
 
 
 class TrashDocumentPage(BaseModel):
-    items: List[TrashDocumentRead]
+    items: list[TrashDocumentRead]
     total: int
     offset: int
     limit: int
@@ -159,29 +159,29 @@ class TrashDocumentPage(BaseModel):
 
 class AuditLogRead(BaseModel):
     id: int
-    user_id: Optional[int]
-    username: Optional[str] = None
+    user_id: int | None
+    username: str | None = None
     action: str
     details: str
     timestamp: datetime
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
+    ip_address: str | None = None
+    user_agent: str | None = None
 
 
 class ContractAuditLogRead(BaseModel):
     id: int
-    user_id: Optional[int]
-    username: Optional[str] = None
+    user_id: int | None
+    username: str | None = None
     action: str
     details: str
     timestamp: datetime
 
 
 class ContractAuditLogPage(BaseModel):
-    items: List[ContractAuditLogRead]
+    items: list[ContractAuditLogRead]
     has_more: bool
-    next_cursor_timestamp: Optional[datetime] = None
-    next_cursor_id: Optional[int] = None
+    next_cursor_timestamp: datetime | None = None
+    next_cursor_id: int | None = None
 
 
 class OTPVerify(BaseModel):
@@ -199,11 +199,11 @@ class TwoFactorSetup(BaseModel):
     """Proof required before issuing a new TOTP enrollment secret."""
 
     password: str = Field(..., min_length=8, max_length=128)
-    current_otp: Optional[str] = Field(default=None, min_length=6, max_length=6)
+    current_otp: str | None = Field(default=None, min_length=6, max_length=6)
 
     @field_validator("current_otp")
     @classmethod
-    def current_otp_is_numeric(cls, value: Optional[str]) -> Optional[str]:
+    def current_otp_is_numeric(cls, value: str | None) -> str | None:
         if value is not None and not value.isdigit():
             raise ValueError("OTP must contain only digits")
         return value
@@ -219,8 +219,8 @@ class UserRead(BaseModel):
     is_active: bool
     created_at: datetime
     has_2fa: bool = False
-    default_workspace_id: Optional[int] = None
-    default_workspace_name: Optional[str] = None
+    default_workspace_id: int | None = None
+    default_workspace_name: str | None = None
     show_other_user_workspaces: bool = True
 
 
@@ -233,15 +233,15 @@ class AdminWorkspaceVisibilityRead(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    username: Optional[str] = Field(None, min_length=3, max_length=32)
-    password: Optional[str] = Field(None, min_length=8, max_length=128)
-    role: Optional[str] = Field(None, pattern="^(admin|user)$")
-    is_active: Optional[bool] = None
-    default_workspace_id: Optional[int] = Field(None, ge=1)
+    username: str | None = Field(None, min_length=3, max_length=32)
+    password: str | None = Field(None, min_length=8, max_length=128)
+    role: str | None = Field(None, pattern="^(admin|user)$")
+    is_active: bool | None = None
+    default_workspace_id: int | None = Field(None, ge=1)
 
     @field_validator('username')
     @classmethod
-    def username_pattern(cls, v: Optional[str]) -> Optional[str]:
+    def username_pattern(cls, v: str | None) -> str | None:
         if v is None:
             return v
         return validate_username_pattern(v)
@@ -263,13 +263,13 @@ class PermissionRead(BaseModel):
     id: int
     user_id: int
     scope_type: Literal["document", "workspace"] = "document"
-    contract_id: Optional[int] = None
-    list_id: Optional[int] = None
+    contract_id: int | None = None
+    list_id: int | None = None
     permission_level: str
-    username: Optional[str] = None
-    contract_title: Optional[str] = None
-    list_name: Optional[str] = None
-    target_name: Optional[str] = None
+    username: str | None = None
+    contract_title: str | None = None
+    list_name: str | None = None
+    target_name: str | None = None
 
 
 class WorkspacePermissionCreate(BaseModel):
@@ -279,20 +279,20 @@ class WorkspacePermissionCreate(BaseModel):
 
 
 class DefaultWorkspaceUpdate(BaseModel):
-    list_id: Optional[int] = None
+    list_id: int | None = None
 
 
 class DefaultWorkspaceOptionRead(BaseModel):
     id: int
     name: str
-    owner_user_id: Optional[int] = None
-    owner_username: Optional[str] = None
+    owner_user_id: int | None = None
+    owner_username: str | None = None
     is_personal: bool = False
     requires_write_grant: bool = False
 
 
 class PermissionPage(BaseModel):
-    items: List[PermissionRead]
+    items: list[PermissionRead]
     total: int
     offset: int
     limit: int
@@ -301,18 +301,18 @@ class PermissionPage(BaseModel):
 # Contract List Schemas
 class ContractListCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
+    description: str | None = Field(None, max_length=500)
     color: str = Field(default="#6366f1", pattern=r"^#[0-9a-fA-F]{6}$")
 
 
 class ContractListUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
-    color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
+    name: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = Field(None, max_length=500)
+    color: str | None = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
 
 
 class ContractSelection(BaseModel):
-    contract_ids: List[Annotated[int, Field(gt=0)]] = Field(
+    contract_ids: list[Annotated[int, Field(gt=0)]] = Field(
         ...,
         min_length=1,
         max_length=10_000,
@@ -320,7 +320,7 @@ class ContractSelection(BaseModel):
 
     @field_validator("contract_ids")
     @classmethod
-    def deduplicate_contract_ids(cls, values: List[int]) -> List[int]:
+    def deduplicate_contract_ids(cls, values: list[int]) -> list[int]:
         return list(dict.fromkeys(values))
 
 
@@ -330,13 +330,13 @@ class ContractListBulkUpdate(ContractSelection):
 
 class ContractListAssignmentRead(BaseModel):
     contract_id: int
-    list_ids: List[int]
+    list_ids: list[int]
 
 
 class ContractListBulkResult(BaseModel):
     operation: Literal["add", "remove", "move_to_default"]
     changed_count: int
-    assignments: List[ContractListAssignmentRead]
+    assignments: list[ContractListAssignmentRead]
 
 
 class ContractProtectionBulkResult(BaseModel):
@@ -347,36 +347,36 @@ class ContractProtectionBulkResult(BaseModel):
 # AI Feature Schemas
 class ContractAnalysisResult(BaseModel):
     """Result from AI contract analysis."""
-    title: Optional[str] = Field(None, max_length=255)
-    description: Optional[str] = Field(None, max_length=2000)
-    value: Optional[float] = Field(
+    title: str | None = Field(None, max_length=255)
+    description: str | None = Field(None, max_length=2000)
+    value: float | None = Field(
         None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False
     )
-    annual_value: Optional[float] = Field(
+    annual_value: float | None = Field(
         None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False
     )
-    start_date: Optional[str] = Field(None, max_length=64)
-    end_date: Optional[str] = Field(None, max_length=64)
-    notice_period: Optional[int] = Field(None, ge=0, le=MAX_NOTICE_PERIOD_DAYS)
-    tags: List[Annotated[str, Field(min_length=1, max_length=50)]] = Field(
+    start_date: str | None = Field(None, max_length=64)
+    end_date: str | None = Field(None, max_length=64)
+    notice_period: int | None = Field(None, ge=0, le=MAX_NOTICE_PERIOD_DAYS)
+    tags: list[Annotated[str, Field(min_length=1, max_length=50)]] = Field(
         default_factory=list,
         max_length=MAX_CONTRACT_TAGS,
     )
 
     @field_validator("start_date", "end_date")
     @classmethod
-    def dates_are_iso8601(cls, value: Optional[str]) -> Optional[str]:
+    def dates_are_iso8601(cls, value: str | None) -> str | None:
         if value is None:
             return None
         try:
-            datetime.fromisoformat(value.replace("Z", "+00:00"))
+            datetime.fromisoformat(value)
         except ValueError as error:
             raise ValueError("Date suggestions must use ISO 8601") from error
         return value
 
     @field_validator("tags")
     @classmethod
-    def normalize_analysis_tags(cls, values: List[str]) -> List[str]:
+    def normalize_analysis_tags(cls, values: list[str]) -> list[str]:
         return normalize_tag_names(values)
 
 
@@ -390,9 +390,9 @@ class ChatResponse(BaseModel):
     answer: str
 
 
-def normalize_tag_names(values: List[str]) -> List[str]:
+def normalize_tag_names(values: list[str]) -> list[str]:
     """Trim, deduplicate, and enforce tag name bounds."""
-    normalized: List[str] = []
+    normalized: list[str] = []
     seen = set()
     for value in values:
         cleaned = value.strip()

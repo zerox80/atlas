@@ -1,9 +1,9 @@
 import io
 import os
-from datetime import datetime, timezone
-from pathlib import Path
 import re
 import zipfile
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -78,11 +78,11 @@ class TestAdminDocumentBackupContent:
         contract = Contract(
             title='Müller: Rahmen/Vertrag?*',
             description=long_description,
-            start_date=datetime(2026, 1, 2, 8, 30, tzinfo=timezone.utc),
-            end_date=datetime(2027, 1, 2, 8, 30, tzinfo=timezone.utc),
+            start_date=datetime(2026, 1, 2, 8, 30, tzinfo=UTC),
+            end_date=datetime(2027, 1, 2, 8, 30, tzinfo=UTC),
             file_path=str(contract_path),
             document_type="contract",
-            uploaded_at=datetime(2026, 1, 1, 12, 15, tzinfo=timezone.utc),
+            uploaded_at=datetime(2026, 1, 1, 12, 15, tzinfo=UTC),
             notice_period=90,
             value=1234.5,
             annual_value=600.25,
@@ -93,13 +93,14 @@ class TestAdminDocumentBackupContent:
         contract.tags.append(tag)
         contract.lists.append(collection)
         invoice = Contract(
+            id=77,
             title="Jahresrechnung Köln",
             description=None,
-            start_date=datetime(2026, 2, 3, 9, 45, tzinfo=timezone.utc),
+            start_date=datetime(2026, 2, 3, 9, 45, tzinfo=UTC),
             end_date=None,
             file_path=str(invoice_path),
             document_type="invoice",
-            uploaded_at=datetime(2026, 2, 3, 10, 0, tzinfo=timezone.utc),
+            uploaded_at=datetime(2026, 2, 3, 10, 0, tzinfo=UTC),
             notice_period=None,
             value=99.9,
             annual_value=None,
@@ -107,8 +108,9 @@ class TestAdminDocumentBackupContent:
             version=1,
             parent_id=None,
         )
-        session.add(contract)
         session.add(invoice)
+        session.flush()
+        session.add(contract)
         session.commit()
         session.refresh(contract)
         session.refresh(invoice)

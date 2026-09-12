@@ -1,8 +1,7 @@
 """Parsing and validation helpers shared by contract mutation routes."""
 
 import math
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -15,14 +14,14 @@ from schemas import MAX_CONTRACT_TAGS, MAX_FINANCIAL_VALUE, MAX_NOTICE_PERIOD_DA
 from .business_time import BUSINESS_TIMEZONE, cancellation_deadline_utc
 
 
-def parse_date_form(val: Optional[str]) -> Optional[datetime]:
+def parse_date_form(val: str | None) -> datetime | None:
     if not val:
         return None
     try:
-        parsed = datetime.fromisoformat(val.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(val)
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=BUSINESS_TIMEZONE)
-        normalized = parsed.astimezone(timezone.utc)
+        normalized = parsed.astimezone(UTC)
         normalized.astimezone(BUSINESS_TIMEZONE)
         return normalized
     except (ValueError, OverflowError):
@@ -43,7 +42,7 @@ def validate_cancellation_date(
         ) from error
 
 
-def parse_float_form(val: Optional[str]) -> Optional[float]:
+def parse_float_form(val: str | None) -> float | None:
     if not val:
         return None
     try:
@@ -58,7 +57,7 @@ def parse_float_form(val: Optional[str]) -> Optional[float]:
     return parsed
 
 
-def parse_int_form(val: Optional[str]) -> Optional[int]:
+def parse_int_form(val: str | None) -> int | None:
     if not val:
         return None
     try:
@@ -76,7 +75,7 @@ def parse_int_form(val: Optional[str]) -> Optional[int]:
     return parsed
 
 
-def parse_tags_form(val: Optional[str]) -> List[str]:
+def parse_tags_form(val: str | None) -> list[str]:
     if not val:
         return []
     if len(val) > 2_550:
