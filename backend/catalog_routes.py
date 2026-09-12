@@ -194,7 +194,10 @@ def get_contract_audit_logs(
     statement = (
         select(AuditLog, User)
         .join(User, isouter=True)
-        .where(col(AuditLog.contract_id) == contract_id)
+        .where(
+            col(AuditLog.contract_id) == contract_id,
+            col(AuditLog.document_history_visible).is_(True),
+        )
     )
     if cursor_timestamp is not None and cursor_id is not None:
         statement = statement.where(
