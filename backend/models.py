@@ -115,6 +115,7 @@ class Contract(SQLModel, table=True):
         Index("ix_contract_document_uploaded_at", "document_type", "uploaded_at"),
         Index("ix_contract_end_date", "end_date"),
         Index("ix_contract_deleted_at", "deleted_at"),
+        {"sqlite_autoincrement": True},
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -187,6 +188,7 @@ class AuditLog(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     contract_id: Optional[int] = Field(default=None, index=True)
+    document_history_visible: bool = Field(default=True)
     action: str
     details: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

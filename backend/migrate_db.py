@@ -5,6 +5,8 @@ import sqlite3
 from collections.abc import Callable, Iterable
 from uuid import UUID, uuid4
 
+from audit_identity_migration import migration_014_non_reusable_contract_ids
+
 
 def get_default_db_path() -> str:
     db_url = os.getenv("DATABASE_URL", "sqlite:///./data/ze_dashboard.db")
@@ -753,10 +755,8 @@ MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
         "012_user_workspace_visibility_preference",
         migration_012_user_workspace_visibility_preference,
     ),
-    (
-        "013_pending_file_deletion_queue",
-        migration_013_pending_file_deletion_queue,
-    ),
+    ("013_pending_file_deletion_queue", migration_013_pending_file_deletion_queue),
+    ("014_non_reusable_contract_ids", migration_014_non_reusable_contract_ids),
 )
 
 
