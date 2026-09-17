@@ -6,6 +6,13 @@ export interface Tag {
 
 export type DocumentType = "contract" | "invoice";
 
+export interface ContractAttachment {
+  id: number;
+  filename: string;
+  size: number;
+  uploaded_at: string;
+}
+
 export interface ContractList {
   id: number;
   owner_user_id?: number | null;
@@ -35,6 +42,7 @@ export interface Contract {
   annual_value?: number | null;
   tags: Tag[];
   lists?: ContractList[];
+  attachments?: ContractAttachment[];
   version?: number;
   notice_period?: number | null;
   file_extension: string;

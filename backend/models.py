@@ -151,6 +151,10 @@ class Contract(SQLModel, table=True):
     # Relationships
     tags: list[Tag] = Relationship(back_populates="contracts", link_model=ContractTagLink)
     lists: list["ContractList"] = Relationship(back_populates="contracts", link_model=ContractListLink)
+    attachments: list["ContractAttachment"] = Relationship(
+        back_populates="contract",
+        sa_relationship_kwargs={"lazy": "selectin", "order_by": "ContractAttachment.id"},
+    )
     
     # We could adding a children relationship for version history if needed
     # children: List["Contract"] = Relationship(sa_relationship_kwargs={"remote_side": "Contract.parent_id"})
@@ -159,6 +163,18 @@ class Contract(SQLModel, table=True):
     def file_extension(self) -> str:
         suffix = Path(self.file_path).suffix.lower() if self.file_path else ""
         return suffix or ".pdf"
+
+
+class ContractAttachment(SQLModel, table=True):
+    """Additional files that inherit the parent document's permissions and lifecycle."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    contract_id: int = Field(foreign_key="contract.id", index=True)
+    filename: str
+    file_path: str
+    size: int
+    uploaded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    contract: Contract = Relationship(back_populates="attachments")
 
 
 class PendingFileDeletion(SQLModel, table=True):

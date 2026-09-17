@@ -8,6 +8,7 @@ import {
   FiX,
 } from "react-icons/fi";
 import type { Contract } from "../types";
+import AttachmentList from "./upload-modal/AttachmentList";
 import { formatGermanNumber } from "../utils/formatUtils";
 import { formatContractDate } from "../utils/contractPresentation";
 
@@ -142,7 +143,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
             </button>
           </header>
 
-          <div className="overflow-y-auto p-5 sm:p-7">
+          <div className="min-w-0 overflow-y-auto p-5 sm:p-7">
             <div className="rounded-2xl border border-white/[0.07] bg-black/15 p-4">
               <p className="eyebrow">
                 <FiFileText className="mr-1 inline" /> Beschreibung
@@ -169,6 +170,8 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
                 </div>
               ))}
             </div>
+
+            <AttachmentList contractId={contract.id} attachments={contract.attachments ?? []} />
 
             <div className="mt-5 flex flex-wrap gap-2">
               <span className="chip">

@@ -8,6 +8,8 @@ import { useUploadModal } from "./upload-modal/useUploadModal";
 const UploadModal = (props: UploadModalProps) => {
   const { isOpen, onClose, initialData } = props;
   const controller = useUploadModal(props);
+  const busy = controller.uploading || controller.analyzing;
+  const close = () => { if (!busy) onClose(); };
 
   return (
     <AnimatePresence>
@@ -18,7 +20,7 @@ const UploadModal = (props: UploadModalProps) => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[80] bg-black/75 backdrop-blur-md"
-            onClick={onClose}
+            onClick={close}
           />
           <motion.div
             initial={{ opacity: 0, scale: 0.97, y: 18 }}
@@ -28,17 +30,20 @@ const UploadModal = (props: UploadModalProps) => {
             className="pointer-events-none fixed inset-0 z-[90] flex items-center justify-center p-2 sm:p-5"
           >
             <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="upload-dialog-title"
               className={[
-                "pointer-events-auto flex max-h-[96vh] w-full max-w-4xl flex-col",
+                "pointer-events-auto flex max-h-[96dvh] w-full min-w-0 max-w-4xl flex-col",
                 "overflow-hidden rounded-[28px] border border-white/[0.1] bg-[#0c0f0d]",
                 "shadow-[0_36px_120px_rgba(0,0,0,0.65)]",
               ].join(" ")}
             >
-              <header className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4 sm:px-7">
-                <div className="flex items-center gap-3">
+              <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.07] px-5 py-4 sm:px-7">
+                <div className="flex min-w-0 items-center gap-3">
                   <div
                     className={[
-                      "flex h-10 w-10 items-center justify-center rounded-2xl",
+                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl",
                       controller.isInvoice
                         ? "bg-[#7397ff]/10 text-[#9ab1ff]"
                         : "bg-[#b8f15a]/10 text-[#b8f15a]",
@@ -50,52 +55,52 @@ const UploadModal = (props: UploadModalProps) => {
                     <p className="eyebrow">
                       {initialData ? "Document review" : "New intake"}
                     </p>
-                    <h2 className="mt-1 text-lg font-semibold">
+                    <h2 id="upload-dialog-title" className="mt-1 text-lg font-semibold">
                       {initialData
                         ? `${controller.documentLabel} bearbeiten`
                         : `${controller.documentLabel} erfassen`}
                     </h2>
                   </div>
                 </div>
-                <button onClick={onClose} className="icon-btn">
+                <button onClick={close} disabled={busy} aria-label="Dialog schließen" className="icon-btn shrink-0 disabled:opacity-40">
                   <FiX size={18} />
                 </button>
               </header>
 
-              <form onSubmit={controller.handleSubmit} className="overflow-y-auto">
-                <div className="grid lg:grid-cols-[0.82fr_1.18fr]">
-                  <UploadSourcePanel
-                    file={controller.file}
-                    fileError={controller.fileError}
-                    initialData={initialData}
-                    documentLabel={controller.documentLabel}
-                    isDragActive={controller.dropzone.isDragActive}
-                    analyzing={controller.analyzing}
-                    uploading={controller.uploading}
-                    getRootProps={controller.dropzone.getRootProps}
-                    getInputProps={controller.dropzone.getInputProps}
-                    onAnalyze={controller.handleAnalyze}
-                  />
-                  <UploadDetailsForm controller={controller} />
+              <form onSubmit={controller.handleSubmit} className="flex min-h-0 min-w-0 flex-col">
+                <div className="min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
+                  <fieldset disabled={busy} className="min-w-0">
+                    <div className="grid min-w-0 grid-cols-1 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+                      <UploadSourcePanel
+                        controller={controller.uploadFiles}
+                        initialData={initialData}
+                        documentLabel={controller.documentLabel}
+                        analyzing={controller.analyzing}
+                        uploading={controller.uploading}
+                        onAnalyze={controller.handleAnalyze}
+                      />
+                      <UploadDetailsForm controller={controller} />
+                    </div>
+                  </fieldset>
                 </div>
 
                 <footer
                   className={[
-                    "flex flex-col-reverse gap-2 border-t border-white/[0.07] bg-black/15",
+                    "flex shrink-0 flex-col-reverse gap-2 border-t border-white/[0.07] bg-black/15",
                     "px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7",
                   ].join(" ")}
                 >
                   <p className="text-xs text-white/28">
                     Pflichtfelder werden vor dem Speichern geprüft.
                   </p>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={onClose} className="btn-ghost">
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={close} disabled={busy} className="btn-ghost disabled:opacity-40">
                       Abbrechen
                     </button>
                     <button
                       type="submit"
                       disabled={
-                        controller.uploading ||
+                        busy ||
                         (!initialData &&
                           (!controller.file || controller.workspaceId === 0))
                       }

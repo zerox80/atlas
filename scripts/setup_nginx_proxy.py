@@ -257,7 +257,7 @@ def http_site(host: str, port: int, acme: bool = False) -> str:
     return f"""server {{
     listen 80;
     server_name {host};
-    client_max_body_size 11M;
+    client_max_body_size 101M;
 {challenge}
 {proxy_block(port, '$scheme')}
 }}
@@ -280,7 +280,7 @@ server {{
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_session_cache shared:AtlasTLS:10m;
     ssl_session_tickets off;
-    client_max_body_size 11M;
+    client_max_body_size 101M;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
 {proxy_block(port, 'https')}

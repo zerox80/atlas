@@ -308,6 +308,23 @@ def create_document_backup(
                         )
                     )
 
+                for attachment in document.attachments:
+                    try:
+                        resolved_path = resolve_file_path(attachment.file_path)
+                        attachment_name = sanitize_windows_name(attachment.filename)
+                        archive.write(
+                            resolved_path,
+                            arcname=f"{root}/{folder}/Anhaenge/{attachment.id} - {attachment_name}",
+                        )
+                        attachment_count += 1
+                    except (FileNotFoundError, PermissionError, OSError) as error:
+                        issues.append(BackupIssue(
+                            document_type=document_label,
+                            document_id=document_id,
+                            title=f"{document.title} / {attachment.filename}",
+                            reason=_attachment_error_reason(error),
+                        ))
+
                 archive.writestr(
                     f"{root}/{folder}/Informationen.pdf",
                     _info_pdf(document, file_type=file_type, file_status=file_status),
