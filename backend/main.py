@@ -1,5 +1,6 @@
 """FastAPI application assembly for Atlas."""
 
+import asyncio
 import logging
 import os
 import secrets
@@ -31,13 +32,14 @@ from backup_export import cleanup_backup_file, create_document_backup
 from catalog_routes import router as catalog_router
 from contract_queries import router as contract_query_router
 from contract_routes import router as contract_router
-from database import create_db_and_tables, get_session
+from database import create_db_and_tables, engine, get_session
 from document_review import router as document_review_router
 from file_cleanup import process_pending_file_deletions
 from list_routes import router as list_router
 from migrate_db import get_default_db_path, migrate
 from models import Contract, Tag, User
 from notice_research import router as notice_research_router
+from review_dispatcher import dispatch_reviews
 from security_utils import log_audit
 
 __all__ = [
@@ -125,6 +127,17 @@ def on_startup():
         backfill_default_workspace_links(session)
         backfill_existing_contract_read_permissions(session)
         process_pending_file_deletions(session)
+
+
+@app.on_event("startup")
+async def start_review_dispatcher():
+    app.state.review_dispatcher = asyncio.create_task(dispatch_reviews(engine))
+
+
+@app.on_event("shutdown")
+async def stop_review_dispatcher():
+    app.state.review_dispatcher.cancel()
+    await asyncio.gather(app.state.review_dispatcher, return_exceptions=True)
 
 
 @app.post("/admin/backup")

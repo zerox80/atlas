@@ -7,6 +7,7 @@ import { reviewRequestError } from "./reviewRequestError";
 import type { ReviewItem } from "./reviewTypes";
 import { canApply, labels, stageLabels, valueText } from "./reviewPresentation";
 import { FieldFinding, ReviewComponents } from "./ReviewFindings";
+import ReviewProgress from "./ReviewProgress";
 
 const statuses: Record<string, string> = {
   pending: "Ausstehend", processing: "Wird geprüft …", checked: "Kein Widerspruch erkannt", hints: "Hinweise / Ergänzungen",
@@ -22,7 +23,6 @@ export default function ReviewItemCard({ item, runId }: { item: ReviewItem; runI
   const changes = (item.result?.changes || []).filter(change => change.status !== "NOT_EVIDENCED");
   const unmentioned = item.result?.checks?.filter(check => check.status === "NOT_EVIDENCED") || [];
   const confirmed = item.result?.checks?.filter(check => check.status === "CONFIRMED") || [];
-  const progress = item.result?.progress;
   const diagnostic = item.result?.diagnostic;
   const applicable = selected.filter(field => changes.some(change => change.field === field && canApply(change)));
   const apply = async () => {
@@ -56,15 +56,7 @@ export default function ReviewItemCard({ item, runId }: { item: ReviewItem; runI
       <p className="mt-1 text-xs muted">{diagnostic.exception_type && `Fehlerklasse: ${diagnostic.exception_type} · `}
         Analysemodell: {item.result?.model || "unbekannt"} · OCR-Modell: {item.result?.ocr_model || "unbekannt"}</p>
     </div>}
-    {progress && <div className="mt-3 break-words text-sm muted">
-      {progress.total_pages != null && <p>{progress.completed_pages || 0} von {progress.total_pages} Seiten gespeichert
-        {progress.total_sections != null && ` · ${progress.completed_sections || 0}/${progress.total_sections} Abschnitte`}</p>}
-      {progress.total_pages != null && item.status !== "checked" && progress.stage !== "complete" && <progress
-        className="my-2 h-1.5 w-full accent-[var(--accent)]" value={progress.completed_pages || 0} max={progress.total_pages || 1}
-        aria-label={`Gespeicherte Seiten: ${item.title}`} />}
-      {progress.document_name && progress.stage !== "complete" && <p>{progress.document_name} · Seiten {progress.first_page}–{progress.last_page}
-        {progress.stage && ` · ${stageLabels[progress.stage] || progress.stage}`}</p>}
-    </div>}
+    <ReviewProgress item={item} />
     {item.result?.legacy_report && <p className="mt-3 text-sm text-[var(--warning)]">Älterer Prüfbericht ohne semantischen Vergleich.
       Für belegte Vorschläge bitte einen neuen Prüflauf starten.</p>}
     {item.result?.checked_files != null && <p className="mt-3 text-xs muted">{item.result.checked_files} PDF-Datei(en) geprüft, einschließlich PDF-Anlagen.</p>}
