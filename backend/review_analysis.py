@@ -6,6 +6,8 @@ import os
 import re
 from dataclasses import dataclass
 
+from pydantic import ValidationError
+
 from ai_client import (
     MODEL,
     complete_chat_with_timeout,
@@ -18,6 +20,7 @@ from ai_errors import InvalidStructuredAIResponse
 from ai_service import _parse_analysis_response, _processed_document_payload
 from review_evidence import verify_extraction
 from review_prompts import REVIEW_SYSTEM_PROMPT, extraction_prompt
+from review_response import correction_prompt, review_response_format
 from review_schema import ReviewExtraction
 
 SECTION_PAGES = max(1, min(10, int(os.getenv("MISTRAL_REVIEW_SECTION_PAGES", "4"))))
@@ -114,20 +117,32 @@ async def analyze_section(section: Section, owner_id: int, progress) -> list[dic
     if not isinstance(text, str):
         raise ReviewProcessingError("OCR_REQUIRED", "OCR-Text fehlt. MISTRAL_USE_OCR=true konfigurieren.")
     pages = section_pages(text, section)
-    progress("analysis")
     results = []
     for fragment in text_sections(pages):
-        response = await complete_chat_with_timeout(
-            get_client(), model=MODEL, **reasoning,
-            messages=[{"role": "system", "content": REVIEW_SYSTEM_PROMPT},
-                      {"role": "user", "content": extraction_prompt(fragment, section.document, section.first_page, section.last_page)}],
-            response_format={"type": "json_object"},
-        )
-        if not response.choices or getattr(response.choices[0], "finish_reason", "stop") != "stop":
-            raise InvalidStructuredAIResponse("Incomplete review response")
-        content = extract_response_text(response.choices[0].message.content)
-        extraction = ReviewExtraction.model_validate(_parse_analysis_response(content))
-        results.append(verify_extraction(extraction, pages, section.document, section.name))
+        prompt = extraction_prompt(fragment, section.document, section.first_page, section.last_page)
+        feedback = ""
+        # One format correction, without repeating OCR or changing the worker deadline.
+        for attempt in range(2):
+            progress("analysis_retry" if attempt else "analysis")
+            response = await complete_chat_with_timeout(
+                get_client(), model=MODEL, **reasoning,
+                messages=[{"role": "system", "content": REVIEW_SYSTEM_PROMPT + feedback},
+                          {"role": "user", "content": prompt}],
+                response_format=review_response_format(),
+            )
+            try:
+                if not response.choices or getattr(response.choices[0], "finish_reason", "stop") != "stop":
+                    raise InvalidStructuredAIResponse("Incomplete review response")
+                content = extract_response_text(response.choices[0].message.content)
+                extraction = ReviewExtraction.model_validate(_parse_analysis_response(content))
+            except (InvalidStructuredAIResponse, ValidationError) as exc:
+                if attempt:
+                    raise
+                # Never replay provider text as instructions or expose it in diagnostics.
+                feedback = "\n" + correction_prompt(exc)
+                continue
+            results.append(verify_extraction(extraction, pages, section.document, section.name))
+            break
     return results
 
 

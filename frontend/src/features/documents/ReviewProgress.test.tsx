@@ -5,6 +5,16 @@ import type { ReviewItem } from "./reviewTypes";
 
 afterEach(() => vi.useRealTimers());
 
+it("explains the bounded format correction without claiming completed pages", () => {
+  const item: ReviewItem = { id: 1, title: "Synthetic", status: "processing", result: { progress: {
+    stage: "analysis_retry", completed_pages: 0, total_pages: 4, ocr_completed_pages: 4,
+  } } };
+  render(<ReviewProgress item={item} />);
+  expect(screen.getByText(/KI-Antwortformat wird korrigiert \(einmaliger Wiederholungsversuch\)/)).toBeInTheDocument();
+  expect(screen.getByText(/Texterkennung abgeschlossen \(4 Seiten\)/)).toBeInTheDocument();
+  expect(screen.getByText(/0 von 4 PDF-Seiten fertig geprüft/)).toBeInTheDocument();
+});
+
 it("distinguishes OCR completion from model waiting and warns when heartbeats stop", () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-09-17T10:00:10Z"));
