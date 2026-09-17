@@ -4,6 +4,9 @@ import asyncio
 import logging
 import os
 from collections.abc import Callable
+from contextvars import ContextVar
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Literal
 
 from ai_mistral_transport import MAX_REASONING_HEADER, create_mistral_http_client
@@ -28,7 +31,8 @@ AI_REQUEST_TIMEOUT_SECONDS = max(
     int(os.getenv("MISTRAL_REQUEST_TIMEOUT_SECONDS", "900")),
 )
 MAX_RETRIES = 5
-BASE_DELAY = 2
+BASE_DELAY = 5
+rate_limit_observer: ContextVar[Callable[[int, float], None] | None] = ContextVar("rate_limit_observer", default=None)
 
 logger = logging.getLogger("atlas.ai")
 _client = None
@@ -90,25 +94,41 @@ async def retry_on_rate_limit(func: Callable, *args, **kwargs) -> Any:
             if error.status_code != 429:
                 raise
             last_exception = error
-        except Exception as error:
-            error_text = str(error).lower()
-            if "429" not in error_text and "rate limit" not in error_text:
-                raise
-            last_exception = error
-
         if attempt == MAX_RETRIES - 1:
             break
-        delay = BASE_DELAY * (2**attempt)
+        delay = max(BASE_DELAY * (2**attempt), _retry_after(last_exception))
         logger.warning(
             "Rate limit hit, waiting %ss before retry %s/%s",
             delay,
             attempt + 1,
             MAX_RETRIES,
         )
+        observer = rate_limit_observer.get()
+        if observer:
+            observer(attempt + 2, delay)
         await asyncio.sleep(delay)
+        if observer:
+            observer(attempt + 2, 0)
 
     logger.error("Max retries (%s) exhausted for rate limit", MAX_RETRIES)
     raise last_exception or RuntimeError("Max retries exhausted")
+
+
+def _retry_after(error: Exception | None) -> float:
+    response = getattr(error, "raw_response", None)
+    value = response.headers.get("retry-after") if response is not None else None
+    if not value:
+        return 0
+    try:
+        delay = float(value)
+    except ValueError:
+        try:
+            parsed = parsedate_to_datetime(value)
+            delay = (parsed.replace(tzinfo=parsed.tzinfo or UTC) - datetime.now(UTC)).total_seconds()
+        except (ValueError, TypeError, OverflowError):
+            return 0
+    # The enclosing request deadline bounds even a very large Retry-After value.
+    return max(0, delay) if delay < float("inf") else 0
 
 
 def get_client() -> Mistral:

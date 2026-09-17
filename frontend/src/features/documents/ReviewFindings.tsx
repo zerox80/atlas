@@ -26,21 +26,8 @@ export function FieldFinding({ change }: { change: ReviewChange }) {
   </>;
 }
 
-export function ReviewComponents({ result }: { result: ReviewItem["result"] }) {
+export function ReviewEvidence({ result }: { result: ReviewItem["result"] }) {
   return <>
-    {Boolean(result?.components?.length) && <section className="mt-5 break-words rounded-xl border border-[var(--line)] p-4">
-      <h3 className="font-semibold">Vorgeschlagene Vertragsbestandteile</h3>
-      <p className="mt-1 text-sm muted">Diese Positionen bleiben dem Hauptvertrag zugeordnet. Es wird nichts automatisch angelegt.</p>
-      <ul className="mt-3 space-y-3">{result!.components!.map((component, index) => <li key={index}>
-        <p className="font-medium">{component.name}{component.amount_net != null && ` · ${valueText(component.amount_net, "amount")} ${component.currency || "Währung unbekannt"} netto`}</p>
-        <p className="text-xs muted">{component.document_name} · Seite {component.evidence.page}
-          {!component.evidence_verified && " · Beleg nicht verifiziert"}</p>
-        <p className="mt-1 text-xs muted">„{component.evidence.quote}“</p>
-        {component.separate_contract_reasons.length > 0 && <p className="mt-1 text-sm text-[var(--warning)]">
-          Mögliche eigenständige Vertragseinheit – Vertragsnummer, Partner, Laufzeit und Kündigungsrechte manuell prüfen.
-        </p>}
-      </li>)}</ul>
-    </section>}
     {Boolean(result?.observations?.length) && <details className="mt-4 text-sm">
       <summary>Alle erkannten Beträge, Daten und Angaben</summary>
       <ul className="mt-3 space-y-3">{result!.observations!.map((fact, index) => <li key={index}>

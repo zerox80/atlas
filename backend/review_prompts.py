@@ -8,6 +8,8 @@ Antworte knapp im vorgegebenen JSON-Schema. Keine Unterverträge oder Vertragsbe
 Extrahiere belegte Gesamtbeträge, Laufzeiten, Kündigungsfristen und Kategorien.
 Keine vollständige Positionsliste abschreiben. Lizenz, Service, Wartung und Zusatzpakete
 gehören zum Gesamtumfang: Ein Einzelpreis/Positionsbetrag ist niemals der Gesamtbetrag.
+Das Feld Betrag/Gesamtwert bedeutet immer Gesamtbrutto inklusive aller Leistungen und Steuern.
+Fehlt Gesamtbrutto, keine Position und kein Netto als Ersatz angeben.
 Unterscheide netto/brutto, Gesamtbetrag/Position, einmalig/wiederkehrend und Währung.
 Alle unterschiedlichen belegten Gesamtsummen nennen; historische oder fremde Angaben
 als entity=other_source kennzeichnen. Bei Unsicherheit kind=ambiguous verwenden.

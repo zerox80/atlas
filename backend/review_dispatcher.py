@@ -71,9 +71,10 @@ async def dispatch_reviews(bind):
                 logger.warning("Review queue database unavailable; retrying")
                 await asyncio.sleep(3)
                 continue
-            for run_id in run_ids:
-                if run_id not in jobs or jobs[run_id].done():
-                    jobs[run_id] = asyncio.create_task(drive_review(bind, run_id))
+            # Use the shared provider quota sequentially, including runs started before this update.
+            if not jobs and run_ids:
+                run_id = run_ids[0]
+                jobs[run_id] = asyncio.create_task(drive_review(bind, run_id))
             await asyncio.sleep(1)
     finally:
         for job in jobs.values():

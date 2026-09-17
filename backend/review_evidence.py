@@ -38,6 +38,21 @@ def _quoted_dates(quote: str) -> set[str]:
     return dates
 
 
+def _labeled_total(scope: str, value, quote: str) -> bool:
+    """Bind the number to its total label; another number elsewhere in a quote cannot pass."""
+    if scope.endswith("gross"):
+        label = r"(?:gesamt(?:betrag|summe)?\s*brutto|brutto(?:gesamt)?(?:betrag|summe)?|rechnungs(?:end)?betrag|zahlbetrag|endbetrag|grand total)"
+    else:
+        label = r"(?:gesamt(?:betrag|summe)?\s*netto|netto(?:gesamt)?(?:betrag|summe)?|net total)"
+    # Markdown separators/currency may surround the value, but not another number or prose.
+    separators = r"[\s:|*€$=().-]*(?:(?:EUR|USD|CHF)\s*)?"
+    number = r"(\d[\d.,]*)"
+    for match in re.finditer(label + separators + number, quote, re.IGNORECASE):
+        if Decimal(str(value)) in _quoted_numbers(match.group(1)):
+            return True
+    return False
+
+
 def verify_extraction(extraction: ReviewExtraction, pages: dict[int, str], document: int, name: str) -> dict:
     result = extraction.model_dump()
     for record in result["observations"]:
@@ -61,9 +76,9 @@ def verify_extraction(extraction: ReviewExtraction, pages: dict[int, str], docum
             record["entity"] = "line_item"
             record["reason"] = "Der Beleg beschreibt eine einzelne Rechnungsposition, keinen Gesamtbetrag."
         if (record["scope"] in {"invoice_total_net", "invoice_total_gross", "contract_value_net", "contract_value_gross"}
-                and not re.search(r"gesamt|summe|total|rechnungsbetrag|zahlbetrag|vertragswert|netto(?:betrag)?\s*[:|]", quote, re.IGNORECASE)):
+                and not _labeled_total(record["scope"], record["value"], quote)):
             record.update(kind="ambiguous", confidence=0.4)
-            record["reason"] = "Der Beleg weist keinen eindeutig bezeichneten Gesamtbetrag aus. Keine Betragskorrektur."
+            record["reason"] = "Der Betrag ist nicht eindeutig als passender Netto-/Bruttogesamtbetrag belegt. Keine Betragskorrektur."
         if record["scope"] == "notice_period":
             check = enforce_notice_evidence({"notice_period": int(record["value"]),
                                             "notice_period_evidence": quote}, pages.get(evidence["page"]) if evidence else None)
@@ -94,7 +109,8 @@ def add_verified_totals(observations: list[dict]) -> list[dict]:
         if len({(item["value"], item.get("currency")) for item in nets}) != 1 or len({item["value"] for item in taxes}) != 1:
             continue
         net, tax = nets[0], taxes[0]
-        if net["evidence"]["page"] != tax["evidence"]["page"]:
+        if (net["evidence"]["page"] != tax["evidence"]["page"]
+                or _normalize(tax["evidence"]["quote"]) not in _normalize(net["evidence"]["quote"])):
             continue
         if not net.get("currency") or any(item["scope"] == "invoice_total_gross" for item in facts):
             continue

@@ -6,7 +6,7 @@ import { invalidateDocumentAndTagQueries } from "../../queryKeys";
 import { reviewRequestError } from "./reviewRequestError";
 import type { ReviewItem } from "./reviewTypes";
 import { canApply, labels, stageLabels, valueText } from "./reviewPresentation";
-import { FieldFinding, ReviewComponents } from "./ReviewFindings";
+import { FieldFinding, ReviewEvidence } from "./ReviewFindings";
 import ReviewProgress from "./ReviewProgress";
 
 const statuses: Record<string, string> = {
@@ -57,7 +57,7 @@ export default function ReviewItemCard({ item, runId }: { item: ReviewItem; runI
         Analysemodell: {item.result?.model || "unbekannt"} · OCR-Modell: {item.result?.ocr_model || "unbekannt"}</p>
     </div>}
     <ReviewProgress item={item} />
-    {item.result?.legacy_report && <p className="mt-3 text-sm text-[var(--warning)]">Älterer Prüfbericht ohne semantischen Vergleich.
+    {item.result?.legacy_report && <p className="mt-3 text-sm text-[var(--warning)]">Älterer Prüfbericht aus dem vorherigen Prüfverfahren.
       Für belegte Vorschläge bitte einen neuen Prüflauf starten.</p>}
     {item.result?.checked_files != null && <p className="mt-3 text-xs muted">{item.result.checked_files} PDF-Datei(en) geprüft, einschließlich PDF-Anlagen.</p>}
     {Boolean(item.result?.warnings?.length) && <ul className="mt-3 space-y-1 text-sm text-[var(--warning)]">
@@ -89,7 +89,7 @@ export default function ReviewItemCard({ item, runId }: { item: ReviewItem; runI
     {confirmed.length > 0 && <details className="mt-4 text-sm muted"><summary>{confirmed.length} bestätigte Felder</summary>
       {confirmed.map(change => <div key={change.field} className="mt-3"><strong>{labels[change.field]}</strong><FieldFinding change={change} /></div>)}
     </details>}
-    <ReviewComponents result={item.result} />
+    <ReviewEvidence result={item.result} />
     {item.result?.notice_period_evidence && <blockquote className="mt-4 border-l-2 border-[#b8f15a]/50 pl-3 text-sm muted">
       Beleg zur Kündigungsfrist: {item.result.notice_period_evidence}
     </blockquote>}
