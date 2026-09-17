@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from audit_identity_migration import migration_014_non_reusable_contract_ids
 from nullable_value_migration import migration_015_nullable_gross_value
 
+
 def get_default_db_path() -> str:
     db_url = os.getenv("DATABASE_URL", "sqlite:///./data/ze_dashboard.db")
     if db_url.startswith("sqlite:///"):

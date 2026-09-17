@@ -138,7 +138,7 @@ class Contract(SQLModel, table=True):
     notice_period: int | None = Field(default=None, description="Notice period in days")
     
     # Financials
-    value: float | None = Field(default=0.0)
+    value: float | None = Field(default=None)
     annual_value: float | None = Field(default=None)
     
     # Status
