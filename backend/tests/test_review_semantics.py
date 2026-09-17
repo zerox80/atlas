@@ -241,3 +241,12 @@ def test_mixed_document_tax_rates_are_not_applied_to_entire_net_total():
     result = build_review_result(stored(), [extraction(facts)], "invoice")
     assert not checks(result)["value"]["can_apply"]
     assert not any(fact.get("derivation_verified") for fact in result["observations"])
+
+
+@pytest.mark.parametrize("quote", [
+    "Rechnungsbetrag 100,00 EUR netto", "Rechnungsbetrag 100,00 EUR zzgl. MwSt.",
+    "Einzelpreis brutto 100,00 EUR", "Zwischensumme brutto 100,00 EUR",
+])
+def test_total_label_does_not_override_explicit_net_or_partial_amount(quote):
+    data = extraction([observation("invoice_total_gross", 100, quote, currency="EUR")])
+    assert not checks(build_review_result(stored(), [data], "invoice"))["value"]["can_apply"]

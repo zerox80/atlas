@@ -38,6 +38,17 @@ export interface ReviewItem {
   result?: {
     schema_version?: number;
     legacy_report?: boolean;
+    decision?: "accepted" | "rejected";
+    split_declined?: boolean;
+    split_created?: { id: number; title: string; document_type: string }[];
+    split_proposals?: {
+      title: string;
+      document_type: "contract" | "invoice";
+      pages: { document: number; page: number }[];
+      reason: string;
+      values: Record<string, ReviewChange["after"]>;
+      evidence: { document: number; page: number; quote: string };
+    }[];
     changes?: ReviewChange[];
     checks?: ReviewChange[];
     warnings?: string[];

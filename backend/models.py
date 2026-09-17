@@ -138,7 +138,7 @@ class Contract(SQLModel, table=True):
     notice_period: int | None = Field(default=None, description="Notice period in days")
     
     # Financials
-    value: float = Field(default=0.0)
+    value: float | None = Field(default=0.0)
     annual_value: float | None = Field(default=None)
     
     # Status
@@ -231,6 +231,15 @@ class DocumentReviewItem(SQLModel, table=True):
     snapshot_json: str | None = None
     result_json: str | None = None
     error: str | None = None
+
+
+class DocumentSplitRecord(SQLModel, table=True):
+    """Prevent duplicate splits across retries and later review runs; retain source history."""
+
+    contract_id: int = Field(primary_key=True)
+    source_fingerprint: str
+    created_json: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class AuditLog(SQLModel, table=True):

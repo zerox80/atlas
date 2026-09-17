@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from uuid import UUID, uuid4
 
 from audit_identity_migration import migration_014_non_reusable_contract_ids
-
+from nullable_value_migration import migration_015_nullable_gross_value
 
 def get_default_db_path() -> str:
     db_url = os.getenv("DATABASE_URL", "sqlite:///./data/ze_dashboard.db")
@@ -757,8 +757,8 @@ MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     ),
     ("013_pending_file_deletion_queue", migration_013_pending_file_deletion_queue),
     ("014_non_reusable_contract_ids", migration_014_non_reusable_contract_ids),
+    ("015_nullable_gross_value", migration_015_nullable_gross_value),
 )
-
 
 def migrate(db_path: str | None = None) -> None:
     resolved_db_path = db_path or DB_PATH

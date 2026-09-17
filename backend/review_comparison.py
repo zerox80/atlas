@@ -142,7 +142,14 @@ def result_status(result: dict) -> str:
 def build_review_result(before: dict, extractions: list[dict], document_type: str) -> dict:
     facts = add_verified_totals([fact for extraction in extractions for fact in extraction["observations"]])
     checks = [compare_field(field, before, facts, document_type) for field in REVIEW_FIELDS]
+    proposals = [proposal for extraction in extractions for proposal in extraction.get("split_proposals", [])]
+    if proposals:
+        for check in checks:
+            if check["field"] in {"value", "annual_value", "start_date", "end_date", "notice_period"} and check["can_apply"]:
+                check.update(can_apply=False, is_conflict=False, status="AMBIGUOUS",
+                             reason="Die Sammlung enthält mehrere eigenständige Dokumente. Angaben separat übernehmen; den Originaleintrag beibehalten.")
     return {"schema_version": PIPELINE_VERSION, "checks": checks,
+            "split_proposals": proposals,
             "changes": [check for check in checks if check["status"] != "CONFIRMED"],
             "observations": facts,
             "warnings": list(dict.fromkeys(warning for extraction in extractions for warning in extraction["warnings"]))}

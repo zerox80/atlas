@@ -55,6 +55,14 @@ def _labeled_total(scope: str, value, quote: str) -> bool:
                      total + separators + number + separators + included]
     for pattern in patterns:
         for match in re.finditer(pattern, quote, re.IGNORECASE):
+            # A bare "Brutto" next to an individual price is not the document total.
+            if re.search(r"(?:einzelpreis|positions(?:preis|betrag|summe)|zwischensumme)\s*$",
+                         quote[:match.start()], re.IGNORECASE):
+                continue
+            suffix = quote[match.end():]
+            contradiction = r"(?:netto\b|zzgl\.?|zuzüglich)" if scope.endswith("gross") else r"(?:brutto\b|inkl\.?|inklusive\b)"
+            if re.match(separators + contradiction, suffix, re.IGNORECASE):
+                continue
             if Decimal(str(value)) in _quoted_numbers(match.group(1)):
                 return True
     return False

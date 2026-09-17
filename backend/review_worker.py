@@ -10,7 +10,13 @@ from sqlmodel import Session, col, select, update
 from ai_client import AI_REQUEST_TIMEOUT_SECONDS, MODEL, OCR_MODEL, rate_limit_observer
 from ai_observability import review_context
 from models import DocumentReviewItem, DocumentReviewRun, User
-from review_analysis import REVIEW_REASONING_EFFORT, ReviewProcessingError, analyze_bundle, prepare_sections, scan_section
+from review_analysis import (
+    REVIEW_REASONING_EFFORT,
+    ReviewProcessingError,
+    analyze_bundle,
+    prepare_sections,
+    scan_section,
+)
 from review_comparison import build_review_result, result_status
 from review_errors import error_details
 from review_schema import PIPELINE_VERSION
@@ -161,7 +167,7 @@ async def process_review_step(bind, run_id: str, item_id: int, token: str,
                 final = build_review_result(before, extractions, document_type)
                 final.update(progress={**result["progress"], "stage": "complete", "completed_pages": total_pages},
                              checked_files=len(paths), skipped_files=skipped, model=MODEL, ocr_model=OCR_MODEL,
-                             reasoning_effort=REVIEW_REASONING_EFFORT)
+                             reasoning_effort=REVIEW_REASONING_EFFORT, source_fingerprint=fingerprint)
                 if skipped:
                     final["warnings"].append(f"Nicht geprüft (kein PDF): {', '.join(skipped)}")
                 result = final

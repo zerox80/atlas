@@ -176,3 +176,24 @@ async def test_bundle_refuses_truncated_ocr_instead_of_reporting_success(monkeyp
     with pytest.raises(ValueError, match="vollständige Prüfung"):
         await ai_service.analyze_document_bundle([b"pdf"])
     complete.assert_not_called()
+
+
+@pytest.mark.parametrize("document_type,scope", [("contract", "contract_value_net"), ("invoice", "invoice_total_net")])
+def test_selected_gross_correction_is_saved_without_changing_other_fields(auth_client, session, test_user, monkeypatch, document_type, scope):
+    doc = document(session, test_user, document_type=document_type, value=100)
+    doc_id = doc.id
+    facts = [observation(scope, 100, "Gesamt netto 100,00 EUR zzgl. Umsatzsteuer 19 %", currency="EUR"),
+             observation("tax_rate", 19, "Umsatzsteuer 19 %")]
+    monkeypatch.setattr(review_worker, "analyze_bundle", AsyncMock(return_value=[extraction(facts, document_type=document_type)]))
+    endpoint = f"/ai/reviews/{auth_client.post('/ai/reviews').json()['id']}"
+    auth_client.post(endpoint + "/next")
+    auth_client.post(endpoint + "/next")
+    item = auth_client.get(endpoint).json()["items"][0]
+    change = next(change for change in item["result"]["changes"] if change["field"] == "value")
+    assert change["can_apply"] and change["before"] == 100 and change["after"] == 119
+    assert session.get(Contract, doc_id).value == 100
+    response = auth_client.post(endpoint + f"/items/{item['id']}/apply", json={"fields": ["value"]})
+    assert response.status_code == 200, response.text
+    session.expire_all()
+    saved = session.get(Contract, doc_id)
+    assert saved.value == 119 and saved.title == "Alt" and saved.notice_period == 30

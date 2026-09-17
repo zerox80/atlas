@@ -15,7 +15,8 @@ def error_details(exc: Exception, stage: str, timeout: int) -> dict:
     elif isinstance(exc, (TimeoutError, httpx.TimeoutException)):
         code, message = "TIMEOUT", f"Zeitlimit überschritten (Anfrage bis {timeout} Sekunden). Bereits gescannte Seiten bleiben gespeichert. Ein erneuter Versuch benötigt keine neuen Scans."
     elif isinstance(exc, (InvalidStructuredAIResponse, ValidationError)):
-        code, message = "INVALID_AI_RESPONSE", "Die KI-Antwort war unvollständig oder entsprach nicht dem erwarteten JSON-Schema."
+        code, message = "INVALID_AI_RESPONSE", ("Die KI-Antwort war unvollständig oder enthielt ungültig formatierte Angaben. "
+                         "Es wurden keine Änderungen übernommen. Mit ‚Fehler erneut versuchen‘ wird nur die Auswertung wiederholt; die Scans bleiben erhalten.")
     elif isinstance(exc, AIProcessingCapacityError):
         code, message = "CAPACITY", "Die lokale KI-Verarbeitung ist ausgelastet. Später erneut versuchen."
     elif isinstance(exc, FileNotFoundError):

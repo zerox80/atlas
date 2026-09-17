@@ -30,6 +30,7 @@ from models import (
     DocumentReviewControl,
     DocumentReviewItem,
     DocumentReviewRun,
+    DocumentSplitRecord,
     User,
 )
 from review_analysis import ReviewProcessingError
@@ -52,6 +53,11 @@ class ReviewApply(BaseModel):
 class ReviewCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     start: bool = False
+
+
+class ReviewDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    accept: bool
 
 
 def _run(session: Session, run_id: str, user: User) -> DocumentReviewRun:
@@ -103,9 +109,9 @@ def _guard_active_run(session: Session, user: User, run_id: str | None = None):
     # Lock the same owner row before checking intent/leases; concurrent starts cannot race.
     session.exec(update(User).where(col(User.id) == user.id).values(is_active=User.is_active))
     active = session.exec(select(DocumentReviewRun.id).outerjoin(
-        DocumentReviewControl, DocumentReviewControl.run_id == DocumentReviewRun.id,
+        DocumentReviewControl, col(DocumentReviewControl.run_id) == col(DocumentReviewRun.id),
     ).where(DocumentReviewRun.owner_subject == user.auth_subject,
-            or_(col(DocumentReviewControl.running).is_(True), col(DocumentReviewRun.lease_until) > datetime.now(UTC)))) .all()
+            or_(col(DocumentReviewControl.running).is_(True), col(DocumentReviewRun.lease_until) > datetime.now(UTC)))).all()
     if any(identifier != run_id for identifier in active):
         raise HTTPException(409, "Ein anderer Prüflauf ist noch aktiv. Diesen zuerst pausieren und seine laufende Anfrage abwarten.")
 
@@ -159,6 +165,11 @@ def read_review(run_id: str, offset: int = Query(0, ge=0), limit: int = Query(50
         # Checkpoints are private worker state. Expose only progress until complete.
         result.pop("checkpoint", None)
         result.pop("components", None)
+        split = session.get(DocumentSplitRecord, item.contract_id)
+        if split:
+            from review_split_routes import visible_created
+
+            result["split_created"] = visible_created(split, user, session)
         if result and result.get("schema_version") != PIPELINE_VERSION:
             result["legacy_report"] = True
             for change in result.get("changes", []):
@@ -306,10 +317,58 @@ def retry_errors(run_id: str, user: User = Depends(get_current_user), session: S
     return {"ok": True}
 
 
+@router.post("/{run_id}/items/{item_id}/decision")
+def decide_review(run_id: str, item_id: int, body: ReviewDecision, request: Request,
+                  user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    _run(session, run_id, user)
+    _lock_item(session, run_id, item_id)
+    item = session.get(DocumentReviewItem, item_id)
+    if not item or item.run_id != run_id or item.status not in {"issues", "hints", "checked", "applied"}:
+        raise HTTPException(409, "Die Prüfung ist noch nicht abgeschlossen.")
+    document = _document(session, item.contract_id, user, "write" if body.accept else "read")
+    if document is None:
+        raise HTTPException(404, "Dokument nicht gefunden.")
+    result = json.loads(item.result_json or "{}")
+    if result.get("schema_version") != PIPELINE_VERSION:
+        raise HTTPException(409, "Bitte zuerst einen neuen Prüflauf starten.")
+    decision = "accepted" if body.accept else "rejected"
+    if result.get("decision"):
+        if result["decision"] == decision:
+            return {"ok": True}
+        raise HTTPException(409, "Über diesen Vorschlag wurde bereits entschieden.")
+    if json.loads(item.snapshot_json or "{}").get("version") != document.version:
+        raise HTTPException(409, "Dokument inzwischen geändert. Bitte erneut prüfen.")
+    fields = [change["field"] for change in result.get("changes", []) if change.get("can_apply")
+              and change.get("after") is not None and change.get("status") in {"EXPLICIT_CONFLICT", "NEW_INFORMATION", "DERIVED"}]
+    if body.accept and fields:
+        _apply_review(run_id, item_id, ReviewApply(fields=fields), user, session, commit=False)
+        result = json.loads(item.result_json or "{}")
+    result["decision"] = decision
+    result["decision_at"] = datetime.now(UTC).isoformat()
+    item.result_json = json.dumps(result, ensure_ascii=False)
+    session.add(item)
+    log_audit(session, user.id, "REVIEW_DECISION", f"[CID:{document.id}] Prüfvorschlag {decision}.",
+              contract_id=document.id, commit=False)
+    session.commit()
+    return {"ok": True}
+
+
 @router.post("/{run_id}/items/{item_id}/apply")
 def apply_review(run_id: str, item_id: int, body: ReviewApply, request: Request,
                  user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return _apply_review(run_id, item_id, body, user, session)
+
+
+def _lock_item(session: Session, run_id: str, item_id: int):
+    session.exec(update(DocumentReviewItem).where(
+        col(DocumentReviewItem.id) == item_id, col(DocumentReviewItem.run_id) == run_id,
+    ).values(status=DocumentReviewItem.status))
+    session.expire_all()
+
+
+def _apply_review(run_id: str, item_id: int, body: ReviewApply, user: User, session: Session, *, commit=True):
     _run(session, run_id, user)
+    _lock_item(session, run_id, item_id)
     item = session.get(DocumentReviewItem, item_id)
     if not item or item.run_id != run_id or item.status not in {"issues", "hints"} or not item.result_json or not item.snapshot_json:
         raise HTTPException(409, "Kein übernehmbarer Prüfvorschlag vorhanden.")
@@ -318,6 +377,8 @@ def apply_review(run_id: str, item_id: int, body: ReviewApply, request: Request,
         raise HTTPException(404, "Dokument nicht gefunden.")
     before = json.loads(item.snapshot_json)
     result = json.loads(item.result_json)
+    if result.get("decision"):
+        raise HTTPException(409, "Über diesen Vorschlag wurde bereits entschieden.")
     if result.get("schema_version") != PIPELINE_VERSION:
         raise HTTPException(409, "Dieser ältere Bericht kennt keine semantischen Belege. Bitte einen neuen Prüflauf starten.")
     changes = {change["field"]: change for change in result["changes"]}
@@ -363,5 +424,8 @@ def apply_review(run_id: str, item_id: int, body: ReviewApply, request: Request,
     log_audit(session, user.id, "UPDATE_CONTRACT",
               f"[CID:{document.id}] KI-Prüfung: {', '.join(sorted(values))} übernommen (Modell {MODEL}).",
               contract_id=document.id, commit=False)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return {"ok": True}
