@@ -28,7 +28,7 @@ export default function ReviewProgress({ item }: { item: ReviewItem }) {
     {progress.document_name && progress.stage !== "complete" && <p>{progress.document_name} · Seiten {progress.first_page}–{progress.last_page}
       {progress.stage && ` · ${stageLabels[progress.stage] || progress.stage}`}</p>}
     {item.status === "processing" && <div role="status" className="mt-2 space-y-1">
-      {progress.stage === "analysis" && <p>Texterkennung abgeschlossen{progress.ocr_completed_pages != null && ` (${progress.ocr_completed_pages} Seiten)`}.
+      {(progress.stage === "analysis" || progress.stage === "analysis_retry") && <p>Texterkennung abgeschlossen{progress.ocr_completed_pages != null && ` (${progress.ocr_completed_pages} Seiten)`}.
         Warte auf die KI-Auswertung dieses Seitenpakets. Der Prüfstand steigt nach Eingang und Prüfung der Antwort.</p>}
       <p>{progress.stage && (stageLabels[progress.stage] || progress.stage)}{elapsed != null && ` · seit ${elapsed} Sekunden`}
         {progress.request_timeout_seconds != null && ` · Zeitlimit je OCR-/KI-Anfrage: ${progress.request_timeout_seconds} Sekunden`}</p>

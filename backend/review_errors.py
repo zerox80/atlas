@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from ai_errors import AIProcessingCapacityError, InvalidStructuredAIResponse
 from review_analysis import ReviewProcessingError
+from review_response import validation_issues
 
 
 def error_details(exc: Exception, stage: str, timeout: int) -> dict:
@@ -37,11 +38,5 @@ def error_details(exc: Exception, stage: str, timeout: int) -> dict:
         }.get(status, "Mistral meldet einen Server- oder API-Fehler. Später erneut versuchen.")
     result: dict = {"code": code, "stage": stage, "message": message, "exception_type": type(exc).__name__, "http_status": status if isinstance(status, int) else None}
     if isinstance(exc, ValidationError):
-        safe_fields = {"document_type", "observations", "components", "warnings", "scope", "value", "kind", "confidence",
-                       "reason", "evidence", "entity", "currency", "billing_interval", "page", "quote", "name",
-                       "amount_net", "separate_contract_reasons"}
-        result["validation_issues"] = [
-            ".".join(str(part) if isinstance(part, int) or part in safe_fields else "unbekanntes Feld" for part in issue["loc"])
-            + ": " + issue["type"] for issue in exc.errors(include_input=False, include_context=False, include_url=False)[:5]
-        ]
+        result["validation_issues"] = validation_issues(exc)
     return result

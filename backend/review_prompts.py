@@ -14,7 +14,8 @@ Unterscheide Positionsnetto/-brutto, Rechnungsnetto/-brutto, Vertragsnetto/-brut
 wiederkehrendes Entgelt, Jahreswert und Einzelpreis. Ein Positionsbetrag ist kein Gesamtwert.
 Unterscheide Vertragsbeginn, Leistungsbeginn, Rechnungsdatum, Bestelldatum, Lieferdatum und Laufzeitende.
 Ein Lieferscheindatum ist weder Vertragsbeginn noch Rechnungsdatum.
-Fehlende Werte weglassen. Keine Ersatzwerte, gesetzlichen oder üblichen Kündigungsfristen erfinden.
+Nicht belegte Angaben nicht als Beobachtung aufnehmen. Pflichtfelder der JSON-Struktur niemals weglassen.
+Keine Ersatzwerte, gesetzlichen oder üblichen Kündigungsfristen erfinden.
 Eine Kündigungsfrist erfordert eine wörtliche ordentliche Kündigungsklausel mit Tagen/Wochen;
 Kalendermonate nicht pauschal umrechnen. Widersprüchliche Aussagen als ambiguous kennzeichnen.
 Rechnung allein belegt keine vollständigen Vertragsbedingungen. Dokumenttyp anhand des Inhalts bestimmen.
@@ -36,6 +37,10 @@ entity=document nur für Angaben des geprüften Gesamtvertrags/der Rechnung;
 einzelne Positionen als component und eigenständige Vertragsverhältnisse als other_contract kennzeichnen.
 Du siehst möglicherweise nur einen Abschnitt. Nenne alle hier belegten Angaben, auch widersprüchliche.
 Erfinde keine Aussagen zu anderen Abschnitten. Das System führt die Abschnitte anschließend zusammen.
+Die Antwort enthält immer document_type, observations, components und warnings; Listen ohne Einträge sind [].
+observations enthält nur vollständige Objekte gemäß Schema, niemals bloße Texte.
+Jede Beobachtung enthält entity und evidence. Ein fehlender Beleg ist ausdrücklich null;
+ohne wörtlichen Beleg ist eine Angabe nicht explicit. Optionale skalare Werte ohne Angabe sind null.
 """
 
 REVIEW_SYSTEM_PROMPT = f"{UNTRUSTED_DOCUMENT_NOTICE}\n{SEMANTIC_RULES}"

@@ -67,7 +67,7 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
         now = datetime.now(UTC).isoformat()
         result["progress"].update(stage=stage, stage_started_at=now, heartbeat_at=now,
                                   request_timeout_seconds=AI_REQUEST_TIMEOUT_SECONDS)
-        if stage == "analysis" and section is not None:
+        if stage in {"analysis", "analysis_retry"} and section is not None:
             result["progress"]["ocr_completed_pages"] = result["progress"]["completed_pages"] + section.last_page - section.first_page + 1
         if save("processing") != "processing":
             raise ReviewProcessingError("DOCUMENT_CHANGED", "Dokument wurde geändert oder ist nicht mehr zugänglich.")
