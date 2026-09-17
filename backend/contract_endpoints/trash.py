@@ -20,6 +20,7 @@ from database import get_session
 from file_cleanup import enqueue_file_deletion, process_file_deletion_job
 from models import (
     Contract,
+    ContractAttachment,
     ContractList,
     ContractListLink,
     ContractPermission,
@@ -232,14 +233,18 @@ def permanently_delete_document(
         current_user,
         session,
     )
-    file_path = contract.file_path
+    file_paths = [contract.file_path, *(item.file_path for item in contract.attachments)]
     document_title = contract.title
     document_type = contract.document_type
-    deletion_job_id: int | None = None
+    deletion_job_ids: list[int] = []
     try:
-        deletion_job = enqueue_file_deletion(session, file_path)
-        if deletion_job is not None:
-            deletion_job_id = deletion_job.id
+        for file_path in file_paths:
+            deletion_job = enqueue_file_deletion(session, file_path)
+            if deletion_job is not None and deletion_job.id is not None:
+                deletion_job_ids.append(deletion_job.id)
+        session.exec(
+            delete(ContractAttachment).where(col(ContractAttachment.contract_id) == contract_id)
+        )
         session.exec(
             delete(ContractTagLink).where(
                 col(ContractTagLink.contract_id) == contract_id
@@ -289,6 +294,6 @@ def permanently_delete_document(
         session.rollback()
         raise
 
-    if deletion_job_id is not None:
+    for deletion_job_id in deletion_job_ids:
         process_file_deletion_job(session, deletion_job_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -118,6 +118,15 @@ class ContractUpdate(BaseModel):
             return None
         return normalize_tag_names(values)
 
+class ContractAttachmentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    size: int
+    uploaded_at: datetime
+
+
 class ContractRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -133,6 +142,7 @@ class ContractRead(BaseModel):
     version: int
     tags: list[TagRead] = Field(default_factory=list)
     lists: list[ContractListRead] = Field(default_factory=list)
+    attachments: list[ContractAttachmentRead] = Field(default_factory=list)
     notice_period: int | None = None
     is_protected: bool
     file_extension: str

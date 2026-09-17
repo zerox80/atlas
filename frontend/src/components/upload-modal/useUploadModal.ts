@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useDropzone, type FileRejection } from "react-dropzone";
 import api from "../../api";
 import { useUser } from "../../App";
 import { invalidateDocumentAndTagQueries, queryKeys } from "../../queryKeys";
@@ -9,11 +8,7 @@ import { dateInputToApiDate } from "../../utils/apiDate";
 import { businessDateKey } from "../../utils/contractPresentation";
 import { getApiErrorMessage } from "../../utils/errorUtils";
 import { formatGermanNumber, parseGermanNumber } from "../../utils/formatUtils";
-import {
-  ACCEPTED_UPLOAD_TYPES,
-  formatUploadSize,
-  MAX_UPLOAD_SIZE,
-} from "../UploadSourcePanel";
+import { useUploadFiles } from "./useUploadFiles";
 import type { UploadModalProps } from "./types";
 
 const dateForInput = (value?: string | null, timeZone?: string) => {
@@ -30,7 +25,6 @@ export const useUploadModal = ({
   initialListId,
   documentType = "contract",
 }: UploadModalProps) => {
-  const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [value, setValue] = useState("");
@@ -41,7 +35,8 @@ export const useUploadModal = ({
   const [noticePeriod, setNoticePeriod] = useState("");
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [fileError, setFileError] = useState("");
+  const uploadFiles = useUploadFiles(isOpen, initialData, uploading || analyzing);
+  const { file, attachments, removedAttachmentIds, selectedAnalysisFile } = uploadFiles;
   const [workspaceId, setWorkspaceId] = useState(0);
   const queryClient = useQueryClient();
   const { user } = useUser();
@@ -85,8 +80,6 @@ export const useUploadModal = ({
     setEndDate(
       dateForInput(initialData?.end_date, initialData?.business_timezone),
     );
-    setFile(null);
-    setFileError("");
   }, [isOpen, initialData]);
 
   useEffect(() => {
@@ -115,45 +108,12 @@ export const useUploadModal = ({
     writableWorkspaces,
   ]);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (!acceptedFiles.length) return;
-    setFileError("");
-    setFile(acceptedFiles[0]);
-  }, []);
-
-  const onDropRejected = useCallback((rejections: FileRejection[]) => {
-    const firstError = rejections[0]?.errors[0];
-    if (!firstError) return;
-    if (firstError.code === "file-too-large") {
-      setFileError(
-        `Die Datei darf maximal ${formatUploadSize(MAX_UPLOAD_SIZE)} groß sein.`,
-      );
-    } else if (firstError.code === "file-invalid-type") {
-      setFileError("Bitte laden Sie eine PDF-, Bild- oder Textdatei hoch.");
-    } else {
-      setFileError(firstError.message);
-    }
-    setFile(null);
-  }, []);
-
-  const dropzone = useDropzone({
-    onDrop,
-    onDropRejected,
-    accept: ACCEPTED_UPLOAD_TYPES,
-    maxFiles: 1,
-    maxSize: MAX_UPLOAD_SIZE,
-  });
-
   const handleAnalyze = async () => {
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
-      alert("KI-Analyse funktioniert nur mit PDF-Dateien.");
-      return;
-    }
+    if (!selectedAnalysisFile || analyzing || uploading) return;
     setAnalyzing(true);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", selectedAnalysisFile);
       formData.append("document_type", isInvoice ? "invoice" : "contract");
       const { data } = await api.post<ContractAnalysisResult>(
         "/contracts/analyze",
@@ -181,22 +141,9 @@ export const useUploadModal = ({
     }
   };
 
-  const resetAndClose = () => {
-    setFile(null);
-    setTitle("");
-    setDescription("");
-    setValue("");
-    setAnnualValue("");
-    setTags("");
-    setNoticePeriod("");
-    setStartDate("");
-    setEndDate("");
-    setFileError("");
-    onClose();
-  };
-
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (uploading || analyzing) return;
     if ((!initialData && !file) || !title) return;
     if (!initialData && workspaceId === 0) {
       alert("Es ist kein beschreibbarer Workspace als Ablageziel verfügbar.");
@@ -224,6 +171,8 @@ export const useUploadModal = ({
 
       const formData = new FormData();
       if (file) formData.append("file", file);
+      attachments.forEach((attachment) => formData.append("attachments", attachment));
+      removedAttachmentIds.forEach((id) => formData.append("removed_attachment_ids", id.toString()));
       formData.append("title", title);
       formData.append("description", description || "");
       formData.append("value", parsedValue !== null ? parsedValue.toString() : "");
@@ -256,7 +205,7 @@ export const useUploadModal = ({
       }
 
       await invalidateDocumentAndTagQueries(queryClient);
-      resetAndClose();
+      onClose();
     } catch (error: unknown) {
       alert(
         `Vorgang fehlgeschlagen: ${getApiErrorMessage(error, "Unbekannter Fehler")}`,
@@ -271,10 +220,9 @@ export const useUploadModal = ({
     annualValue,
     description,
     documentLabel,
-    dropzone,
+    uploadFiles,
     endDate,
     file,
-    fileError,
     handleAnalyze,
     handleSubmit,
     isEditing: Boolean(initialData),

@@ -8,6 +8,7 @@ Das System bietet umfassende Werkzeuge für das Vertragsmanagement:
 
 * Automatisierte Vertragsanalyse: Mithilfe von Mistral Medium 3.5 werden wichtige Daten wie Laufzeiten, Beträge und Kündigungsfristen automatisch aus PDF Dokumenten extrahiert.
 * Rechnungsverwaltung: Rechnungen können unabhängig von Verträgen hochgeladen, mit OCR/KI ausgelesen und separat verwaltet werden.
+* Mehrere Dateien pro Vertrag: Ein Hauptdokument und bis zu neun Anhänge (jeweils maximal 10 MiB) werden gemeinsam gespeichert. Im Upload-Dialog lässt sich die PDF für die KI-Analyse separat auswählen. Anhänge sind in den Details herunterladbar, beim Bearbeiten ergänzbar und in Datensicherung sowie Papierkorb enthalten.
 * Interaktiver Chat: Nutzer können spezifische Fragen zu Vertragsinhalten stellen und erhalten präzise Antworten basierend auf dem Dokument.
 * Benutzer und Rollenmanagement: Eine integrierte Administration ermöglicht die Steuerung von Zugriffsrechten und Rollen.
 * Sicherheit: Das System implementiert eine Zwei Faktor Authentifizierung (TOTP) sowie detaillierte Audit Logs zur Nachverfolgbarkeit aller Aktionen.
@@ -23,6 +24,12 @@ Die Anwendung nutzt eine moderne Architektur:
 * Infrastruktur: Containerisierung mittels Docker und Docker Compose für eine schnelle Bereitstellung.
 
 ## Installation
+
+Bei Updates für Mehrdatei-Uploads muss auch ein bereits eingerichteter externer
+Nginx-Proxy `client_max_body_size 101M;` verwenden. Die mitgelieferten Vorlagen
+und das Setup-Skript berücksichtigen dies; die Grenze pro einzelner Datei bleibt
+10 MiB. Die zusätzliche Datenbanktabelle für Anhänge wird beim Backend-Start
+automatisch angelegt, vorhandene Hauptdokumente bleiben erhalten.
 
 ### Interaktives Nginx- und HTTPS-Setup
 

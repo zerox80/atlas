@@ -1,7 +1,7 @@
 import React from "react";
 import { FiTrendingUp } from "react-icons/fi";
 import { formatGermanNumber } from "../../utils/formatUtils";
-import type { InvoiceStats as InvoiceStatsData } from "./invoiceStats";
+import type { InvoiceStats as InvoiceStatsData } from "./invoiceMetrics";
 
 interface InvoiceStatsProps {
   invoiceCount: number;

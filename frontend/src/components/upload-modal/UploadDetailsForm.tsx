@@ -6,14 +6,14 @@ interface UploadDetailsFormProps {
 }
 
 const FieldLabel = ({ children }: { children: ReactNode }) => (
-  <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-white/38">
+  <span className="mb-2 block break-words text-[10px] font-bold uppercase tracking-[0.14em] text-white/38">
     {children}
   </span>
 );
 
 const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
-  <section className="p-5 sm:p-7">
-    <div className="mb-5 flex items-center justify-between">
+  <section className="min-w-0 p-5 sm:p-7 [&_.field]:min-w-0 [&_.field]:max-w-full [&_label]:min-w-0">
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
       <p className="eyebrow">02 · Details prüfen</p>
       <span className="chip">
         {controller.isInvoice ? "Invoice" : "Contract"}
@@ -144,7 +144,7 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
             type="date"
             value={controller.startDate}
             onChange={(event) => controller.setStartDate(event.target.value)}
-            className="field [color-scheme:dark]"
+            className="field"
           />
         </label>
         {!controller.isInvoice && (
@@ -154,7 +154,7 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
               type="date"
               value={controller.endDate}
               onChange={(event) => controller.setEndDate(event.target.value)}
-              className="field [color-scheme:dark]"
+              className="field"
             />
           </label>
         )}

@@ -25,6 +25,7 @@ from api_core import (
     get_current_user,
     resolve_user_default_workspace,
 )
+from contract_endpoints.attachments import save_attachments, validate_attachments
 from contract_endpoints.helpers import enforce_upload_rate_limit, resolve_tags
 from contract_queries import (
     parse_date_form,
@@ -42,7 +43,7 @@ from file_utils import (
     save_upload_file,
     validate_file,
 )
-from models import Contract, ContractList, ContractListLink, User
+from models import Contract, ContractAttachment, ContractList, ContractListLink, User
 from schemas import ContractCreate, ContractRead, ContractUpdate
 from security_utils import log_audit
 
@@ -55,6 +56,7 @@ async def create_contract(
     request: Request,
     title: Annotated[str, Form()],
     file: UploadFile = File(...),
+    attachments: list[UploadFile] = File(default=[]),
     start_date: Annotated[str | None, Form()] = None,
     end_date: Annotated[str | None, Form()] = None,
     value: Annotated[str | None, Form()] = None,
@@ -119,6 +121,7 @@ async def create_contract(
     validate_cancellation_date(contract_data.end_date, contract_data.notice_period)
     try:
         await validate_file(file)
+        await validate_attachments(attachments)
     except HTTPException:
         raise
     except Exception as error:
@@ -139,7 +142,10 @@ async def create_contract(
         notice_period=contract_data.notice_period,
     )
 
+    new_attachments: list[ContractAttachment] = []
     try:
+        new_attachments = await save_attachments(attachments)
+        contract.attachments.extend(new_attachments)
         contract.tags.extend(
             resolve_tags(
                 session,
@@ -172,6 +178,8 @@ async def create_contract(
     except Exception:
         session.rollback()
         delete_upload_file(file_path)
+        for attachment in new_attachments:
+            delete_upload_file(attachment.file_path)
         raise
 
     session.refresh(contract)
@@ -256,6 +264,8 @@ async def update_contract(
     notice_period: Annotated[str | None, Form()] = None,
     tags: Annotated[str | None, Form(max_length=2_550)] = None,
     file: UploadFile = File(None),
+    attachments: list[UploadFile] = File(default=[]),
+    removed_attachment_ids: Annotated[list[int] | None, Form()] = None,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -272,6 +282,13 @@ async def update_contract(
             detail="Contract was changed by another request; reload and retry",
         )
     session.autoflush = False
+    removed_ids = set(removed_attachment_ids or [])
+    removed_attachments = [item for item in contract.attachments if item.id in removed_ids]
+    if len(removed_attachments) != len(removed_ids):
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    await validate_attachments(
+        attachments, len(contract.attachments) - len(removed_attachments),
+    )
 
     update_data = validate_contract_form(
         ContractUpdate,
@@ -316,9 +333,10 @@ async def update_contract(
 
     new_file_path: str | None = None
     old_file_path: str | None = None
-    deletion_job_id: int | None = None
-    if file:
+    deletion_job_ids: list[int] = []
+    if file or attachments:
         enforce_upload_rate_limit(request)
+    if file:
         try:
             await validate_file(file)
             new_file_path = await save_upload_file(
@@ -334,7 +352,19 @@ async def update_contract(
         contract.file_path = new_file_path
         changes.append("file: updated")
 
+    new_attachments: list[ContractAttachment] = []
     try:
+        new_attachments = await save_attachments(attachments)
+        contract.attachments.extend(new_attachments)
+        if new_attachments:
+            changes.append(f"attachments: added {len(new_attachments)}")
+        for attachment in removed_attachments:
+            job = enqueue_file_deletion(session, attachment.file_path)
+            if job is not None and job.id is not None:
+                deletion_job_ids.append(job.id)
+            session.delete(attachment)
+        if removed_attachments:
+            changes.append(f"attachments: removed {len(removed_attachments)}")
         if tags is not None:
             old_tags = [tag.name for tag in contract.tags]
             new_tags = update_data.tags or []
@@ -377,18 +407,20 @@ async def update_contract(
                 deletion_job = enqueue_file_deletion(session, old_file_path)
                 if deletion_job is None or deletion_job.id is None:
                     raise RuntimeError("File cleanup job could not be created")
-                deletion_job_id = deletion_job.id
+                deletion_job_ids.append(deletion_job.id)
             session.commit()
     except Exception:
         session.rollback()
         if new_file_path:
             delete_upload_file(new_file_path)
+        for attachment in new_attachments:
+            delete_upload_file(attachment.file_path)
         raise
 
     if changes:
         session.refresh(contract)
     response_payload = contract_read_for_user(contract, current_user, session)
-    if deletion_job_id is not None:
+    for deletion_job_id in deletion_job_ids:
         process_file_deletion_job(session, deletion_job_id)
 
     return response_payload
