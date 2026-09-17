@@ -35,6 +35,7 @@ from models import (
 )
 from review_analysis import ReviewProcessingError
 from review_comparison import result_status
+from review_refresh import load_review_result
 from review_schema import PIPELINE_VERSION, REVIEW_FIELDS
 from review_worker import STEP_TIMEOUT, process_review_step
 from schemas import ContractUpdate
@@ -126,7 +127,7 @@ def list_reviews(user: User = Depends(get_current_user), session: Session = Depe
 
 
 @router.post("")
-@limiter.limit("30/minute", error_message="Zu viele neue Prüfläufe kurz hintereinander. Bitte nach einer Minute erneut versuchen oder den gespeicherten Prüflauf fortsetzen.")
+@limiter.limit("12/hour", error_message="Maximal 12 neue Prüfläufe pro Stunde. Bitte nach Ablauf des Stundenlimits erneut versuchen oder den gespeicherten Prüflauf fortsetzen.")
 def create_review(request: Request, body: ReviewCreate | None = None,
                   user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     _require_ai_availability("Prüfung")
@@ -156,12 +157,14 @@ def read_review(run_id: str, offset: int = Query(0, ge=0), limit: int = Query(50
     items = session.exec(select(DocumentReviewItem).where(DocumentReviewItem.run_id == run_id)
                          .order_by(col(DocumentReviewItem.id)).offset(offset).limit(limit)).all()
     output: list[dict] = []
+    refreshed = False
     for item in items:
         document = _document(session, item.contract_id, user)
         if document is None:
             output.append({"id": item.id, "status": "unavailable", "title": "Dokument nicht mehr zugänglich"})
             continue
-        result = json.loads(item.result_json) if item.result_json else {}
+        result, changed = load_review_result(item, document, session)
+        refreshed = refreshed or changed
         # Checkpoints are private worker state. Expose only progress until complete.
         result.pop("checkpoint", None)
         result.pop("components", None)
@@ -180,6 +183,8 @@ def read_review(run_id: str, offset: int = Query(0, ge=0), limit: int = Query(50
             "error": item.error, "result": result,
             "can_write": check_contract_permission(user, item.contract_id, "write", session),
         })
+    if refreshed:
+        session.commit()
     return {**_summary(session, run), "items": output, "offset": offset, "limit": limit}
 
 
@@ -328,7 +333,7 @@ def decide_review(run_id: str, item_id: int, body: ReviewDecision, request: Requ
     document = _document(session, item.contract_id, user, "write" if body.accept else "read")
     if document is None:
         raise HTTPException(404, "Dokument nicht gefunden.")
-    result = json.loads(item.result_json or "{}")
+    result, _ = load_review_result(item, document, session)
     if result.get("schema_version") != PIPELINE_VERSION:
         raise HTTPException(409, "Bitte zuerst einen neuen Prüflauf starten.")
     decision = "accepted" if body.accept else "rejected"
@@ -376,7 +381,7 @@ def _apply_review(run_id: str, item_id: int, body: ReviewApply, user: User, sess
     if document is None:
         raise HTTPException(404, "Dokument nicht gefunden.")
     before = json.loads(item.snapshot_json)
-    result = json.loads(item.result_json)
+    result, _ = load_review_result(item, document, session)
     if result.get("decision"):
         raise HTTPException(409, "Über diesen Vorschlag wurde bereits entschieden.")
     if result.get("schema_version") != PIPELINE_VERSION:
@@ -409,14 +414,16 @@ def _apply_review(run_id: str, item_id: int, body: ReviewApply, user: User, sess
             setattr(document, field, value)
     document.version = before["version"] + 1
     session.add(document)
+    current = snapshot(document)
     result["changes"] = [change for change in result["changes"] if change["field"] not in values]
     for check in result.get("checks", []):
         if check["field"] in values:
-            check.update(before=values[check["field"]], status="CONFIRMED", is_conflict=False, can_apply=False,
-                         reason="Vorschlag durch den Nutzer übernommen.")
+            check.update(before=current[check["field"]], status="CONFIRMED", is_conflict=False, can_apply=False,
+                         reason="Vorschlag durch den Nutzer übernommen.", recommendation="keep",
+                         recommendation_reason="Die ausgewählte Änderung wurde übernommen.")
     result["applied_fields"] = sorted(set(result.get("applied_fields", []) + list(values)))
     item.result_json = json.dumps(result, ensure_ascii=False)
-    item.snapshot_json = json.dumps(snapshot(document), ensure_ascii=False)
+    item.snapshot_json = json.dumps(current, ensure_ascii=False)
     item.status = result_status(result)
     if item.status == "checked":
         item.status = "applied"

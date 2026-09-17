@@ -60,19 +60,20 @@ export default function DocumentReview() {
   const data = page.data;
   return <div className="app-page">
     <PageHeader eyebrow="Datenqualität" title="Alle Dokumente prüfen"
-      description="Verträge und Rechnungen erneut mit dem aktuellen KI-Modell gegen die Originaldokumente abgleichen."
+      description="Konkrete Änderungsvorschläge für Verträge und Rechnungen erhalten, auswählen und übernehmen."
       actions={<button className="btn-primary" disabled={Boolean(anyRunning) || controlling || creating || !status.data?.available} onClick={() => void create()}>
         <FiCheckSquare /> {creating ? "Wird vorbereitet …" : "Alle Verträge & Rechnungen neu prüfen"}
     </button>} />
     <div className="surface mb-5 space-y-2 p-5 text-sm leading-6">
-      <p>Jeden fertigen Prüfvorschlag bestätigst du mit Ja oder Nein. Einzelne Änderungen kannst du in den Belegen auswählen.
-        Fehlende Angaben löschen keine gespeicherten Werte.
-        OCR scannt jeweils bis zu vier Seiten. Danach folgt eine einzige Auswertung aller Seiten und PDF-Anlagen.
-        Betrag / Gesamtwert bedeutet immer Gesamtbrutto; Positionspreise ersetzen ihn nicht.</p>
+      <p>Bei jeder empfohlenen Änderung siehst du den gespeicherten Wert, den vorgeschlagenen Wert und die Begründung.
+        Setze die Checkbox bei den gewünschten Änderungen und klicke auf „Ausgewählte Änderungen übernehmen“.
+        Wenn eine Änderung nicht sinnvoll belegt ist, erhältst du die Empfehlung, den Wert beizubehalten oder das Feld leer zu lassen.</p>
       <details className="muted"><summary className="cursor-pointer">Umfang, API-Kosten und Ablauf · Modell {status.data?.model || "Nicht verfügbar"}</summary>
       <p className="mt-2">Prüft alle zugänglichen Dokumente in allen Workspaces, einschließlich geschützter Dokumente und PDF-Anlagen.
         Papierkorb und nicht unterstützte Dateiformate werden nicht analysiert.</p>
       <p>Die Prüfung nutzt die konfigurierte Dokument-KI und verursacht API-Kosten.</p>
+      <p>OCR scannt jeweils bis zu vier Seiten. Danach folgt eine einzige Auswertung aller Seiten und PDF-Anlagen.
+        Betrag / Gesamtwert bedeutet immer Gesamtbrutto; Positionspreise ersetzen ihn nicht. Fehlende Angaben löschen keine gespeicherten Werte.</p>
       <p>Die Prüfung läuft auf dem Server weiter, auch nach Neuladen oder Schließen dieser Seite.
         Mit „Prüfung pausieren“ hältst du sie nach der laufenden OCR- oder KI-Anfrage an. Gescannte Seiten bleiben gespeichert.
         Fehlerhafte Dokumente halten die übrige Prüfung nicht auf. Ein KI-Prüfergebnis kann Fehler enthalten.</p>
@@ -96,8 +97,7 @@ export default function DocumentReview() {
     {data && <>
       <section className="surface mb-5 space-y-4 p-5" aria-label="Prüffortschritt">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p role="status">{data.total - data.remaining} von {data.total} bearbeitet · {data.counts.issues || 0} mit Prüfbedarf
-            · {data.counts.hints || 0} mit Hinweisen
+          <p role="status">{data.total - data.remaining} von {data.total} bearbeitet · {(data.counts.issues || 0) + (data.counts.hints || 0)} mit Empfehlungen
             · {data.counts.error || 0} fehlgeschlagen · {data.counts.skipped || 0} nicht geprüft</p>
           <div className="flex flex-wrap gap-2">
             {running ? <button className="btn-secondary" disabled={controlling} onClick={() => void control(data.id, "pause")}><FiPause /> Prüfung pausieren</button>

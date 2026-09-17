@@ -20,50 +20,55 @@ const item: ReviewItem = {
 beforeEach(() => { vi.clearAllMocks(); api.post.mockResolvedValue({ data: { ok: true } }); });
 
 describe("ReviewItemCard", () => {
-  it("offers only meaningful corrections and preserves missing or differently scoped values", async () => {
+  it("shows concrete selectable changes immediately and recommendations for values to retain", async () => {
     render(<ReviewItemCard item={item} runId="review-id" />);
-    await userEvent.click(screen.getByText("Belege ansehen und Änderungen einzeln auswählen"));
-    expect(screen.getByRole("button", { name: /Korrektur\(en\) übernehmen/ })).toBeDisabled();
+    const checkbox = screen.getByRole("checkbox", { name: "Betrag / Gesamtwert (brutto) übernehmen" });
+    expect(checkbox).toBeVisible();
+    expect(checkbox.closest("details")).toBeNull();
+    expect(screen.getByText("100 €")).toBeVisible();
+    expect(screen.getByText("120 €")).toBeVisible();
+    expect(screen.getAllByText("Rechnungssumme brutto weicht ab.")[0]).toBeVisible();
+    expect(screen.getByRole("button", { name: "Ausgewählte Änderungen übernehmen (0)" })).toBeDisabled();
     expect(screen.queryByRole("checkbox", { name: "Kündigungsfrist (Tage) übernehmen" })).not.toBeInTheDocument();
-    expect(screen.getByText(/gespeicherte Werte bleiben erhalten/)).toBeInTheDocument();
-    expect(screen.getByText("Echter Widerspruch")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Bisheriges Start-/Rechnungsdatum übernehmen" })).toBeDisabled();
-    expect(screen.getByText(/Übernahme gesperrt: Diese Angabe gehört nicht/)).toBeInTheDocument();
-    expect(screen.getByText("Rechnung.pdf · Seite 2")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Bisheriges Start-/Rechnungsdatum übernehmen" })).not.toBeInTheDocument();
+    expect(screen.getByText("Kündigungsfrist (Tage): 30 beibehalten")).toBeVisible();
+    expect(screen.getByText("Lieferscheindatum, kein Vertragsbeginn.")).toBeVisible();
     expect(screen.getByRole("link", { name: "Dokument öffnen" })).toHaveAttribute("href", "/invoices?document_id=9");
     expect(api.post).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("checkbox", { name: "Betrag / Gesamtwert (brutto) übernehmen" }));
-    await userEvent.click(screen.getByRole("button", { name: "1 ausgewählte Korrektur(en) übernehmen" }));
+    await userEvent.click(checkbox);
+    await userEvent.click(screen.getByRole("button", { name: "Ausgewählte Änderungen übernehmen (1)" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/ai/reviews/review-id/items/3/apply", { fields: ["value"] }));
-    expect(screen.getByRole("checkbox", { name: "Betrag / Gesamtwert (brutto) übernehmen" })).not.toBeChecked();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Übernommen: Betrag / Gesamtwert (brutto).");
+    expect(screen.getByText("Keine weiteren Änderungen empfohlen.")).toBeVisible();
   });
 
-  it("does not offer to apply suggestions without write permission", async () => {
+  it("explains read-only access and retains the visible proposal without controls", () => {
     render(<ReviewItemCard item={{ ...item, can_write: false }} runId="review-id" />);
-    await userEvent.click(screen.getByText("Belege ansehen und Änderungen einzeln auswählen"));
-    expect(screen.getByRole("checkbox", { name: "Betrag / Gesamtwert (brutto) übernehmen" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Ja, Vorschlag übernehmen" })).toBeDisabled();
+    expect(screen.getByText("120 €")).toBeVisible();
+    expect(screen.getByText(/Nur Ansicht: Du hast keine Schreibberechtigung/)).toBeVisible();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /übernehmen/i })).not.toBeInTheDocument();
   });
 
-  it("keeps a foreign currency visible without offering to overwrite EUR", async () => {
+  it("keeps foreign currency visible with a clear recommendation to retain the EUR amount", () => {
     render(<ReviewItemCard runId="review-id" item={{ ...item, result: { changes: [
       { field: "value", before: 100, after: 120, currency: "USD", can_apply: false, status: "WRONG_SCOPE" },
     ] } }} />);
-    await userEvent.click(screen.getByText("Belege ansehen und Änderungen einzeln auswählen"));
-    expect(screen.getByText("100 €")).toBeInTheDocument();
-    expect(screen.getByText("120 USD")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.getByText("Betrag / Gesamtwert (brutto): 100 € beibehalten")).toBeVisible();
+    expect(screen.getByText("Nicht zur Übernahme empfohlen: 120 USD")).toBeVisible();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
-  it("shows a disabled selection and the reason for an unverified date from another source", async () => {
+  it("recommends retaining an ambiguous date with an explanation instead of disabled controls", () => {
     render(<ReviewItemCard runId="review-id" item={{ ...item, result: { changes: [
       { field: "start_date", before: "2019-09-24", after: "2017-02-07", can_apply: false,
         status: "AMBIGUOUS", evidence_verified: false, evidence: { page: 14, quote: "RNW vSphere ..." } },
     ] } }} />);
-    await userEvent.click(screen.getByText("Belege ansehen und Änderungen einzeln auswählen"));
-    const checkbox = screen.getByRole("checkbox", { name: "Bisheriges Start-/Rechnungsdatum übernehmen" });
-    expect(checkbox).toBeDisabled();
-    expect(checkbox).toHaveAccessibleDescription("Übernahme gesperrt: Beleg nicht verifiziert – Originaldokument prüfen.");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByText("Bisheriges Start-/Rechnungsdatum: 24.09.2019 beibehalten")).toBeVisible();
+    expect(screen.getByText(/Dokumentbeleg ist nicht eindeutig verifiziert/)).toBeVisible();
+    expect(screen.queryByText(/Übernahme gesperrt|manuell prüfen/i)).not.toBeInTheDocument();
   });
 
   it("shows the failed stage, exact page checkpoint and configured models", () => {
@@ -78,15 +83,15 @@ describe("ReviewItemCard", () => {
     expect(screen.getByText(/zai-glm-5-3.*mistral-ocr-4-1/)).toBeInTheDocument();
   });
 
-  it("keeps a product price from replacing the gross total without proposing subcontracts", async () => {
+  it("retains a gross total when the document only gives a product net price", () => {
     render(<ReviewItemCard runId="review-id" item={{ ...item, result: { changes: [
       { field: "value", before: 9752.05, after: 2155.28, currency: "EUR", can_apply: false,
         status: "WRONG_SCOPE", reason: "Positionsnetto ersetzt keinen Bruttogesamtbetrag." },
     ] } }} />);
-    await userEvent.click(screen.getByText("Belege ansehen und Änderungen einzeln auswählen"));
-    expect(screen.getByText("9.752,05 €")).toBeInTheDocument();
-    expect(screen.getByText("2.155,28 €")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.getByText("Betrag / Gesamtwert (brutto): 9.752,05 € beibehalten")).toBeVisible();
+    expect(screen.getByText("Nicht zur Übernahme empfohlen: 2.155,28 €")).toBeVisible();
+    expect(screen.getByText("Positionsnetto ersetzt keinen Bruttogesamtbetrag.")).toBeVisible();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByText(/Vertragsbestandteile|Unterverträge/)).not.toBeInTheDocument();
   });
 });

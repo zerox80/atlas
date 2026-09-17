@@ -107,10 +107,18 @@ def test_other_or_missing_currency_is_not_a_comparable_amount(currency):
     assert field["status"] == "WRONG_SCOPE" and not field["can_apply"]
 
 
-def test_unknown_legacy_date_is_not_assigned_a_meaning_even_if_numbers_match():
-    data = extraction([observation("invoice_date", "2024-02-22", "Rechnungsdatum: 22.02.2024")])
-    field = checks(build_review_result(stored(), [data], "invoice"))["start_date"]
-    assert field["status"] == "AMBIGUOUS" and not field["can_apply"]
+@pytest.mark.parametrize("document_type,scope,label", [
+    ("invoice", "invoice_date", "Rechnungsdatum"),
+    ("contract", "contract_start_date", "Vertragsbeginn"),
+])
+@pytest.mark.parametrize("old,expected", [("2024-02-22", "CONFIRMED"), ("2024-01-01", "EXPLICIT_CONFLICT"), (None, "NEW_INFORMATION")])
+def test_document_type_defines_comparable_start_date(document_type, scope, label, old, expected):
+    data = extraction([observation(scope, "2024-02-22", f"{label}: 22.02.2024")], document_type=document_type)
+    field = checks(build_review_result(stored(start_date=old), [data], document_type))["start_date"]
+    assert field["stored_scope"] == scope and field["status"] == expected
+    assert field["can_apply"] == (expected != "CONFIRMED")
+    assert field["recommendation"] == ("keep" if expected == "CONFIRMED" else "update")
+    assert label in field["recommendation_reason"] and "2024-02-22" in field["recommendation_reason"]
 
 
 @pytest.mark.parametrize("value", ["9.752,05", "9752.05", True, float("inf"), float("nan"), -1])
@@ -146,10 +154,14 @@ def test_invented_date_in_existing_quote_cannot_change_contract():
     assert field["status"] == "AMBIGUOUS" and not field["can_apply"]
 
 
-def test_low_confidence_new_value_requires_manual_review():
+@pytest.mark.parametrize("old,expected", [(None, "NEW_INFORMATION"), (30, "EXPLICIT_CONFLICT"), (90, "CONFIRMED")])
+def test_verified_notice_is_not_blocked_by_model_confidence(old, expected):
     data = extraction([observation("notice_period", 90, "Kündigungsfrist 90 Tage", confidence=0.2)], document_type="contract")
-    field = checks(build_review_result(stored(notice_period=None), [data], "contract"))["notice_period"]
-    assert field["status"] == "AMBIGUOUS" and not field["can_apply"]
+    field = checks(build_review_result(stored(notice_period=old), [data], "contract"))["notice_period"]
+    assert field["status"] == expected
+    assert field["can_apply"] == (expected != "CONFIRMED")
+    assert field["recommendation"] == ("keep" if expected == "CONFIRMED" else "update")
+    assert "niedrige Sicherheit" in field["reason"]
 
 
 def test_monthly_amount_cannot_be_applied_as_annual_value():
