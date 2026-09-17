@@ -64,6 +64,25 @@ describe("ReviewItemCard", () => {
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
+  it("adds currency only to monetary observations, never to titles or dates", async () => {
+    const facts = [
+      { scope: "title", value: "E", currency: "EUR", expected: "Titel: E" },
+      { scope: "description", value: "Lizenz-Erweiterung", currency: "EUR", expected: "Beschreibung: Lizenz-Erweiterung" },
+      { scope: "invoice_date", value: "2026-09-17", currency: "EUR", expected: "Rechnungsdatum: 17.09.2026" },
+      { scope: "tax_rate", value: 19, currency: "EUR", expected: "Umsatzsteuer (%): 19" },
+      { scope: "invoice_total_gross", value: 119, currency: "EUR", expected: "Rechnungssumme brutto: 119 €" },
+      { scope: "annual_value", value: 120, currency: "USD", expected: "Jahreswert: 120 USD" },
+      { scope: "unit_price", value: 100, currency: null, expected: "Einzelpreis: 100 (Währung unbekannt)" },
+    ];
+    render(<ReviewItemCard runId="review-id" item={{ ...item, result: { changes: [], observations: facts.map(fact => ({
+      scope: fact.scope, value: fact.value, currency: fact.currency,
+      kind: "derived", reason: "Dokumentangabe", document_name: "Rechnung.pdf", evidence_verified: true,
+    })) } }} />);
+    await userEvent.click(screen.getByText("Alle erkannten Beträge, Daten und Angaben"));
+    const rows = screen.getAllByRole("listitem");
+    facts.forEach((fact, index) => expect(rows[index].querySelector("p")?.textContent).toBe(fact.expected));
+  });
+
   it("recommends retaining an ambiguous date with an explanation instead of disabled controls", async () => {
     render(<ReviewItemCard runId="review-id" item={{ ...item, result: { changes: [
       { field: "start_date", before: "2019-09-24", after: "2017-02-07", can_apply: false,

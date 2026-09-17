@@ -1,6 +1,7 @@
 """Synthetic review replies; no provider calls or stored document access."""
 
 import json
+import re
 from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -173,6 +174,9 @@ async def test_real_sdk_transmits_schema_and_preserves_reasoning(monkeypatch, oc
             assert set(variant["required"]) == set(variant["properties"])
     for variant in schema["$defs"]["Observation"]["anyOf"]:
         assert {"evidence", "entity"} <= set(variant["required"])
+        if "title" in variant["properties"]["scope"]["enum"]:
+            assert re.fullmatch(variant["properties"]["value"]["pattern"],
+                                "ESET Protect Complete Lizenz-Erweiterung")
 
 
 async def test_default_review_uses_high_even_when_general_chat_uses_max(monkeypatch, ocr):

@@ -1,5 +1,6 @@
 """The provider contract rejects the same malformed field types as local validation."""
 
+import re
 from copy import deepcopy
 
 import pytest
@@ -39,6 +40,35 @@ def test_field_types_are_enforced_before_and_after_generation(scope, valid, inva
     feedback = " ".join(validation_issues(raised.value))
     assert "observations.0" in feedback and reason in feedback
     assert "PRIVATE_QUOTE" not in feedback and "value_error" not in feedback
+
+
+@pytest.mark.parametrize("scope,value", [
+    ("title", "ESET Protect Complete Lizenz-Erweiterung"),
+    ("title", "IT"),
+    ("title", "E.ON – Stromlieferung"),
+    ("description", "ESET Protect Complete: zusätzliche Lizenzen.\nInklusive Wartung und Support."),
+    ("description", "  Lizenz-Erweiterung mit Wartung.\n"),
+    ("tags", "IT-Sicherheit"),
+    ("tags", "Software und Wartung"),
+    ("currency", "EUR"),
+    ("billing_interval", "year"),
+])
+def test_text_patterns_allow_complete_values_during_generation(scope, value):
+    schema = review_response_format()["json_schema"]["schema_definition"]
+    variant = next(item for item in schema["$defs"]["Observation"]["anyOf"]
+                   if scope in item["properties"]["scope"]["enum"])
+    text_schema = variant["properties"]["value"]
+    if scope == "tags":
+        text_schema = text_schema["items"]
+    # JSON Schema searches for a match; constrained generators may instead build
+    # the entire string from this regex. Both must allow the complete field.
+    assert re.fullmatch(text_schema["pattern"], value)
+    payload = wire_reply(observation(scope, [value] if scope == "tags" else value, "Originalbeleg"))
+    Draft202012Validator(schema).validate(payload)
+    for blank in ("", " ", "\n\t"):
+        assert not re.search(text_schema["pattern"], blank)
+        with pytest.raises(ValidationError):
+            wire_reply(observation(scope, [blank] if scope == "tags" else blank, "Originalbeleg"))
 
 
 async def test_split_proposals_use_the_same_single_whole_document_response(monkeypatch):

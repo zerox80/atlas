@@ -12,7 +12,11 @@ def review_response_format() -> dict:
     schema = ReviewExtraction.model_json_schema()
     observation = schema["$defs"]["Observation"]
     number = {"type": "number", "minimum": 0, "maximum": 1_000_000_000_000_000}
-    text = {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": r"\S"}
+    # Describe the whole string, including spaces and newlines. A bare \S is
+    # valid for JSON Schema's substring search, but permits only one character
+    # when a constrained decoder uses it as the full generation grammar.
+    nonblank_text = r"^[\s\S]*\S[\s\S]*$"
+    text = {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": nonblank_text}
     groups = [
         (MONEY_SCOPES, number),
         ({"tax_rate"}, {"type": "number", "minimum": 0, "maximum": 100}),
@@ -20,7 +24,7 @@ def review_response_format() -> dict:
         (DATE_SCOPES, {"type": "string", "format": "date", "pattern": r"^\d{4}-\d{2}-\d{2}$"}),
         ({"title"}, {**text, "maxLength": 255}),
         ({"tags"}, {"type": "array", "maxItems": 50,
-                      "items": {"type": "string", "minLength": 1, "maxLength": 50, "pattern": r"\S"}}),
+                      "items": {"type": "string", "minLength": 1, "maxLength": 50, "pattern": nonblank_text}}),
         (set(get_args(Scope)) - MONEY_SCOPES - DATE_SCOPES - {"tax_rate", "notice_period", "title", "tags"}, text),
     ]
     variants = []
