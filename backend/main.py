@@ -15,6 +15,7 @@ from sqlmodel import Session, col, select
 from starlette.background import BackgroundTask
 
 from admin_routes import router as admin_router
+from ai_observability import configure_ai_logging
 from ai_routes import router as ai_router
 from api_core import (
     CSRF_COOKIE_NAME,
@@ -49,6 +50,7 @@ __all__ = [
     "get_current_user",
 ]
 
+configure_ai_logging()
 app = FastAPI()
 logger = logging.getLogger(__name__)
 app.state.limiter = limiter

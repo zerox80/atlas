@@ -176,6 +176,14 @@ Nur ausdrückliche Abweichungen desselben Geltungsbereichs gelten als Widerspruc
 
 Änderungen werden erst bei gezielter Übernahme gespeichert, versioniert und protokolliert. Zwischenzeitlich geänderte Dokumente müssen erneut geprüft werden. Leserechte erlauben die Prüfung, Schreibrechte sind für die Übernahme erforderlich. Die bestehenden Vertragsspalten bleiben erhalten: Der alte Vertragsbetrag und das gemeinsame Start-/Rechnungsdatum werden bei unbekannter Semantik als Legacy-Werte behandelt. Typisierte Angaben, Bestandteile und Zwischenstände liegen im versionierten JSON des vorhandenen Prüfberichts; diese Änderung benötigt keine zusätzliche DB-Migration. Ältere Berichte bleiben lesbar, Vorschläge daraus müssen mit einem neuen Lauf erneut belegt werden. Die Prüfung erkennt mögliche Erfassungsfehler; sie ist keine Garantie für Vollständigkeit oder eine juristische Vertragsprüfung.
 
+### KI-Anfragen in Docker-Logs verfolgen
+
+`docker compose logs -f --since 2m backend` zeigt zusätzlich zu den eingehenden HTTP-Anfragen die Meldungen von `atlas.review` und `atlas.ai`. `200 OK` bei `/ai/reviews/...` bestätigt lediglich die Statusabfrage des Browsers, keine erfolgreiche Mistral-Anfrage.
+
+Die Prüfung protokolliert Start/Pause des Prüflaufs, Verarbeitungsschritte, Seitenpakete, gespeicherte Ergebnisse und automatische Aufteilungen nach einem Timeout. Für OCR und die anschließende KI-Auswertung erscheinen `Mistral request started`, alle 30 Sekunden `Mistral waiting for response` und abschließend `Mistral response received` oder `Mistral request failed`. Enthalten sind Modell, Anfragekennung, Lauf-/Eintragskennung, Wartezeit und bei Fehlern Fehlerklasse sowie HTTP-Status. Die Wartemeldung bedeutet, dass Atlas noch auf eine Antwort wartet; sie ist kein Fortschrittsnachweis vom Anbieter. Erst `Review section saved` bestätigt den gespeicherten Prüfstand nach der Prüfung der Antwort. Ein neu angelegter Lauf mit `running=False` wartet auf den Start durch den Benutzer.
+
+Diese Diagnosemeldungen enthalten keine API-Schlüssel, Dokumenttexte, Prompts oder Antwortinhalte. Nach einem Update das Backend mit `docker compose up -d --build backend` neu erstellen, damit die zusätzlichen Logs aktiv werden.
+
 ### Kündigungsfrist und getrennte Webrecherche
 
 Eine unbekannte Frist bleibt `null` – beim Upload, Speichern, Bearbeiten und in Kalender-/Dashboard-Berechnungen. Es gibt keinen Ersatzwert von 30 Tagen. Die KI muss eine wörtliche, im OCR-Text vorhandene Kündigungsklausel angeben. Eindeutige Tage/Wochen können übernommen werden; Kalendermonate werden nicht pauschal in Tage umgerechnet. Bei unklarer Beleglage bleibt das Feld leer. Bildmodus ohne prüfbaren OCR-Text liefert keine automatisch belegte Frist. Bereits gespeicherte 30-Tage-Werte bleiben bei fehlender Erwähnung erhalten: Der Prüflauf zeigt `NOT_EVIDENCED` ohne Konflikt und ohne Löschvorschlag.

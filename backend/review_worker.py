@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlmodel import Session, col, select, update
 
 from ai_client import AI_REQUEST_TIMEOUT_SECONDS, MODEL, OCR_MODEL
+from ai_observability import review_context
 from models import DocumentReviewItem, DocumentReviewRun, User
 from review_analysis import ReviewProcessingError, analyze_section, prepare_sections
 from review_comparison import build_review_result, result_status
@@ -18,7 +19,7 @@ from review_sections import expanded_sections, section_key
 # Guard one stage, with time for local preparation/persistence around a request.
 # A section can contain multiple text fragments and a format correction per fragment.
 STEP_TIMEOUT = AI_REQUEST_TIMEOUT_SECONDS + 30
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("atlas.review")
 
 
 async def process_review_section(bind, run_id: str, item_id: int, token: str,
@@ -85,6 +86,7 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
                 cached["pages"].update({str(page): text for page, text in section.ocr_pages.items()})
         if save("processing") != "processing":
             raise ReviewProcessingError("DOCUMENT_CHANGED", "Dokument wurde geändert oder ist nicht mehr zugänglich.")
+        logger.info("Review stage run=%s item=%s stage=%s", run_id, item_id, stage)
 
     async def heartbeat():
         while True:
@@ -96,6 +98,7 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
     heartbeat_task = None
     section = None
     stage = "read"
+    context_token = review_context.set(f"run={run_id} item={item_id}")
     try:
         if document is None or owner_id is None:
             raise ReviewProcessingError("DOCUMENT_UNAVAILABLE", "Dokument ist nicht mehr zugänglich.")
@@ -138,6 +141,8 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
                                       total_pages=sum(part.last_page - part.first_page + 1 for part in sections),
                                       document_name=section.name, first_page=section.first_page, last_page=section.last_page,
                                       files=files)
+            logger.info("Review section started run=%s item=%s document=%s pages=%s-%s ocr_cached=%s",
+                        run_id, item_id, section.document, section.first_page, section.last_page, section.ocr_pages is not None)
             extractions = await analyze_section(section, owner_id, progress)
             checkpoint["extractions"].extend(extractions)
             checkpoint["completed"] = completed + 1
@@ -156,10 +161,12 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
                 if skipped:
                     final["warnings"].append(f"Nicht geprüft (kein PDF): {', '.join(skipped)}")
                 result = final
-                save(result_status(final), release=True)
+                saved_status = save(result_status(final), release=True)
             else:
                 result["progress"]["stage"] = "waiting"
-                save("pending", release=True)
+                saved_status = save("pending", release=True)
+            logger.info("Review section saved run=%s item=%s completed_sections=%s total_sections=%s status=%s",
+                        run_id, item_id, completed + 1, len(sections), saved_status)
     except asyncio.CancelledError:
         result["diagnostic"] = {"code": "INTERRUPTED", "stage": result["progress"].get("stage", stage),
                                 "message": "Backend-Verarbeitung wurde unterbrochen. Fertige Abschnitte bleiben gespeichert."}
@@ -167,8 +174,9 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
         raise
     except Exception as exc:  # noqa: BLE001 - persist per-document failure without provider contents
         # Deliberately never log provider bodies, which can include document contents.
-        logger.warning("Review item %s failed at %s (%s)", item_id, result["progress"].get("stage", stage), type(exc).__name__)
         result["diagnostic"] = error_details(exc, result["progress"].get("stage", stage), AI_REQUEST_TIMEOUT_SECONDS)
+        logger.warning("Review section failed run=%s item=%s stage=%s code=%s error_type=%s",
+                       run_id, item_id, result["progress"].get("stage", stage), result["diagnostic"]["code"], type(exc).__name__)
         try:
             if result["diagnostic"]["code"] in {"TIMEOUT", "PROVIDER_HTTP_504"} and section and section.first_page < section.last_page:
                 checkpoint.setdefault("splits", []).append(section_key(section))
@@ -178,12 +186,15 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
                                           "Dieser Seitenblock wird in kleineren Paketen erneut geprüft; fertige Seiten bleiben gespeichert.")
                 result.pop("diagnostic", None)
                 save("pending", release=True)
+                logger.info("Review section split for retry run=%s item=%s pages=%s-%s",
+                            run_id, item_id, section.first_page, section.last_page)
             else:
                 result["progress"].pop("retry_message", None)
                 save("error", result["diagnostic"]["message"], release=True)
         except ReviewProcessingError:
             pass  # A newer token owns the item now.
     finally:
+        review_context.reset(context_token)
         if heartbeat_task:
             heartbeat_task.cancel()
             await asyncio.gather(heartbeat_task, return_exceptions=True)

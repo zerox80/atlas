@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from ai_mistral_transport import MAX_REASONING_HEADER, create_mistral_http_client
 from ai_models import is_glm_model
+from ai_observability import observed_request
 
 try:
     from mistralai import Mistral  # type: ignore[attr-defined]
@@ -29,7 +30,7 @@ AI_REQUEST_TIMEOUT_SECONDS = max(
 MAX_RETRIES = 5
 BASE_DELAY = 2
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("atlas.ai")
 _client = None
 
 
@@ -128,8 +129,9 @@ def get_client() -> Mistral:
 
 async def complete_chat_with_timeout(client: Mistral, **kwargs: Any) -> Any:
     """Run a chat completion with one deadline covering retries and the request."""
-    return await asyncio.wait_for(
+    return await observed_request(
         retry_on_rate_limit(client.chat.complete_async, **kwargs),
+        operation="chat", model=kwargs.get("model", MODEL),
         timeout=AI_REQUEST_TIMEOUT_SECONDS,
     )
 

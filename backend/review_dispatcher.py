@@ -9,7 +9,7 @@ from sqlmodel import Session, col, select, update
 
 from models import DocumentReviewControl, DocumentReviewRun, User
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("atlas.review")
 
 
 async def drive_review(bind, run_id: str):
@@ -36,6 +36,7 @@ async def drive_review(bind, run_id: str):
                 session.exec(update(DocumentReviewControl).where(col(DocumentReviewControl.run_id) == run_id)
                              .values(running=False))
                 session.commit()
+                logger.info("Review run finished run=%s", run_id)
         await tasks()
     except asyncio.CancelledError:
         raise
@@ -51,6 +52,7 @@ async def drive_review(bind, run_id: str):
 
 async def dispatch_reviews(bind):
     jobs: dict[str, asyncio.Task] = {}
+    logger.info("Review dispatcher started; checking for running reviews")
     try:
         while True:
             # A separate short transaction and task per run; no DB session is
@@ -77,3 +79,4 @@ async def dispatch_reviews(bind):
         for job in jobs.values():
             job.cancel()
         await asyncio.gather(*jobs.values(), return_exceptions=True)
+        logger.info("Review dispatcher stopped")
