@@ -67,7 +67,7 @@ describe("Invoices", () => {
     expect(screen.getByText("15.6.2026")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByText("Erfasst")).toBeInTheDocument();
-    expect(screen.getByText("Betrag")).toBeInTheDocument();
+    expect(screen.getByText("Gesamtbetrag (brutto)")).toBeInTheDocument();
     expect(screen.getAllByText("50 €")).toHaveLength(4);
     expect(screen.getByRole("button", { name: "Download" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));

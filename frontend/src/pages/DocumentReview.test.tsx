@@ -26,18 +26,18 @@ it("loads a paused run without paid work and starts server execution only on dem
   expect(api.post).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole("button", { name: "Prüfung fortsetzen" }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith("/ai/reviews/saved-run/start"));
-  expect(await screen.findByRole("button", { name: "Nach diesem Abschnitt pausieren" })).toBeEnabled();
+  expect(await screen.findByRole("button", { name: "Prüfung pausieren" })).toBeEnabled();
   expect(api.post).toHaveBeenCalledOnce();
 });
 
 it("restores a running review after reload without scheduling another job", async () => {
   running = true;
   const page = render(<DocumentReview />);
-  expect(await screen.findByRole("button", { name: "Nach diesem Abschnitt pausieren" })).toBeEnabled();
+  expect(await screen.findByRole("button", { name: "Prüfung pausieren" })).toBeEnabled();
   expect(screen.queryByRole("button", { name: "Prüfung fortsetzen" })).not.toBeInTheDocument();
   page.unmount();
   render(<DocumentReview />);
-  expect(await screen.findByRole("button", { name: "Nach diesem Abschnitt pausieren" })).toBeEnabled();
+  expect(await screen.findByRole("button", { name: "Prüfung pausieren" })).toBeEnabled();
   expect(screen.getByText(/^Prüfung läuft auf dem Server ·/)).toBeInTheDocument();
   expect(api.post).not.toHaveBeenCalled();
 });
@@ -45,7 +45,7 @@ it("restores a running review after reload without scheduling another job", asyn
 it("persists an explicit pause on the server", async () => {
   running = true;
   render(<DocumentReview />);
-  await userEvent.click(await screen.findByRole("button", { name: "Nach diesem Abschnitt pausieren" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Prüfung pausieren" }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith("/ai/reviews/saved-run/pause"));
   expect(await screen.findByRole("button", { name: "Prüfung fortsetzen" })).toBeEnabled();
   expect(api.post).toHaveBeenCalledOnce();
@@ -57,4 +57,18 @@ it("displays the HTTP code and server reason when starting fails", async () => {
   await userEvent.click(await screen.findByRole("button", { name: "Prüfung fortsetzen" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("HTTP 409: Das Analysemodell wurde geändert.");
   await waitFor(() => expect(screen.getByRole("button", { name: "Prüfung fortsetzen" })).toBeEnabled());
+});
+
+it("waits for the active API call after pausing and prevents duplicate starts", async () => {
+  api.get.mockImplementation(async (url: string) => ({ data:
+    url === "/ai/status" ? { available: true } :
+    url === "/ai/reviews" ? [{ ...run, running: false, counts: { processing: 1 } }] :
+      { ...run, running: false, counts: { processing: 1 }, items: [] },
+  }));
+  render(<DocumentReview />);
+  expect(await screen.findByRole("button", { name: "Pause wird abgeschlossen …" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Prüfung fortsetzen" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Alle Verträge & Rechnungen neu prüfen" })).toBeDisabled();
+  expect(screen.getByRole("combobox")).toBeEnabled();
+  expect(api.post).not.toHaveBeenCalled();
 });

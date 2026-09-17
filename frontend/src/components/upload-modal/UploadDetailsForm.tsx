@@ -87,7 +87,7 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
       >
         <label className="block">
           <FieldLabel>
-            {controller.isInvoice ? "Rechnungsbetrag (€)" : "Gesamtwert (€)"}
+            {controller.isInvoice ? "Rechnungsbetrag (brutto, €)" : "Gesamtbetrag (brutto, €)"}
           </FieldLabel>
           <input
             type="text"

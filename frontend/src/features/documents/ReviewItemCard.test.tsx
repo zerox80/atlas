@@ -30,15 +30,15 @@ describe("ReviewItemCard", () => {
     expect(screen.getByText("Rechnung.pdf · Seite 2")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Dokument öffnen" })).toHaveAttribute("href", "/invoices?document_id=9");
     expect(api.post).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("checkbox", { name: "Betrag / Gesamtwert übernehmen" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Betrag / Gesamtwert (brutto) übernehmen" }));
     await userEvent.click(screen.getByRole("button", { name: "1 ausgewählte Korrektur(en) übernehmen" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/ai/reviews/review-id/items/3/apply", { fields: ["value"] }));
-    expect(screen.getByRole("checkbox", { name: "Betrag / Gesamtwert übernehmen" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Betrag / Gesamtwert (brutto) übernehmen" })).not.toBeChecked();
   });
 
   it("does not offer to apply suggestions without write permission", () => {
     render(<ReviewItemCard item={{ ...item, can_write: false }} runId="review-id" />);
-    expect(screen.getByRole("checkbox", { name: "Betrag / Gesamtwert übernehmen" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Betrag / Gesamtwert (brutto) übernehmen" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /übernehmen/ })).not.toBeInTheDocument();
   });
 
@@ -55,22 +55,22 @@ describe("ReviewItemCard", () => {
     render(<ReviewItemCard runId="review-id" item={{ ...item, status: "error", error: "Mistral hat Modell oder Endpunkt nicht gefunden.", result: {
       model: "zai-glm-5-3", ocr_model: "mistral-ocr-4-1",
       diagnostic: { code: "PROVIDER_HTTP_404", stage: "ocr", http_status: 404, message: "Modell nicht gefunden." },
-      progress: { completed_pages: 8, total_pages: 22, document_name: "Vertrag.pdf", first_page: 9, last_page: 12, stage: "ocr" },
+      progress: { completed_pages: 0, ocr_completed_pages: 8, total_pages: 22, document_name: "Vertrag.pdf", first_page: 9, last_page: 12, stage: "ocr" },
     } }} />);
     expect(screen.getByRole("note", { name: "Fehlerdetails" })).toHaveTextContent("PROVIDER_HTTP_404 · OCR-Texterkennung · HTTP 404");
-    expect(screen.getByText(/8 von 22 PDF-Seiten fertig geprüft/)).toBeInTheDocument();
+    expect(screen.getByText(/8 von 22 PDF-Seiten gescannt/)).toBeInTheDocument();
     expect(screen.getByText(/Vertrag.pdf · Seiten 9–12/)).toBeInTheDocument();
     expect(screen.getByText(/zai-glm-5-3.*mistral-ocr-4-1/)).toBeInTheDocument();
   });
 
-  it("shows all three Veeam components as proposals without creation controls", () => {
-    render(<ReviewItemCard runId="review-id" item={{ ...item, result: { components: [
-      ["Upgrade-Lizenzen", 2155.28], ["Maintenance Uplift", 94.26], ["3 Jahre Production Maintenance", 5945.46],
-    ].map(([name, amount]) => ({ name: String(name), amount_net: Number(amount), currency: "EUR", document_name: "Veeam.pdf",
-      evidence: { page: 1, quote: String(name) }, evidence_verified: true, separate_contract_reasons: [] })) } }} />);
-    expect(screen.getByRole("heading", { name: "Vorgeschlagene Vertragsbestandteile" })).toBeInTheDocument();
-    expect(screen.getByText(/Maintenance Uplift · 94,26 EUR netto/)).toBeInTheDocument();
-    expect(screen.getByText(/3 Jahre Production Maintenance · 5.945,46 EUR netto/)).toBeInTheDocument();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  it("keeps a product price from replacing the gross total without proposing subcontracts", () => {
+    render(<ReviewItemCard runId="review-id" item={{ ...item, result: { changes: [
+      { field: "value", before: 9752.05, after: 2155.28, currency: "EUR", can_apply: false,
+        status: "WRONG_SCOPE", reason: "Positionsnetto ersetzt keinen Bruttogesamtbetrag." },
+    ] } }} />);
+    expect(screen.getByText("9.752,05 €")).toBeInTheDocument();
+    expect(screen.getByText("2.155,28 €")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Vertragsbestandteile|Unterverträge/)).not.toBeInTheDocument();
   });
 });

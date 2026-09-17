@@ -201,7 +201,7 @@ const ContractCard: React.FC<ContractCardProps> = ({
           ["Ende", formatContractDate(contract.end_date, contract.business_timezone)],
           ["Kündigungsfenster", status.deadline],
           [
-            "Vertragswert",
+            "Gesamtbetrag (brutto)",
             contract.value != null
               ? `${formatGermanNumber(contract.value)} €`
               : "–",
