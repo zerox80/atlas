@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { UploadModalController } from "./useUploadModal";
+import NoticeResearch from "../NoticeResearch";
 
 interface UploadDetailsFormProps {
   controller: UploadModalController;
@@ -167,11 +168,16 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
             min="0"
             value={controller.noticePeriod}
             onChange={(event) => controller.setNoticePeriod(event.target.value)}
-            placeholder="30"
+            placeholder="Unbekannt – leer lassen"
             className="field"
           />
         </label>
       )}
+      {!controller.isInvoice && !controller.noticePeriod && <NoticeResearch />}
+      {controller.analysisWarnings.length > 0 && <ul className="space-y-1 text-sm text-amber-200">
+        {controller.analysisWarnings.map((warning, index) => <li key={index}>{warning}</li>)}
+      </ul>}
+      {controller.noticeEvidence && <p className="text-sm muted">Beleg: {controller.noticeEvidence}</p>}
     </div>
   </section>
 );

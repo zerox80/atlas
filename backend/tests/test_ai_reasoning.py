@@ -30,6 +30,8 @@ THINKING = {
         ("zai-glm-5-3", "max", "max"),
         ("zai-glm-5-3", "high", "high"),
         ("zai-glm-5-3", "none", "none"),
+        ("zai-glm-latest", "auto", "max"),
+        ("zai-glm-latest", "max", "max"),
     ]
 )
 def reasoning_config(request):

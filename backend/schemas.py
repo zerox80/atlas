@@ -75,7 +75,7 @@ class ContractCreate(BaseModel):
     value: float | None = Field(default=None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
     annual_value: float | None = Field(default=None, ge=0, le=MAX_FINANCIAL_VALUE, allow_inf_nan=False)
     tags: list[str] = Field(default_factory=list, max_length=MAX_CONTRACT_TAGS)
-    notice_period: int | None = Field(default=30, ge=0, le=MAX_NOTICE_PERIOD_DAYS, description="Notice period in days")
+    notice_period: int | None = Field(default=None, ge=0, le=MAX_NOTICE_PERIOD_DAYS, description="Notice period in days")
     document_type: Literal["contract", "invoice"] = "contract"
 
     @field_validator('title')
@@ -368,10 +368,19 @@ class ContractAnalysisResult(BaseModel):
     start_date: str | None = Field(None, max_length=64)
     end_date: str | None = Field(None, max_length=64)
     notice_period: int | None = Field(None, ge=0, le=MAX_NOTICE_PERIOD_DAYS)
+    notice_period_evidence: str | None = Field(None, max_length=2000)
+    analysis_warnings: list[Annotated[str, Field(max_length=1000)]] = Field(
+        default_factory=list, max_length=20
+    )
     tags: list[Annotated[str, Field(min_length=1, max_length=50)]] = Field(
         default_factory=list,
         max_length=MAX_CONTRACT_TAGS,
     )
+
+    @field_validator("title")
+    @classmethod
+    def missing_title_is_null(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
 
     @field_validator("start_date", "end_date")
     @classmethod

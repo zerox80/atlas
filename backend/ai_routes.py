@@ -277,5 +277,5 @@ def get_ai_status(
         "ocr_model": os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-4-0") if has_key else None,
         "external_document_processing": document_processing_enabled,
         "provider": "Mistral AI" if has_key else None,
-        "features": ["contract_analysis", "contract_chat"] if available else [],
+        "features": ["contract_analysis", "contract_chat", "document_review"] if available else [],
     }

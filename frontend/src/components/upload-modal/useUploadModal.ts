@@ -33,6 +33,8 @@ export const useUploadModal = ({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [noticePeriod, setNoticePeriod] = useState("");
+  const [noticeEvidence, setNoticeEvidence] = useState<string | null>(null);
+  const [analysisWarnings, setAnalysisWarnings] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const uploadFiles = useUploadFiles(isOpen, initialData, uploading || analyzing);
@@ -74,6 +76,8 @@ export const useUploadModal = ({
     );
     setTags(initialData?.tags.map((tag) => tag.name).join(", ") || "");
     setNoticePeriod(initialData?.notice_period?.toString() || "");
+    setNoticeEvidence(null);
+    setAnalysisWarnings([]);
     setStartDate(
       dateForInput(initialData?.start_date, initialData?.business_timezone),
     );
@@ -131,6 +135,8 @@ export const useUploadModal = ({
       setNoticePeriod(
         data.notice_period != null ? data.notice_period.toString() : "",
       );
+      setNoticeEvidence(data.notice_period_evidence || null);
+      setAnalysisWarnings(data.analysis_warnings || []);
       if (data.tags?.length) setTags(data.tags.join(", "));
     } catch (error: unknown) {
       alert(
@@ -228,6 +234,8 @@ export const useUploadModal = ({
     isEditing: Boolean(initialData),
     isInvoice,
     noticePeriod,
+    noticeEvidence,
+    analysisWarnings,
     setAnnualValue,
     setDescription,
     setEndDate,

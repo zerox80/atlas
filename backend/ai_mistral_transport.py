@@ -5,6 +5,8 @@ from collections.abc import Generator
 
 import httpx
 
+from ai_models import is_glm_model
+
 MAX_REASONING_HEADER = "X-Atlas-Mistral-Reasoning"
 
 
@@ -28,7 +30,7 @@ class _MistralReasoningAuth(httpx.Auth):
             or request.url.scheme != "https"
             or request.url.host != "api.mistral.ai"
             or request.url.path != "/v1/chat/completions"
-            or payload.get("model") != "zai-glm-5-3"
+            or not is_glm_model(str(payload.get("model", "")))
         ):
             raise ValueError("Max-Reasoning ist nur für GLM 5.3 über Mistral erlaubt.")
 

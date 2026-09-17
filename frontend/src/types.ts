@@ -118,5 +118,7 @@ export interface ContractAnalysisResult {
   start_date?: string | null;
   end_date?: string | null;
   notice_period?: number | null;
+  notice_period_evidence?: string | null;
+  analysis_warnings?: string[];
   tags?: string[];
 }

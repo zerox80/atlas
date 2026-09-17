@@ -16,6 +16,7 @@ from ai_client import (
     get_client,
     retry_on_rate_limit,
 )
+from ai_models import is_glm_model
 
 OCR_TABLE_FORMAT = os.getenv("MISTRAL_OCR_TABLE_FORMAT", "markdown").lower()
 OCR_CONFIDENCE_GRANULARITY = os.getenv(
@@ -45,9 +46,9 @@ _executor = ThreadPoolExecutor(max_workers=3)
 def use_ocr_mode() -> bool:
     """Select PDF input mode and reject images for Mistral's text-only GLM."""
     enabled = os.getenv("MISTRAL_USE_OCR", "true").strip().lower() == "true"
-    if MODEL == "zai-glm-5-3" and not enabled:
+    if is_glm_model(MODEL) and not enabled:
         raise ValueError(
-            "zai-glm-5-3 unterstützt nur Text. Für die PDF-Verarbeitung "
+            f"{MODEL} unterstützt nur Text. Für die PDF-Verarbeitung "
             "MISTRAL_USE_OCR=true setzen."
         )
     return enabled

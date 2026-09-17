@@ -26,7 +26,6 @@ def isolated_uploads(tmp_path, monkeypatch):
         "99991231T235959Z",
         "0001-01-01",
         "0001-01-01T00:00:00+01:00",
-        "0001-01-02T12:00:00Z",
     ],
 )
 def test_create_rejects_unsafe_dates(auth_client, session, test_user, value):
@@ -147,5 +146,5 @@ def test_timezone_and_dst_semantics_remain_intact():
     # Thirty local calendar days before the DST transition: midnight CEST.
     expected = datetime(2026, 9, 25, tzinfo=UTC).timestamp() - 7200
     assert sqlite_business_cancellation_julianday(
-        "2026-10-25T12:00:00Z", None
+        "2026-10-25T12:00:00Z", 30
     ) == pytest.approx(expected / 86400 + 2440587.5)

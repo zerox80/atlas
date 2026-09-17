@@ -135,7 +135,7 @@ class Contract(SQLModel, table=True):
     deleted_by_user_id: int | None = Field(default=None, foreign_key="user.id")
     
     # Cancellation Logic
-    notice_period: int | None = Field(default=30, description="Notice period in days")
+    notice_period: int | None = Field(default=None, description="Notice period in days")
     
     # Financials
     value: float = Field(default=0.0)
@@ -198,6 +198,31 @@ class PendingFileDeletion(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC)
     )
+
+
+class DocumentReviewRun(SQLModel, table=True):
+    """A resumable review queue, scoped to an immutable account identity."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    owner_subject: str = Field(index=True)
+    model: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    lease_token: str | None = None
+    lease_until: datetime | None = None
+
+
+class DocumentReviewItem(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("run_id", "contract_id", name="uq_review_run_document"),
+    )
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: str = Field(foreign_key="documentreviewrun.id", index=True)
+    # No FK: deleting a document must not be blocked by historical review data.
+    contract_id: int = Field(index=True)
+    status: str = Field(default="pending", index=True)
+    snapshot_json: str | None = None
+    result_json: str | None = None
+    error: str | None = None
 
 
 class AuditLog(SQLModel, table=True):

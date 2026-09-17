@@ -3,8 +3,6 @@ import type { IconType } from "react-icons";
 import type { Contract } from "../types";
 import { parseApiDate } from "./apiDate";
 
-const DEFAULT_NOTICE_PERIOD = 30;
-
 export type ContractStateKey = "active" | "attention" | "expired";
 
 export interface ContractState {
@@ -85,12 +83,12 @@ export const formatBusinessDateKey = (dateKey: string): string =>
   });
 
 export const getCancellationDeadline = (contract: Contract): string | null => {
-  if (!contract.end_date) return null;
+  if (!contract.end_date || contract.notice_period == null) return null;
   const timeZone = contract.business_timezone || DEFAULT_BUSINESS_TIMEZONE;
   const endDateKey = businessDateKey(contract.end_date, timeZone);
   return calendarDayToDateKey(
     dateKeyToCalendarDay(endDateKey) -
-      (contract.notice_period ?? DEFAULT_NOTICE_PERIOD),
+      contract.notice_period,
   );
 };
 
@@ -113,7 +111,7 @@ export const getContractState = (contract: Contract): ContractState => {
   }
 
   const end = parseApiDate(contract.end_date);
-  const deadline = getCancellationDeadline(contract)!;
+  const deadline = getCancellationDeadline(contract);
   const timeZone = contract.business_timezone || DEFAULT_BUSINESS_TIMEZONE;
   const today = calendarDay(new Date(), timeZone);
   const endDay = calendarDay(end, timeZone);
@@ -124,6 +122,16 @@ export const getContractState = (contract: Contract): ContractState => {
       key: "expired",
       label: "Abgelaufen",
       deadline: `Endete am ${formatContractDate(contract.end_date, timeZone)}`,
+      tone: "text-[#7d8796] bg-white/[0.04] border-white/[0.07]",
+      icon: FiClock,
+    };
+  }
+
+  if (!deadline) {
+    return {
+      key: "active",
+      label: "Frist unbekannt",
+      deadline: "Keine belegte Kündigungsfrist",
       tone: "text-[#7d8796] bg-white/[0.04] border-white/[0.07]",
       icon: FiClock,
     };

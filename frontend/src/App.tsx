@@ -9,6 +9,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Contracts from "./pages/Contracts";
 import Invoices from "./pages/Invoices";
+import DocumentReview from "./pages/DocumentReview";
 import AdminPanel from "./pages/AdminPanel";
 import Lists from "./pages/Lists";
 import Calendar from "./pages/Calendar";
@@ -177,6 +178,7 @@ export function AppRoutes() {
             )
           }
         />
+        <Route path="/reviews" element={isAuthenticated ? <Layout><DocumentReview /></Layout> : <Navigate to="/login" />} />
         <Route
           path="/calendar"
           element={

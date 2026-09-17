@@ -125,8 +125,9 @@ def test_ocr_mode_does_not_apply_local_raster_limits(monkeypatch):
     processing._validate_pdf_limits(pdf_bytes)
 
 
-def test_mistral_glm_rejects_pdf_image_mode(monkeypatch):
-    monkeypatch.setattr(processing, "MODEL", "zai-glm-5-3")
+@pytest.mark.parametrize("model", ["zai-glm-5-3", "zai-glm-latest"])
+def test_mistral_glm_rejects_pdf_image_mode(monkeypatch, model):
+    monkeypatch.setattr(processing, "MODEL", model)
     monkeypatch.setenv("MISTRAL_USE_OCR", "false")
 
     with pytest.raises(ValueError, match="MISTRAL_USE_OCR=true"):

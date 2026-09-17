@@ -6,6 +6,7 @@ import {
   FiCalendar,
   FiChevronDown,
   FiCommand,
+  FiCheckSquare,
   FiFileText,
   FiFolder,
   FiLogOut,
@@ -37,6 +38,7 @@ const primaryNav = [
   { to: "/", label: "Dashboard", icon: FiBarChart2, end: true },
   { to: "/contracts", label: "Verträge", icon: FiFileText },
   { to: "/invoices", label: "Rechnungen", icon: FiFileText },
+  { to: "/reviews", label: "KI-Prüfung", icon: FiCheckSquare },
   { to: "/calendar", label: "Kalender", icon: FiCalendar },
 ];
 
@@ -50,6 +52,7 @@ const pageMeta: Record<string, { eyebrow: string; title: string }> = {
   "/": { eyebrow: "Übersicht", title: "Command Center" },
   "/contracts": { eyebrow: "Dokumente", title: "Verträge" },
   "/invoices": { eyebrow: "Dokumente", title: "Rechnungen" },
+  "/reviews": { eyebrow: "Datenqualität", title: "KI-Prüfung" },
   "/calendar": { eyebrow: "Planung", title: "Kalender" },
   "/lists": { eyebrow: "Organisation", title: "Workspaces" },
   "/protected": { eyebrow: "Sicherheit", title: "Geschützte Dokumente" },

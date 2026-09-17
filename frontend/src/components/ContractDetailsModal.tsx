@@ -9,6 +9,7 @@ import {
 } from "react-icons/fi";
 import type { Contract } from "../types";
 import AttachmentList from "./upload-modal/AttachmentList";
+import NoticeResearch from "./NoticeResearch";
 import { formatGermanNumber } from "../utils/formatUtils";
 import { formatContractDate } from "../utils/contractPresentation";
 
@@ -89,6 +90,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
   return (
     <AnimatePresence>
       <motion.div
+        key="details-overlay"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -96,6 +98,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
         onClick={onClose}
       />
       <motion.div
+        key="details-content"
         initial={{ opacity: 0, scale: 0.97, y: 18 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.97, y: 18 }}
@@ -153,6 +156,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
               </p>
             </div>
 
+            {contract.notice_period == null && <NoticeResearch key={contract.id} />}
             <div
               className={[
                 "mt-5 grid gap-px overflow-hidden rounded-2xl border border-white/[0.07]",
