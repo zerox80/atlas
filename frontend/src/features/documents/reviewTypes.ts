@@ -12,6 +12,17 @@ export interface ReviewChange {
   before: string | number | string[] | null;
   after: string | number | string[] | null;
   can_apply: boolean;
+  status?: "CONFIRMED" | "EXPLICIT_CONFLICT" | "NOT_EVIDENCED" | "NEW_INFORMATION" | "AMBIGUOUS" | "DERIVED" | "WRONG_SCOPE";
+  reason?: string;
+  confidence?: number | null;
+  currency?: string | null;
+  stored_scope?: string;
+  document_scope?: string | null;
+  document_name?: string;
+  document_type?: string | null;
+  evidence?: { page: number; quote: string } | null;
+  evidence_verified?: boolean;
+  alternatives?: { value: ReviewChange["after"]; scope: string; document_name: string; evidence?: ReviewChange["evidence"]; currency?: string | null }[];
 }
 
 export interface ReviewItem {
@@ -23,11 +34,31 @@ export interface ReviewItem {
   error?: string;
   can_write?: boolean;
   result?: {
-    changes: ReviewChange[];
-    warnings: string[];
+    schema_version?: number;
+    legacy_report?: boolean;
+    changes?: ReviewChange[];
+    checks?: ReviewChange[];
+    warnings?: string[];
     notice_period_evidence?: string | null;
-    checked_files: number;
+    checked_files?: number;
     applied_fields?: string[];
+    model?: string;
+    ocr_model?: string;
+    progress?: {
+      stage?: string;
+      completed_pages?: number;
+      total_pages?: number;
+      completed_sections?: number;
+      total_sections?: number;
+      document_name?: string;
+      first_page?: number;
+      last_page?: number;
+    };
+    diagnostic?: { code: string; stage: string; message: string; exception_type?: string; http_status?: number | null; validation_issues?: string[] };
+    components?: { name: string; amount_net?: number | null; currency?: string | null; document_name: string;
+      evidence: { page: number; quote: string }; evidence_verified: boolean; separate_contract_reasons: string[] }[];
+    observations?: { scope: string; value: ReviewChange["after"]; kind: string; reason: string;
+      document_name: string; evidence?: ReviewChange["evidence"]; evidence_verified: boolean; currency?: string | null }[];
   };
 }
 

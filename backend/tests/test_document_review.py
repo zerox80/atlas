@@ -3,13 +3,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlmodel import select
+from test_review_semantics import extraction, observation
 
 import ai_routes
 import ai_service
 import document_review
+import review_worker
 from api_core import ensure_default_workspace, limiter
 from main import app, get_current_user
 from models import Contract, ContractAttachment, ContractPermission, DocumentReviewRun
+from review_analysis import Section
 
 
 @pytest.fixture(autouse=True)
@@ -18,6 +21,8 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
     monkeypatch.setattr(ai_routes, "MISTRAL_DOCUMENT_PROCESSING_ENABLED", True)
     monkeypatch.setattr(document_review, "_read_bundle", AsyncMock(return_value=[b"primary", b"attachment"]))
+    monkeypatch.setattr(review_worker, "prepare_sections", AsyncMock(return_value=([Section(1, "test.pdf", 1, 1, b"primary")], "fingerprint")))
+    monkeypatch.setattr(review_worker, "analyze_section", AsyncMock(return_value=[extraction([])]))
     limiter.reset()
 
 
@@ -48,12 +53,16 @@ def test_review_extracts_bundle_and_applies_only_selected_fields(auth_client, se
     session.add(ContractAttachment(contract_id=doc_id, filename="AGB.pdf", file_path="uploads/agb.pdf", size=100))
     session.add(ContractAttachment(contract_id=doc_id, filename="Notiz.txt", file_path="uploads/note.txt", size=30))
     session.commit()
-    analyze = AsyncMock(return_value={"title": "Neu", "value": 42, "notice_period": None})
-    monkeypatch.setattr(ai_service, "analyze_document_bundle", analyze)
+    analyze = AsyncMock(return_value=[extraction([
+        observation("title", "Neu", "Neu"),
+        observation("invoice_total_gross", 42, "Gesamt brutto 42,00 EUR", currency="EUR"),
+    ])])
+    monkeypatch.setattr(review_worker, "analyze_section", analyze)
     run = auth_client.post("/ai/reviews").json()
     endpoint = f"/ai/reviews/{run['id']}"
-    assert auth_client.post(endpoint + "/next").status_code == 200
-    analyze.assert_awaited_once_with([b"primary", b"attachment"], document_type="invoice", owner_id=test_user.id)
+    assert auth_client.post(endpoint + "/next").status_code == 202
+    analyze.assert_awaited_once()
+    assert analyze.call_args.args[1] == test_user.id
     document_review._read_bundle.assert_awaited_once_with(["uploads/test.pdf", "uploads/agb.pdf"])
     page = auth_client.get(endpoint).json()
     assert page["remaining"] == 0
@@ -63,15 +72,17 @@ def test_review_extracts_bundle_and_applies_only_selected_fields(auth_client, se
     assert session.get(Contract, doc_id).notice_period == 30
     assert session.get(Contract, doc_id).title == "Alt"
     apply = auth_client.post(endpoint + f"/items/{item['id']}/apply", json={"fields": ["notice_period"]})
-    assert apply.status_code == 200, apply.text
+    assert apply.status_code == 422, apply.text
     session.expire_all()
     stored = session.get(Contract, doc_id)
-    assert stored.notice_period is None
+    assert stored.notice_period == 30
     assert stored.title == "Alt"
-    assert stored.version == 2
+    assert stored.version == 1
     # Other selected fields remain reviewable after a partial application.
     assert auth_client.post(endpoint + f"/items/{item['id']}/apply", json={"fields": ["value"]}).status_code == 200
     assert session.get(Contract, doc_id).value == 42
+    assert session.get(Contract, doc_id).version == 2
+    assert auth_client.post(endpoint + f"/items/{item['id']}/apply", json={"fields": ["title"]}).status_code == 200
 
 
 def test_permission_revocation_hides_results_and_blocks_apply(auth_client, session, test_user, monkeypatch):
@@ -79,7 +90,7 @@ def test_permission_revocation_hides_results_and_blocks_apply(auth_client, sessi
     doc_id = doc.id
     session.add(Contract(title="Geheim", file_path="uploads/secret.pdf"))
     session.commit()
-    monkeypatch.setattr(ai_service, "analyze_document_bundle", AsyncMock(return_value={"title": "Privater Befund"}))
+    monkeypatch.setattr(review_worker, "analyze_section", AsyncMock(return_value=[extraction([observation("title", "Privater Befund", "Privater Befund")])]))
     run = auth_client.post("/ai/reviews").json()
     assert run["total"] == 1
     endpoint = f"/ai/reviews/{run['id']}"
@@ -104,7 +115,7 @@ def test_failures_are_resumable_leased_and_do_not_expose_provider_text(auth_clie
     doc = document(session, test_user)
     run = auth_client.post("/ai/reviews").json()
     endpoint = f"/ai/reviews/{run['id']}"
-    monkeypatch.setattr(ai_service, "analyze_document_bundle", AsyncMock(side_effect=RuntimeError("SECRET SIGNATURE")))
+    monkeypatch.setattr(review_worker, "analyze_section", AsyncMock(side_effect=RuntimeError("SECRET SIGNATURE")))
     auth_client.post(endpoint + "/next")
     page = auth_client.get(endpoint)
     assert page.json()["counts"]["error"] == 1
@@ -115,12 +126,13 @@ def test_failures_are_resumable_leased_and_do_not_expose_provider_text(auth_clie
     stored.lease_until = datetime.now(UTC) + timedelta(minutes=1)
     session.add(stored)
     session.commit()
-    assert auth_client.post(endpoint + "/next").status_code == 409
+    response = auth_client.post(endpoint + "/next")
+    assert response.status_code == 202 and response.json()["busy"]
     stored.lease_until = datetime.now(UTC) - timedelta(seconds=1)
     session.add(stored)
     session.commit()
-    monkeypatch.setattr(ai_service, "analyze_document_bundle", AsyncMock(return_value={"title": "Neu"}))
-    assert auth_client.post(endpoint + "/next").status_code == 200
+    monkeypatch.setattr(review_worker, "analyze_section", AsyncMock(return_value=[extraction([observation("title", "Neu", "Neu")])]))
+    assert auth_client.post(endpoint + "/next").status_code == 202
     item = auth_client.get(endpoint).json()["items"][0]
     doc.version += 1
     session.add(doc)

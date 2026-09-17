@@ -17,6 +17,11 @@ CONTRACT_ANALYSIS_PROMPT = (
     '    "tags": ["Kategorie1", "Kategorie2"]\n'
     "}\n\n"
     "Regeln:\n"
+    "- Erfasse ALLE Rechnungspositionen, insbesondere Wartung/Maintenance. Titel und Zusammenfassung "
+    "müssen das gesamte Dokument beschreiben, nicht nur die erste Position. Ein Positionsbetrag oder "
+    "Einzelpreis darf niemals value ersetzen. Netto und Brutto strikt trennen.\n"
+    "- Lieferschein-/Lieferdatum ist weder Vertragsbeginn noch Rechnungsdatum. "
+    "Wenn nur ein Lieferscheindatum vorliegt, bleibt start_date null.\n"
     "- value: Der GESAMTWERT des Vertrags (falls berechenbar, sonst null). Berechne: "
     "(Summe aller monatlichen Kosten inkl. Versicherung/Steuer) * (Laufzeit in Monaten). "
     "Falls Laufzeit unbegrenzt/unbekannt: Nimm (Monatliche Kosten * 12).\n"

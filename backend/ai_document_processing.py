@@ -117,9 +117,25 @@ def format_ocr_text(ocr_response: Any) -> str:
         page_index = _get_attr_or_key(page, "index", index - 1)
         page_number = page_index + 1 if isinstance(page_index, int) else index
         markdown = str(_get_attr_or_key(page, "markdown", "") or "").strip()
-        if not markdown:
-            continue
-        page_parts = [f"## Seite {page_number}", markdown]
+        # With table_format Mistral returns table bodies separately from page
+        # markdown. Leaving just the links silently loses amounts and positions.
+        for table in _get_attr_or_key(page, "tables", []) or []:
+            table_id = str(_get_attr_or_key(table, "id", "") or "")
+            table_text = str(_get_attr_or_key(table, "content", "") or "").strip()
+            if not table_text:
+                continue
+            reference = re.compile(r"!?\[[^\]]*\]\(" + re.escape(table_id) + r"\)") if table_id else None
+            if reference and reference.search(markdown):
+                def replacement(_: re.Match[str], content: str = table_text) -> str:
+                    return content
+                markdown = reference.sub(replacement, markdown)
+            elif table_text not in markdown:
+                markdown += "\n\n" + table_text
+        page_parts = [f"## Seite {page_number}", markdown or "[Leere OCR-Seite]"]
+        for label, attribute in (("Kopfzeile", "header"), ("Fußzeile", "footer")):
+            value = _get_attr_or_key(page, attribute)
+            if isinstance(value, str) and value.strip() and value not in markdown:
+                page_parts.append(f"{label}: {value}")
         confidence = _format_confidence_scores(
             _get_attr_or_key(page, "confidence_scores")
         )

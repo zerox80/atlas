@@ -22,9 +22,30 @@ it("loads a saved run without paid work and resumes only on demand", async () =>
   expect(await screen.findByText(/1 von 2 bearbeitet/)).toBeInTheDocument();
   expect(api.post).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole("button", { name: "Prüfung fortsetzen" }));
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/ai/reviews/saved-run/next", {}, { timeout: 0 }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/ai/reviews/saved-run/next", {}, { timeout: 30000 }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Prüfung fortsetzen" })).toBeEnabled());
   expect(api.post).toHaveBeenCalledOnce();
+});
+
+it("keeps a busy background job running and stops scheduling after pause", async () => {
+  let complete!: (value: { data: { finished: boolean; busy: boolean; retry_after_ms: number } }) => void;
+  api.post.mockReturnValue(new Promise(resolve => { complete = resolve; }));
+  render(<DocumentReview />);
+  await userEvent.click(await screen.findByRole("button", { name: "Prüfung fortsetzen" }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledOnce());
+  await userEvent.click(screen.getByRole("button", { name: "Nach diesem Abschnitt pausieren" }));
+  await act(async () => { complete({ data: { finished: false, busy: true, retry_after_ms: 3000 } }); });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Prüfung fortsetzen" })).toBeEnabled());
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(api.post).toHaveBeenCalledOnce();
+});
+
+it("displays the HTTP code and server reason when scheduling fails", async () => {
+  api.post.mockRejectedValue({ isAxiosError: true, response: { status: 409, data: { detail: "Das Analysemodell wurde geändert. Bitte einen neuen Prüflauf starten." } } });
+  render(<DocumentReview />);
+  await userEvent.click(await screen.findByRole("button", { name: "Prüfung fortsetzen" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("HTTP 409: Das Analysemodell wurde geändert.");
+  expect(screen.getByRole("button", { name: "Prüfung fortsetzen" })).toBeEnabled();
 });
 
 it("does not start another document after leaving the page during a request", async () => {
