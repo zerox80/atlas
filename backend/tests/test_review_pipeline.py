@@ -76,6 +76,7 @@ def test_22_pages_survive_failure_resume_and_other_documents_progress(auth_clien
     assert first["result"]["progress"]["total_pages"] == 22
     assert first["result"]["diagnostic"]["stage"] == "analysis"
     assert first["result"]["diagnostic"]["code"] == "TIMEOUT"
+    assert "retry_message" not in first["result"]["progress"]
     assert "SECRET" not in page.text and "checkpoint" not in page.text
     auth_client.post(endpoint + "/next")
     assert auth_client.get(endpoint).json()["counts"]["checked"] == 1
