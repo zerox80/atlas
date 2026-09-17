@@ -17,7 +17,7 @@ SOURCE_PRIORITY = {
 }
 FIELD_SCOPES = {
     "title": {"title"}, "description": {"description"}, "tags": {"tags"},
-    "value": {"contract_value_net", "contract_value_gross", "invoice_total_net", "invoice_total_gross"},
+    "value": {"contract_value_gross", "invoice_total_gross"},
     "annual_value": {"annual_value"}, "start_date": {"contract_start_date", "invoice_date"},
     "end_date": {"contract_end_date"}, "notice_period": {"notice_period"},
 }
@@ -32,10 +32,10 @@ def _equal(left, right) -> bool:
 
 
 def stored_scope(field: str, document_type: str) -> str:
-    # Invoice value has always been defined as gross in Atlas. Contract value and
-    # the old shared start-date field have no persisted semantics: do not guess.
+    # Review total values are always gross, as explicitly configured by the user.
+    # The old shared start-date field still has no reliable persisted semantics.
     if field == "value":
-        return "invoice_total_gross" if document_type == "invoice" else "legacy_amount"
+        return "invoice_total_gross" if document_type == "invoice" else "contract_value_gross"
     if field == "start_date":
         return "legacy_date"
     return {"end_date": "contract_end_date"}.get(field, field)
@@ -83,6 +83,13 @@ def compare_field(field: str, before: dict, facts: list[dict], document_type: st
                         evidence_verified=fact["evidence_verified"], currency=fact.get("currency"))
         return base
     fact, disagreement = _pick(candidates)
+    if field == "value":
+        # Conflicting totals are unsafe even when the model assigns different source priorities.
+        disagreement = disagreement or any(
+            candidate["evidence_verified"] and candidate["kind"] == "explicit"
+            and (not _equal(candidate["value"], fact["value"]) or candidate.get("currency") != fact.get("currency"))
+            for candidate in candidates
+        )
     base.update(after=fact["value"], document_scope=fact["scope"], confidence=fact["confidence"],
                 document=fact["document"], document_name=fact["document_name"], document_type=fact["document_type"],
                 evidence=fact["evidence"], evidence_verified=fact["evidence_verified"], currency=fact.get("currency"),

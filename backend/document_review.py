@@ -99,6 +99,17 @@ def _summary(session: Session, run: DocumentReviewRun) -> dict:
     }
 
 
+def _guard_active_run(session: Session, user: User, run_id: str | None = None):
+    # Lock the same owner row before checking intent/leases; concurrent starts cannot race.
+    session.exec(update(User).where(col(User.id) == user.id).values(is_active=User.is_active))
+    active = session.exec(select(DocumentReviewRun.id).outerjoin(
+        DocumentReviewControl, DocumentReviewControl.run_id == DocumentReviewRun.id,
+    ).where(DocumentReviewRun.owner_subject == user.auth_subject,
+            or_(col(DocumentReviewControl.running).is_(True), col(DocumentReviewRun.lease_until) > datetime.now(UTC)))) .all()
+    if any(identifier != run_id for identifier in active):
+        raise HTTPException(409, "Ein anderer Prüflauf ist noch aktiv. Diesen zuerst pausieren und seine laufende Anfrage abwarten.")
+
+
 @router.get("")
 def list_reviews(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     runs = session.exec(
@@ -113,6 +124,8 @@ def list_reviews(user: User = Depends(get_current_user), session: Session = Depe
 def create_review(request: Request, body: ReviewCreate | None = None,
                   user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     _require_ai_availability("Prüfung")
+    if body and body.start:
+        _guard_active_run(session, user)
     # All accessible contracts AND invoices, including protected documents,
     # independent of pagination, search filters, and the selected workspace.
     document_ids = session.exec(filter_contracts_for_user(
@@ -145,6 +158,7 @@ def read_review(run_id: str, offset: int = Query(0, ge=0), limit: int = Query(50
         result = json.loads(item.result_json) if item.result_json else {}
         # Checkpoints are private worker state. Expose only progress until complete.
         result.pop("checkpoint", None)
+        result.pop("components", None)
         if result and result.get("schema_version") != PIPELINE_VERSION:
             result["legacy_report"] = True
             for change in result.get("changes", []):
@@ -178,6 +192,7 @@ def start_review(run_id: str, user: User = Depends(get_current_user), session: S
     run = _run(session, run_id, user)
     if run.model != MODEL:
         raise HTTPException(409, "Das Analysemodell wurde geändert. Bitte einen neuen Prüflauf starten.")
+    _guard_active_run(session, user, run_id)
     control = session.get(DocumentReviewControl, run_id) or DocumentReviewControl(run_id=run_id)
     control.running, control.error = True, None
     session.add(control)

@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, col, select, update
 
-from ai_client import AI_REQUEST_TIMEOUT_SECONDS, MODEL, OCR_MODEL
+from ai_client import AI_REQUEST_TIMEOUT_SECONDS, MODEL, OCR_MODEL, rate_limit_observer
 from ai_observability import review_context
 from models import DocumentReviewItem, DocumentReviewRun, User
 from review_analysis import REVIEW_REASONING_EFFORT, ReviewProcessingError, analyze_bundle, prepare_sections, scan_section
@@ -83,6 +83,16 @@ async def process_review_step(bind, run_id: str, item_id: int, token: str,
             raise ReviewProcessingError("DOCUMENT_CHANGED", "Dokument wurde geändert oder ist nicht mehr zugänglich.")
         logger.info("Review stage run=%s item=%s stage=%s", run_id, item_id, stage)
 
+    def rate_limited(attempt: int, delay: float):
+        # A retry never renews the total request deadline.
+        if delay:
+            result["progress"].update(retry_attempt=attempt, retry_at=(datetime.now(UTC) + timedelta(seconds=min(delay, STEP_TIMEOUT))).isoformat())
+        else:
+            result["progress"].pop("retry_at", None)
+            result["progress"].pop("retry_attempt", None)
+        if save("processing") != "processing":
+            raise ReviewProcessingError("DOCUMENT_CHANGED", "Dokument wurde geändert oder ist nicht mehr zugänglich.")
+
     async def heartbeat():
         while True:
             await asyncio.sleep(5)
@@ -93,10 +103,13 @@ async def process_review_step(bind, run_id: str, item_id: int, token: str,
     heartbeat_task = None
     stage = "read"
     context_token = review_context.set(f"run={run_id} item={item_id}")
+    retry_token = rate_limit_observer.set(rate_limited)
     try:
         if document is None or owner_id is None:
             raise ReviewProcessingError("DOCUMENT_UNAVAILABLE", "Dokument ist nicht mehr zugänglich.")
         async with asyncio.timeout(STEP_TIMEOUT) as step_deadline:
+            result["progress"].pop("retry_at", None)
+            result["progress"].pop("retry_attempt", None)
             result["progress"].pop("section_timeout_seconds", None)
             result["progress"].update(section_started_at=datetime.now(UTC).isoformat())
             progress("read")
@@ -169,6 +182,7 @@ async def process_review_step(bind, run_id: str, item_id: int, token: str,
         except ReviewProcessingError:
             pass  # A newer token owns the item now.
     finally:
+        rate_limit_observer.reset(retry_token)
         review_context.reset(context_token)
         if heartbeat_task:
             heartbeat_task.cancel()

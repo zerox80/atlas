@@ -46,6 +46,7 @@ export interface ReviewItem {
     applied_fields?: string[];
     model?: string;
     ocr_model?: string;
+    reasoning_effort?: string;
     progress?: {
       stage?: string;
       completed_pages?: number;
@@ -60,11 +61,10 @@ export interface ReviewItem {
       stage_started_at?: string;
       heartbeat_at?: string;
       request_timeout_seconds?: number;
-      retry_message?: string;
+      retry_attempt?: number;
+      retry_at?: string;
     };
     diagnostic?: { code: string; stage: string; message: string; exception_type?: string; http_status?: number | null; validation_issues?: string[] };
-    components?: { name: string; amount_net?: number | null; currency?: string | null; document_name: string;
-      evidence: { page: number; quote: string }; evidence_verified: boolean; separate_contract_reasons: string[] }[];
     observations?: { scope: string; value: ReviewChange["after"]; kind: string; reason: string;
       document_name: string; evidence?: ReviewChange["evidence"]; evidence_verified: boolean; currency?: string | null }[];
   };

@@ -2,7 +2,7 @@ import type { ReviewChange } from "./reviewTypes";
 import { formatGermanNumber } from "../../utils/formatUtils";
 
 export const labels: Record<string, string> = {
-  title: "Titel", description: "Beschreibung", value: "Betrag / Gesamtwert",
+  title: "Titel", description: "Beschreibung", value: "Betrag / Gesamtwert (brutto)",
   annual_value: "Jahreswert", start_date: "Bisheriges Start-/Rechnungsdatum", end_date: "Enddatum",
   notice_period: "Kündigungsfrist (Tage)", tags: "Kategorien",
 };
@@ -21,8 +21,7 @@ export const checkLabels: Record<string, string> = {
 };
 export const stageLabels: Record<string, string> = {
   read: "Datei lesen", prepare: "PDF vorbereiten", ocr: "OCR-Texterkennung", analysis: "KI-Auswertung",
-  analysis_retry: "KI-Antwortformat wird korrigiert (einmaliger Wiederholungsversuch)",
-  waiting: "Nächstes Seitenpaket ausstehend", retrying: "Wiederholung mit kleinerem Seitenpaket", complete: "Abgeschlossen", unknown: "Unbekannter Schritt",
+  waiting: "Nächste Seiten scannen", analysis_pending: "Scan vollständig · Gesamtauswertung ausstehend", complete: "Abgeschlossen", unknown: "Unbekannter Schritt",
 };
 export const sourceLabels: Record<string, string> = {
   invoice: "Rechnung", contract: "Vertrag", amendment: "Nachtrag", order_confirmation: "Auftragsbestätigung",

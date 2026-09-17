@@ -22,6 +22,9 @@ export default function DocumentReview() {
     await api.get<ReviewPage>(`/ai/reviews/${runId}`, { params: { offset, limit: 50 } })
   ).data, { enabled: Boolean(runId), refetchInterval: 3000 });
   const running = Boolean(page.data?.running);
+  const draining = !running && Boolean(page.data?.counts.processing);
+  const anotherRunning = runs.data?.some(run => run.id !== runId && (run.running || run.counts.processing));
+  const anyRunning = running || draining || anotherRunning;
   const status = useQuery(["ai-status"], async () => (await api.get<{available: boolean; model?: string; external_document_processing?: boolean}>("/ai/status")).data);
 
   const control = async (id: string, action: "start" | "pause") => {
@@ -58,18 +61,19 @@ export default function DocumentReview() {
   return <div className="app-page">
     <PageHeader eyebrow="Datenqualität" title="Alle Dokumente prüfen"
       description="Verträge und Rechnungen erneut mit dem aktuellen KI-Modell gegen die Originaldokumente abgleichen."
-      actions={<button className="btn-primary" disabled={running || controlling || creating || !status.data?.available} onClick={() => void create()}>
+      actions={<button className="btn-primary" disabled={Boolean(anyRunning) || controlling || creating || !status.data?.available} onClick={() => void create()}>
         <FiCheckSquare /> {creating ? "Wird vorbereitet …" : "Alle Verträge & Rechnungen neu prüfen"}
     </button>} />
     <div className="surface mb-5 space-y-2 p-5 text-sm leading-6">
       <p>Korrekturen wählst du einzeln aus. Fehlende Angaben löschen keine gespeicherten Werte.
-        Fertige Seitenabschnitte bleiben für die Fortsetzung gespeichert.</p>
+        OCR scannt jeweils bis zu vier Seiten. Danach folgt eine einzige Auswertung aller Seiten und PDF-Anlagen.
+        Betrag / Gesamtwert bedeutet immer Gesamtbrutto; Positionspreise ersetzen ihn nicht.</p>
       <details className="muted"><summary className="cursor-pointer">Umfang, API-Kosten und Ablauf · Modell {status.data?.model || "Nicht verfügbar"}</summary>
       <p className="mt-2">Prüft alle zugänglichen Dokumente in allen Workspaces, einschließlich geschützter Dokumente und PDF-Anlagen.
         Papierkorb und nicht unterstützte Dateiformate werden nicht analysiert.</p>
       <p>Die Prüfung nutzt die konfigurierte Dokument-KI und verursacht API-Kosten.</p>
       <p>Die Prüfung läuft auf dem Server weiter, auch nach Neuladen oder Schließen dieser Seite.
-        Mit „Nach diesem Abschnitt pausieren“ hältst du sie an. Fertige Abschnitte bleiben gespeichert.
+        Mit „Prüfung pausieren“ hältst du sie nach der laufenden OCR- oder KI-Anfrage an. Gescannte Seiten bleiben gespeichert.
         Fehlerhafte Dokumente halten die übrige Prüfung nicht auf. Ein KI-Prüfergebnis kann Fehler enthalten.</p>
       </details>
     </div>
@@ -81,12 +85,13 @@ export default function DocumentReview() {
     {(runs.isLoading || (runId && page.isLoading)) && <p role="status" className="mb-5 muted">Prüfergebnisse werden geladen …</p>}
     {Boolean(runs.data?.length) && <label className="mb-5 block max-w-xl">
       <span className="mb-2 block text-sm">Gespeicherter Prüflauf</span>
-      <select className="field" value={runId} disabled={running || creating} onChange={event => { setSelectedId(event.target.value); setOffset(0); }}>
+      <select className="field" value={runId} disabled={creating} onChange={event => { setSelectedId(event.target.value); setOffset(0); }}>
         {runs.data!.map(run => <option key={run.id} value={run.id}>
           {parseApiDate(run.created_at).toLocaleString("de-DE")} · {run.model} · {run.total - run.remaining}/{run.total}
         </option>)}
       </select>
     </label>}
+    {anotherRunning && <p role="status" className="mb-5 muted">Ein anderer Prüflauf ist noch aktiv. Wähle ihn oben aus, um ihn zu pausieren.</p>}
     {data && <>
       <section className="surface mb-5 space-y-4 p-5" aria-label="Prüffortschritt">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -94,15 +99,16 @@ export default function DocumentReview() {
             · {data.counts.hints || 0} mit Hinweisen
             · {data.counts.error || 0} fehlgeschlagen · {data.counts.skipped || 0} nicht geprüft</p>
           <div className="flex flex-wrap gap-2">
-            {running ? <button className="btn-secondary" disabled={controlling} onClick={() => void control(data.id, "pause")}><FiPause /> Nach diesem Abschnitt pausieren</button>
-              : data.remaining > 0 && <button className="btn-primary" disabled={controlling || !status.data?.available} onClick={() => void control(data.id, "start")}><FiPlay /> Prüfung fortsetzen</button>}
-            {!running && Boolean(data.counts.error) && <button className="btn-secondary" disabled={controlling || !status.data?.available} onClick={() => void retry()}>Fehler erneut versuchen</button>}
+            {running ? <button className="btn-secondary" disabled={controlling} onClick={() => void control(data.id, "pause")}><FiPause /> Prüfung pausieren</button>
+              : draining ? <button className="btn-secondary" disabled>Pause wird abgeschlossen …</button>
+              : data.remaining > 0 && <button className="btn-primary" disabled={controlling || Boolean(anotherRunning) || !status.data?.available} onClick={() => void control(data.id, "start")}><FiPlay /> Prüfung fortsetzen</button>}
+            {!running && !draining && Boolean(data.counts.error) && <button className="btn-secondary" disabled={controlling || Boolean(anotherRunning) || !status.data?.available} onClick={() => void retry()}>Fehler erneut versuchen</button>}
           </div>
         </div>
         {running && <p className="text-sm muted" role="status">Prüfung läuft auf dem Server · Diese Seite kann neu geladen oder geschlossen werden.</p>}
         {!running && data.remaining > 0 && <p className="text-sm muted" role="status">{data.counts.processing
-          ? "Pause angefordert · Der laufende Abschnitt wird noch fertig geprüft."
-          : "Prüfung pausiert · Fertige Abschnitte sind gespeichert."}</p>}
+          ? "Pause angefordert · Die laufende OCR- oder KI-Anfrage wird noch beendet. Danach startet keine neue Anfrage."
+          : "Prüfung pausiert · Gescannte Seiten sind gespeichert."}</p>}
         <progress className="h-2 w-full accent-[#b8f15a]" value={data.total - data.remaining} max={data.total || 1} aria-label="Bearbeitete Dokumente" />
         {!data.total && <p>Keine zugänglichen Dokumente vorhanden.</p>}
       </section>
