@@ -34,6 +34,14 @@ Kündigungsfristen in Monaten nicht als Tage erfassen. Unbekannte Daten nicht al
 Nur optionale Metadaten dürfen null sein; leere Listen [].
 Titel/Beschreibung nur als vollständige Zusammenfassung aller Leistungen formulieren,
 als derived kennzeichnen. Keine Einzelposition zum Titel des gesamten Dokuments machen.
+Liefere aktiv einen aussagekräftigen Titel, eine knappe vollständige Beschreibung und passende
+Kategorien, soweit der Dokumentinhalt sie trägt. Diese redaktionellen Vorschläge müssen den
+gesamten Gegenstand erfassen und dürfen keine unbelegten Leistungen oder Fakten ergänzen.
+Belege auch Zusammenfassungen durch ein wörtliches Originalzitat; der formulierte Vorschlag
+muss nicht selbst wörtlich im Dokument stehen. Vorhandene gespeicherte Werte sind dir unbekannt:
+behaupte keine Änderung gegenüber ihnen. Begründe konkret, warum dein Vorschlag zum Dokument passt.
+Gib bei Unsicherheit den konkreten fehlenden oder widersprüchlichen Beleg an; keine pauschalen
+Aufforderungen wie „manuell prüfen“. Die Anwendung empfiehlt daraus Änderung oder Beibehaltung.
 Begründungen auf einen Satz beschränken. Keine Wiederholungen derselben Angabe.
 Falls die PDF-Sammlung mehrere EIGENSTÄNDIGE Dokumente enthält, schlage in document_suggestions
 mindestens zwei unabhängige Einträge mit Titel, Typ (contract/invoice), vollständiger Seitenzuordnung,

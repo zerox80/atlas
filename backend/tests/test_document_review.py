@@ -1,6 +1,9 @@
 from datetime import UTC, datetime, timedelta
+from time import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import limits.storage.memory
 import pytest
 from sqlmodel import select
 from test_review_semantics import extraction, observation
@@ -120,12 +123,18 @@ def test_repeated_review_creation_is_not_blocked_after_three_runs(auth_client):
         assert response.status_code == 200, response.text
 
 
-def test_review_creation_retains_short_burst_protection_with_explanation(auth_client):
-    for _ in range(30):
+def test_review_creation_allows_twelve_runs_per_hour_with_explanation(auth_client, monkeypatch):
+    clock = [time()]
+    monkeypatch.setattr(limits.storage.memory, "time", SimpleNamespace(time=lambda: clock[0]))
+    for _ in range(12):
         assert auth_client.post("/ai/reviews").status_code == 200
     response = auth_client.post("/ai/reviews")
     assert response.status_code == 429
-    assert "nach einer Minute" in response.json()["error"]
+    assert "12 neue Prüfläufe pro Stunde" in response.json()["error"]
+    clock[0] += 61
+    assert auth_client.post("/ai/reviews").status_code == 429
+    clock[0] += 3540
+    assert auth_client.post("/ai/reviews").status_code == 200
 
 
 def test_failures_are_resumable_leased_and_do_not_expose_provider_text(auth_client, session, test_user, monkeypatch):

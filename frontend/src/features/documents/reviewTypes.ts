@@ -14,6 +14,8 @@ export interface ReviewChange {
   before: string | number | string[] | null;
   after: string | number | string[] | null;
   can_apply: boolean;
+  recommendation?: "update" | "keep" | "leave_empty";
+  recommendation_reason?: string;
   status?: "CONFIRMED" | "EXPLICIT_CONFLICT" | "NOT_EVIDENCED" | "NEW_INFORMATION" | "AMBIGUOUS" | "DERIVED" | "WRONG_SCOPE";
   reason?: string;
   confidence?: number | null;

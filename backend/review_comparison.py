@@ -21,6 +21,49 @@ FIELD_SCOPES = {
     "annual_value": {"annual_value"}, "start_date": {"contract_start_date", "invoice_date"},
     "end_date": {"contract_end_date"}, "notice_period": {"notice_period"},
 }
+FIELD_LABELS = {
+    "title": "Titel", "description": "Beschreibung", "tags": "Kategorien",
+    "value": "Gesamtbrutto", "annual_value": "Jahreswert", "start_date": "Startdatum",
+    "end_date": "Enddatum", "notice_period": "Kündigungsfrist",
+}
+
+
+def _empty(value) -> bool:
+    return value is None or value == "" or value == []
+
+
+def _display_value(value, field: str) -> str:
+    if isinstance(value, list):
+        return ", ".join(value)
+    if field in {"value", "annual_value"} and type(value) in {int, float}:
+        return f"{value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".") + " EUR"
+    if field == "notice_period":
+        return f"{value} Tage"
+    return str(value)
+
+
+def add_recommendation(check: dict) -> dict:
+    """Give every finding an actionable decision, including a reason to keep a field."""
+    label = FIELD_LABELS[check["field"]]
+    if check["field"] == "start_date":
+        label = "Rechnungsdatum" if check["stored_scope"] == "invoice_date" else "Vertragsbeginn"
+    if check["can_apply"] and not _equal(check["before"], check["after"]):
+        check["recommendation"] = "update"
+        action = f"{label} auf {_display_value(check['after'], check['field'])} ändern."
+    elif _empty(check["before"]):
+        check["recommendation"] = "leave_empty"
+        action = f"{label} leer lassen."
+    else:
+        check["recommendation"] = "keep"
+        action = f"{label} bei {_display_value(check['before'], check['field'])} belassen."
+    if _equal(check["before"], check["after"]) and check.get("evidence_verified") and check["status"] in {"CONFIRMED", "DERIVED"}:
+        reason = "Der belegte Vorschlag entspricht bereits dem gespeicherten Wert."
+    elif check["status"] == "DERIVED" and not check["can_apply"]:
+        reason = "Die vorgeschlagene Berechnung ist nicht anhand ihrer Grundlagen bestätigt; keine Änderung empfohlen. " + check["reason"]
+    else:
+        reason = check["reason"]
+    check["recommendation_reason"] = action + " " + reason
+    return check
 
 
 def _equal(left, right) -> bool:
@@ -33,11 +76,10 @@ def _equal(left, right) -> bool:
 
 def stored_scope(field: str, document_type: str) -> str:
     # Review total values are always gross, as explicitly configured by the user.
-    # The old shared start-date field still has no reliable persisted semantics.
     if field == "value":
         return "invoice_total_gross" if document_type == "invoice" else "contract_value_gross"
     if field == "start_date":
-        return "legacy_date"
+        return "invoice_date" if document_type == "invoice" else "contract_start_date"
     return {"end_date": "contract_end_date"}.get(field, field)
 
 
@@ -81,7 +123,7 @@ def compare_field(field: str, before: dict, facts: list[dict], document_type: st
                         confidence=fact["confidence"], evidence=fact["evidence"], document=fact["document"],
                         document_name=fact["document_name"], document_type=fact["document_type"],
                         evidence_verified=fact["evidence_verified"], currency=fact.get("currency"))
-        return base
+        return add_recommendation(base)
     fact, disagreement = _pick(candidates)
     if field == "value":
         # Conflicting totals are unsafe even when the model assigns different source priorities.
@@ -103,14 +145,9 @@ def compare_field(field: str, before: dict, facts: list[dict], document_type: st
         base.update(status="WRONG_SCOPE", reason="Die Währung ist unbekannt oder weicht vom EUR-Feld ab.")
     elif field == "annual_value" and fact.get("billing_interval") not in {None, "year"}:
         base.update(status="WRONG_SCOPE", reason="Der Bezugszeitraum entspricht keinem Jahreswert.")
-    elif field in {"value", "start_date"} and scope.startswith("legacy_") and old is not None:
-        base.update(status="AMBIGUOUS", reason="Die Bedeutung des bestehenden Legacy-Wertes ist nicht gespeichert. "
-                    "Keine automatische Zuordnung oder Überschreibung. " + fact["reason"])
     elif not fact["evidence_verified"] or fact["document_type"] == "unknown":
         base.update(status="AMBIGUOUS", confidence=min(fact["confidence"], 0.4),
-                    reason="Belegstelle oder Dokumenttyp nicht sicher nachweisbar. " + fact["reason"])
-    elif fact["confidence"] < 0.75:
-        base.update(status="AMBIGUOUS", reason="Unsichere Extraktion; den Beleg manuell prüfen. " + fact["reason"])
+                    reason="Keine Änderung empfohlen: Belegstelle oder Dokumenttyp ist nicht sicher nachweisbar. " + fact["reason"])
     elif fact["kind"] == "derived" or field in {"title", "description", "tags"}:
         base.update(status="CONFIRMED" if _equal(old, fact["value"]) and fact["kind"] == "explicit" else "DERIVED",
                     reason=fact["reason"])
@@ -119,14 +156,16 @@ def compare_field(field: str, before: dict, facts: list[dict], document_type: st
         base["can_apply"] = not _equal(old, fact["value"]) and (bool(fact.get("derivation_verified")) or field in {"title", "description", "tags"})
     elif _equal(old, fact["value"]):
         base.update(status="CONFIRMED", reason="Wert für denselben Geltungsbereich durch eine Belegstelle bestätigt.")
-    elif old is None or old == "" or old == []:
+    elif _empty(old):
         base.update(status="NEW_INFORMATION", reason="Belegte Ergänzung für ein bisher leeres Feld. " + fact["reason"], can_apply=True)
     else:
         base.update(status="EXPLICIT_CONFLICT", reason="Ausdrücklich anderer Wert für denselben Geltungsbereich. " + fact["reason"],
-                    is_conflict=True, can_apply=fact["confidence"] >= 0.75)
+                    is_conflict=True, can_apply=True)
+    if fact["confidence"] < 0.75 and base["status"] in {"CONFIRMED", "NEW_INFORMATION", "EXPLICIT_CONFLICT", "DERIVED"}:
+        base["reason"] += " Die KI gibt eine niedrige Sicherheit an; die Belegprüfung war erfolgreich."
     if len(candidates) > 1 and not disagreement:
         base["reason"] += " Quellenpriorität berücksichtigt; weitere Belege sind aufgeführt."
-    return base
+    return add_recommendation(base)
 
 
 def result_status(result: dict) -> str:
@@ -148,7 +187,8 @@ def build_review_result(before: dict, extractions: list[dict], document_type: st
             if check["field"] in {"value", "annual_value", "start_date", "end_date", "notice_period"} and check["can_apply"]:
                 check.update(can_apply=False, is_conflict=False, status="AMBIGUOUS",
                              reason="Die Sammlung enthält mehrere eigenständige Dokumente. Angaben separat übernehmen; den Originaleintrag beibehalten.")
-    return {"schema_version": PIPELINE_VERSION, "checks": checks,
+                add_recommendation(check)
+    return {"schema_version": PIPELINE_VERSION, "comparison_version": 1, "checks": checks,
             "split_proposals": proposals,
             "changes": [check for check in checks if check["status"] != "CONFIRMED"],
             "observations": facts,

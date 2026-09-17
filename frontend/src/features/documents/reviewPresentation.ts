@@ -28,17 +28,24 @@ export const sourceLabels: Record<string, string> = {
   delivery_note: "Lieferschein", unknown: "Unbekannter Dokumenttyp",
 };
 export function canApply(change: ReviewChange): boolean {
-  return change.can_apply && change.after != null && ["EXPLICIT_CONFLICT", "NEW_INFORMATION", "DERIVED"].includes(change.status || "");
+  return change.can_apply && change.after != null && (!change.recommendation || change.recommendation === "update")
+    && ["EXPLICIT_CONFLICT", "NEW_INFORMATION", "DERIVED"].includes(change.status || "");
 }
-export function applyBlockedReason(change: ReviewChange, legacy: boolean, canWrite: boolean): string | null {
-  if (legacy) return "Älterer Prüfbericht – bitte neu prüfen.";
-  if (!canWrite) return "Keine Schreibberechtigung für dieses Dokument.";
-  if (canApply(change)) return null;
-  if (change.evidence_verified === false) return "Beleg nicht verifiziert – Originaldokument prüfen.";
-  if (change.status === "WRONG_SCOPE") return "Diese Angabe gehört nicht zum zu korrigierenden Feld.";
-  if (change.status === "AMBIGUOUS") return "Zuordnung oder Wert ist nicht eindeutig belegt.";
-  if (change.status === "DERIVED") return "Die Berechnung ist nicht ausreichend belegt.";
-  return "Kein belegter, abweichender Wert zur Übernahme vorhanden.";
+export function recommendationFor(change: ReviewChange): "update" | "keep" | "leave_empty" {
+  if (canApply(change)) return "update";
+  return change.before == null || change.before === "" || (Array.isArray(change.before) && !change.before.length)
+    ? "leave_empty" : "keep";
+}
+export function recommendationReason(change: ReviewChange): string {
+  if (change.recommendation_reason) return change.recommendation_reason;
+  if (change.reason) return change.reason;
+  if (change.evidence_verified === false) return "Der Dokumentbeleg ist nicht eindeutig verifiziert und rechtfertigt keine Änderung.";
+  if (change.status === "CONFIRMED") return "Die gespeicherte Angabe stimmt mit dem Dokument überein.";
+  if (change.status === "WRONG_SCOPE") return "Die Dokumentangabe gehört zu einem anderen Feld und ersetzt diesen Wert nicht.";
+  if (change.status === "AMBIGUOUS") return "Wert oder Zuordnung sind nicht eindeutig belegt; eine Änderung ist nicht empfohlen.";
+  if (change.status === "NOT_EVIDENCED") return "Das Dokument enthält für dieses Feld keine belegte Angabe.";
+  if (canApply(change)) return "Die Dokumentangabe ist ausreichend belegt und wird zur Übernahme empfohlen.";
+  return "Es gibt keinen ausreichend belegten anderen Wert für dieses Feld.";
 }
 export function valueText(value: ReviewChange["before"], field: string, currency: string | null = "EUR"): string {
   if (value == null) return "Keine Angabe";
