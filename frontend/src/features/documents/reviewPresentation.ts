@@ -1,6 +1,12 @@
 import type { ReviewChange, ReviewItem } from "./reviewTypes";
 import { formatGermanNumber } from "../../utils/formatUtils";
 
+const moneyFields = new Set([
+  "value", "annual_value", "contract_value_net", "contract_value_gross",
+  "invoice_total_net", "invoice_total_gross", "recurring_amount",
+  "line_item_net", "line_item_gross", "unit_price",
+]);
+
 export const labels: Record<string, string> = {
   title: "Titel", description: "Beschreibung", value: "Betrag / Gesamtwert (brutto)",
   annual_value: "Jahreswert", start_date: "Bisheriges Start-/Rechnungsdatum", end_date: "Enddatum",
@@ -56,6 +62,6 @@ export function valueText(value: ReviewChange["before"], field: string, currency
   if (value == null) return "Keine Angabe";
   if (Array.isArray(value)) return value.join(", ") || "Keine";
   if (typeof value === "string" && field.endsWith("date") && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value.split("-").reverse().join(".");
-  const unit = field === "value" || field === "annual_value" ? ` ${currency === "EUR" ? "€" : currency || "(Währung unbekannt)"}` : "";
+  const unit = moneyFields.has(field) ? ` ${currency === "EUR" ? "€" : currency || "(Währung unbekannt)"}` : "";
   return typeof value === "number" ? `${formatGermanNumber(value)}${unit}` : value;
 }

@@ -19,7 +19,7 @@ export function FieldFinding({ change }: { change: ReviewChange }) {
     {Boolean(change.alternatives?.length) && <details className="mt-2 text-xs muted">
       <summary>Weitere Dokumentangaben</summary>
       {change.alternatives!.map((item, index) => <p key={index} className="mt-2">
-        {scopeLabels[item.scope] || item.scope}: {valueText(item.value, change.field, item.currency)} · {item.document_name}
+        {scopeLabels[item.scope] || item.scope}: {valueText(item.value, item.scope, item.currency)} · {item.document_name}
         {item.evidence && <> · Seite {item.evidence.page}<br />„{item.evidence.quote}“</>}
       </p>)}
     </details>}
@@ -31,7 +31,7 @@ export function ReviewEvidence({ result }: { result: ReviewItem["result"] }) {
     {Boolean(result?.observations?.length) && <details className="mt-4 text-sm">
       <summary>Alle erkannten Beträge, Daten und Angaben</summary>
       <ul className="mt-3 space-y-3">{result!.observations!.map((fact, index) => <li key={index}>
-        <p>{scopeLabels[fact.scope] || fact.scope}: <strong>{valueText(fact.value, fact.scope)}</strong>{fact.currency && ` ${fact.currency}`}</p>
+        <p>{scopeLabels[fact.scope] || fact.scope}: <strong>{valueText(fact.value, fact.scope, fact.currency ?? null)}</strong></p>
         <p className="text-xs muted">{fact.reason} · {fact.document_name}{fact.evidence && ` · Seite ${fact.evidence.page}`}
           {!fact.evidence_verified && " · Beleg nicht verifiziert"}</p>
       </li>)}</ul>
