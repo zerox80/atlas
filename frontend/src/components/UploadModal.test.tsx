@@ -114,6 +114,152 @@ describe("UploadModal", () => {
     expect(saved.getAll("attachments")).toEqual([]);
   });
 
+  it("directly replaces individual files even when all ten slots are occupied", async () => {
+    const close = vi.fn();
+    const fullDocument = {
+      ...existing,
+      attachments: Array.from({ length: 9 }, (_, index) => ({
+        id: 41 + index, filename: `Anlage-${index}.pdf`, size: 1200, uploaded_at: "2026-09-17",
+      })),
+    };
+    render(<UploadModal isOpen initialData={fullDocument} onClose={close} />);
+    const main = pdf("Unterschriebener Vertrag.pdf");
+    const attachment = pdf("Unterschriebene Anlage.pdf");
+    expect(screen.getByRole("button", { name: "Hauptdokument ersetzen" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Anlage-3.pdf ersetzen" })).toBeEnabled();
+    await userEvent.upload(screen.getByLabelText("Ersatzdatei für Hauptdokument auswählen"), main);
+    await userEvent.upload(screen.getByLabelText("Ersatzdatei für Anlage-3.pdf auswählen"), attachment);
+    expect(await screen.findAllByText(/Wird beim Speichern ersetzt/)).toHaveLength(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(mocks.put).not.toHaveBeenCalled();
+    expect(mocks.post).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(mocks.put).toHaveBeenCalledOnce();
+    expect(mocks.put.mock.calls[0][0]).toBe("/contracts/12");
+    const saved = mocks.put.mock.calls[0][1] as FormData;
+    expect(saved.get("file")).toBe(main);
+    expect(saved.getAll("attachments")).toEqual([attachment]);
+    expect(saved.getAll("removed_attachment_ids")).toEqual(["44"]);
+    expect(saved.get("version")).toBe("3");
+    expect(saved.get("title")).toBe(existing.title);
+  });
+
+  it("can discard replacements without promoting or removing unrelated new files", async () => {
+    render(<UploadModal isOpen initialData={existing} onClose={vi.fn()} />);
+    const extra = pdf("Zusätzliche Anlage.pdf");
+    const replacement = pdf("Neuer Vertrag.pdf");
+    await upload([extra, replacement]);
+    const replacementRow = screen.getByRole("button", { name: "Neuer Vertrag.pdf entfernen" }).closest("li")!;
+    await userEvent.click(within(replacementRow).getByRole("button", { name: "Als Hauptdokument verwenden" }));
+    await userEvent.upload(screen.getByLabelText("Ersatzdatei für Gespeicherte Anlage.pdf auswählen"), pdf("Ersatzanlage.pdf"));
+    await userEvent.click(screen.getByRole("button", { name: "Hauptdokument beibehalten" }));
+    await userEvent.click(screen.getByRole("button", { name: "Gespeicherte Anlage.pdf beibehalten" }));
+    expect(screen.queryByText(/Wird beim Speichern ersetzt/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledOnce());
+    const saved = mocks.put.mock.calls[0][1] as FormData;
+    expect(saved.has("file")).toBe(false);
+    expect(saved.getAll("attachments")).toEqual([extra]);
+    expect(saved.getAll("removed_attachment_ids")).toEqual([]);
+  });
+
+  it.each([
+    ["Hauptdokument", "file"],
+    ["Gespeicherte Anlage.pdf", "attachments"],
+  ])("keeps the last valid replacement for %s when another selection is invalid", async (name, field) => {
+    render(<UploadModal isOpen initialData={existing} onClose={vi.fn()} />);
+    const replacementInput = screen.getByLabelText(`Ersatzdatei für ${name} auswählen`);
+    await userEvent.upload(replacementInput, pdf("Erste Auswahl.pdf"));
+    const latest = pdf("Letzte Auswahl.pdf");
+    await userEvent.upload(replacementInput, latest);
+    const large = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "Zu groß.pdf", { type: "application/pdf" });
+    await userEvent.upload(replacementInput, large);
+    expect(await screen.findByRole("alert")).toHaveTextContent("maximal 10 MB pro Datei");
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledOnce());
+    const saved = mocks.put.mock.calls[0][1] as FormData;
+    expect(saved.getAll(field)).toEqual([latest]);
+    expect(saved.getAll("removed_attachment_ids")).toEqual(field === "attachments" ? ["41"] : []);
+  });
+
+  it("removes only the selected attachment and discards its pending replacement", async () => {
+    render(<UploadModal isOpen initialData={existing} onClose={vi.fn()} />);
+    await userEvent.upload(screen.getByLabelText("Ersatzdatei für Gespeicherte Anlage.pdf auswählen"), pdf("Ersatz.pdf"));
+    await userEvent.click(screen.getByRole("button", { name: "Gespeicherte Anlage.pdf entfernen" }));
+    expect(screen.getByText("Wird beim Speichern entfernt")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mit KI automatisch ausfüllen" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledOnce());
+    const saved = mocks.put.mock.calls[0][1] as FormData;
+    expect(saved.has("file")).toBe(false);
+    expect(saved.getAll("attachments")).toEqual([]);
+    expect(saved.getAll("removed_attachment_ids")).toEqual(["41"]);
+  });
+
+  it("allows a removal to be undone at capacity while another attachment is being replaced", async () => {
+    const fullDocument = {
+      ...existing,
+      attachments: Array.from({ length: 9 }, (_, index) => ({
+        id: 41 + index, filename: `Anlage-${index}.pdf`, size: 1200, uploaded_at: "2026-09-17",
+      })),
+    };
+    render(<UploadModal isOpen initialData={fullDocument} onClose={vi.fn()} />);
+    const replacement = pdf("Ersatz.pdf");
+    await userEvent.upload(screen.getByLabelText("Ersatzdatei für Anlage-0.pdf auswählen"), replacement);
+    await userEvent.click(screen.getByRole("button", { name: "Anlage-1.pdf entfernen" }));
+    await upload([pdf("Extra.pdf")]);
+    await userEvent.click(screen.getByRole("button", { name: "Anlage-1.pdf behalten" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Maximal 10 Dateien");
+    await userEvent.click(screen.getByRole("button", { name: "Extra.pdf entfernen" }));
+    await userEvent.click(screen.getByRole("button", { name: "Anlage-1.pdf behalten" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledOnce());
+    const saved = mocks.put.mock.calls[0][1] as FormData;
+    expect(saved.getAll("attachments")).toEqual([replacement]);
+    expect(saved.getAll("removed_attachment_ids")).toEqual(["41"]);
+  });
+
+  it("offers replacement PDFs for optional analysis and blocks replacement during analysis", async () => {
+    let finish!: (value: { data: object }) => void;
+    mocks.post.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    render(<UploadModal isOpen initialData={existing} onClose={vi.fn()} />);
+    const main = pdf("Vertrag.pdf");
+    const attachment = pdf("Anlage.pdf");
+    await userEvent.upload(screen.getByLabelText("Ersatzdatei für Hauptdokument auswählen"), main);
+    await userEvent.upload(screen.getByLabelText("Ersatzdatei für Gespeicherte Anlage.pdf auswählen"), attachment);
+    const select = screen.getByLabelText("KI-Quelldatei");
+    await userEvent.selectOptions(select, "1");
+    await userEvent.click(screen.getByRole("button", { name: "Mit KI automatisch ausfüllen" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledOnce());
+    expect((mocks.post.mock.calls[0][1] as FormData).get("file")).toBe(attachment);
+    expect(screen.getByRole("button", { name: "Hauptdokument ersetzen" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Gespeicherte Anlage.pdf ersetzen" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Hauptdokument beibehalten" })).toBeDisabled();
+    finish({ data: {} });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Hauptdokument ersetzen" })).toBeEnabled());
+  });
+
+  it("discards pending replacements when editing is cancelled", async () => {
+    const close = vi.fn();
+    const view = render(<UploadModal isOpen initialData={existing} onClose={close} />);
+    await userEvent.upload(screen.getByLabelText("Ersatzdatei für Hauptdokument auswählen"), pdf("Vertrag.pdf"));
+    await userEvent.upload(screen.getByLabelText("Ersatzdatei für Gespeicherte Anlage.pdf auswählen"), pdf("Anlage.pdf"));
+    await userEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
+    expect(close).toHaveBeenCalledOnce();
+    expect(mocks.put).not.toHaveBeenCalled();
+    view.rerender(<UploadModal isOpen={false} initialData={existing} onClose={close} />);
+    view.rerender(<UploadModal isOpen initialData={existing} onClose={close} />);
+    expect(screen.queryByText(/Wird beim Speichern ersetzt/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledOnce());
+    const saved = mocks.put.mock.calls[0][1] as FormData;
+    expect(saved.has("file")).toBe(false);
+    expect(saved.getAll("attachments")).toEqual([]);
+    expect(saved.getAll("removed_attachment_ids")).toEqual([]);
+  });
+
   it("blocks changes and closing during analysis", async () => {
     const close = vi.fn();
     let finish!: (value: { data: object }) => void;

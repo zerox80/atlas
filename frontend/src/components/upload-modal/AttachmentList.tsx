@@ -49,7 +49,7 @@ const AttachmentList = ({
           const replacement = replacements[attachment.id];
           return (
             <li key={attachment.id} className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-white/10 p-3">
-              <div className="min-w-0 flex-1 basis-full">
+              <div className={`min-w-0 flex-1 ${onReplace ? "basis-full" : ""}`}>
                 <p className={`truncate text-sm ${removed || replacement ? "line-through text-white/30" : "text-[var(--ink-soft)]"}`} title={attachment.filename}>{attachment.filename}</p>
                 {replacement && <p className="mt-1 truncate text-sm font-semibold text-emerald-100" title={replacement.name}>{replacement.name}</p>}
                 <p className="mt-1 text-xs text-white/40">
