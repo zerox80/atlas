@@ -22,7 +22,8 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(ai_routes, "MISTRAL_DOCUMENT_PROCESSING_ENABLED", True)
     monkeypatch.setattr(document_review, "_read_bundle", AsyncMock(return_value=[b"primary", b"attachment"]))
     monkeypatch.setattr(review_worker, "prepare_sections", AsyncMock(return_value=([Section(1, "test.pdf", 1, 1, b"primary")], "fingerprint")))
-    monkeypatch.setattr(review_worker, "analyze_section", AsyncMock(return_value=[extraction([])]))
+    monkeypatch.setattr(review_worker, "analyze_bundle", AsyncMock(return_value=[extraction([])]))
+    monkeypatch.setattr(review_worker, "scan_section", AsyncMock(return_value={1: "synthetic source"}))
     limiter.reset()
 
 
@@ -57,13 +58,14 @@ def test_review_extracts_bundle_and_applies_only_selected_fields(auth_client, se
         observation("title", "Neu", "Neu"),
         observation("invoice_total_gross", 42, "Gesamt brutto 42,00 EUR", currency="EUR"),
     ])])
-    monkeypatch.setattr(review_worker, "analyze_section", analyze)
+    monkeypatch.setattr(review_worker, "analyze_bundle", analyze)
     run = auth_client.post("/ai/reviews").json()
     endpoint = f"/ai/reviews/{run['id']}"
     assert auth_client.post(endpoint + "/next").status_code == 202
+    assert auth_client.post(endpoint + "/next").status_code == 202
     analyze.assert_awaited_once()
-    assert analyze.call_args.args[1] == test_user.id
-    document_review._read_bundle.assert_awaited_once_with(["uploads/test.pdf", "uploads/agb.pdf"])
+    assert analyze.call_args.args[0][0].ocr_pages == {1: "synthetic source"}
+    assert all(call.args[0] == ["uploads/test.pdf", "uploads/agb.pdf"] for call in document_review._read_bundle.call_args_list)
     page = auth_client.get(endpoint).json()
     assert page["remaining"] == 0
     item = page["items"][0]
@@ -90,10 +92,11 @@ def test_permission_revocation_hides_results_and_blocks_apply(auth_client, sessi
     doc_id = doc.id
     session.add(Contract(title="Geheim", file_path="uploads/secret.pdf"))
     session.commit()
-    monkeypatch.setattr(review_worker, "analyze_section", AsyncMock(return_value=[extraction([observation("title", "Privater Befund", "Privater Befund")])]))
+    monkeypatch.setattr(review_worker, "analyze_bundle", AsyncMock(return_value=[extraction([observation("title", "Privater Befund", "Privater Befund")])]))
     run = auth_client.post("/ai/reviews").json()
     assert run["total"] == 1
     endpoint = f"/ai/reviews/{run['id']}"
+    auth_client.post(endpoint + "/next")
     auth_client.post(endpoint + "/next")
     item_id = auth_client.get(endpoint).json()["items"][0]["id"]
     permission = session.exec(select(ContractPermission).where(ContractPermission.contract_id == doc_id)).one()
@@ -115,7 +118,8 @@ def test_failures_are_resumable_leased_and_do_not_expose_provider_text(auth_clie
     doc = document(session, test_user)
     run = auth_client.post("/ai/reviews").json()
     endpoint = f"/ai/reviews/{run['id']}"
-    monkeypatch.setattr(review_worker, "analyze_section", AsyncMock(side_effect=RuntimeError("SECRET SIGNATURE")))
+    monkeypatch.setattr(review_worker, "analyze_bundle", AsyncMock(side_effect=RuntimeError("SECRET SIGNATURE")))
+    auth_client.post(endpoint + "/next")
     auth_client.post(endpoint + "/next")
     page = auth_client.get(endpoint)
     assert page.json()["counts"]["error"] == 1
@@ -131,7 +135,7 @@ def test_failures_are_resumable_leased_and_do_not_expose_provider_text(auth_clie
     stored.lease_until = datetime.now(UTC) - timedelta(seconds=1)
     session.add(stored)
     session.commit()
-    monkeypatch.setattr(review_worker, "analyze_section", AsyncMock(return_value=[extraction([observation("title", "Neu", "Neu")])]))
+    monkeypatch.setattr(review_worker, "analyze_bundle", AsyncMock(return_value=[extraction([observation("title", "Neu", "Neu")])]))
     assert auth_client.post(endpoint + "/next").status_code == 202
     item = auth_client.get(endpoint).json()["items"][0]
     doc.version += 1
