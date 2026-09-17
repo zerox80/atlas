@@ -91,6 +91,19 @@ async def test_chat_wrapper_preserves_request_and_logs_completion(caplog):
     assert "PRIVATE_PROMPT" not in caplog.text
 
 
+@pytest.mark.parametrize("finish_reason, expected", [("length", "length"), ("PRIVATE_STATUS\nforged", "unknown")])
+async def test_response_metadata_is_useful_without_logging_provider_content(caplog, finish_reason, expected):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(finish_reason=finish_reason, message="PRIVATE_ANSWER")],
+        usage=SimpleNamespace(prompt_tokens=150, completion_tokens=4000, total_tokens="PRIVATE_USAGE"),
+    )
+    result = await observed_request(AsyncMock(return_value=response)(), operation="chat", model="test", timeout=1)
+    assert result is response
+    assert f"finish_reason={expected}" in caplog.text
+    assert "prompt_tokens=150 completion_tokens=4000 total_tokens=-" in caplog.text
+    assert "PRIVATE" not in caplog.text and "forged" not in caplog.text
+
+
 async def test_ocr_wrapper_logs_without_pdf_or_ocr_content(monkeypatch, caplog):
     process = AsyncMock(return_value={"pages": [{"index": 0, "markdown": "PRIVATE_OCR"}]})
     monkeypatch.setattr(ai_document_processing, "get_client", lambda: SimpleNamespace(ocr=SimpleNamespace(process_async=process)))

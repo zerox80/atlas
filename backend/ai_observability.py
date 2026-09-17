@@ -14,6 +14,24 @@ review_context: ContextVar[str] = ContextVar("review_context", default="review=-
 logger = logging.getLogger("atlas.ai")
 
 
+def response_finish_reason(response) -> str:
+    """Log only known completion statuses, never arbitrary provider strings."""
+    choices = getattr(response, "choices", None)
+    if not choices:
+        return "missing_choice"
+    reason = getattr(choices[0], "finish_reason", None)
+    return reason if reason in {"stop", "length", "model_length", "tool_calls", "error", "content_filter"} else "unknown"
+
+
+def response_usage(response) -> str:
+    usage = getattr(response, "usage", None)
+    fields = []
+    for name in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = getattr(usage, name, None)
+        fields.append(f"{name}={value if type(value) is int and value >= 0 else '-'}")
+    return " ".join(fields)
+
+
 def configure_ai_logging() -> None:
     """Emit application INFO logs to Docker stderr without enabling SDK debug logs."""
     application = logging.getLogger("atlas")
@@ -45,7 +63,8 @@ async def observed_request(
     monitor = asyncio.create_task(report_wait())
     try:
         response = await asyncio.wait_for(request, timeout=timeout)
-        logger.info("Mistral response received %s elapsed_seconds=%.1f", label, elapsed())
+        logger.info("Mistral response received %s elapsed_seconds=%.1f%s", label, elapsed(),
+                    f" finish_reason={response_finish_reason(response)} {response_usage(response)}" if operation == "chat" else "")
         return response
     except asyncio.CancelledError:
         logger.warning("Mistral request cancelled %s elapsed_seconds=%.1f", label, elapsed())
