@@ -14,9 +14,9 @@ def observation(scope, value, quote, **kwargs):
             "entity": "document", **kwargs}
 
 
-def extraction(facts, *, document_type="invoice", components=None, document=1, text=None):
+def extraction(facts, *, document_type="invoice", document=1, text=None):
     raw = ReviewExtraction.model_validate({"document_type": document_type, "observations": facts,
-                                          "components": components or [], "warnings": []})
+                                          "warnings": []})
     source = text if text is not None else "\n".join(fact["evidence"]["quote"] for fact in facts if fact.get("evidence"))
     return verify_extraction(raw, {1: source}, document, f"Dokument {document}.pdf")
 
@@ -35,15 +35,13 @@ def test_veeam_all_positions_gross_delivery_and_missing_notice():
     positions = [("Upgrade-Lizenzen", 2155.28, "2 x 1.077,64 = 2.155,28 EUR netto"),
                  ("Maintenance Uplift", 94.26, "6 x 15,71 = 94,26 EUR netto"),
                  ("3 Jahre Production Maintenance", 5945.46, "2 x 2.972,73 = 5.945,46 EUR netto")]
-    facts = [observation("line_item_net", amount, quote, currency="EUR", entity="component")
+    facts = [observation("line_item_net", amount, quote, currency="EUR", entity="line_item")
              for _, amount, quote in positions]
-    facts += [observation("invoice_total_net", 8195.0, "Gesamt netto: 8.195,00 EUR", currency="EUR"),
+    facts += [observation("invoice_total_net", 8195.0, "Gesamt netto: 8.195,00 EUR; Umsatzsteuer 19 %", currency="EUR"),
               observation("tax_rate", 19, "Umsatzsteuer 19 %"),
               # Even a mislabeled model response is corrected using the delivery label.
               observation("contract_start_date", "2024-02-22", "Lieferschein Nr.: LS0681451 vom 22.02.24")]
-    components = [{"name": name, "amount_net": amount, "currency": "EUR", "evidence": {"page": 1, "quote": quote}}
-                  for name, amount, quote in positions]
-    data = extraction(facts, components=components)
+    data = extraction(facts)
     result = build_review_result(stored(), [data], "invoice")
     fields = checks(result)
     assert fields["value"]["status"] == "DERIVED"
@@ -53,12 +51,11 @@ def test_veeam_all_positions_gross_delivery_and_missing_notice():
     assert not fields["notice_period"]["can_apply"]
     assert fields["start_date"]["status"] == "WRONG_SCOPE"
     assert fields["start_date"]["document_scope"] == "delivery_date"
-    assert len(result["components"]) == 3
-    assert all(not component["separate_contract_reasons"] for component in result["components"])
+    assert "components" not in result
     assert result_status(result) == "hints"
     legacy = checks(build_review_result(stored(), [data], "contract"))["value"]
-    assert legacy["stored_scope"] == "legacy_amount"
-    assert legacy["status"] == "AMBIGUOUS" and not legacy["can_apply"] and not legacy["is_conflict"]
+    assert legacy["stored_scope"] == "contract_value_gross"
+    assert legacy["status"] == "DERIVED" and not legacy["can_apply"] and not legacy["is_conflict"]
 
 
 def test_line_item_never_replaces_gross_even_if_model_mislabels_it():
@@ -129,7 +126,7 @@ def test_incomplete_or_unexpected_model_schema_is_rejected(payload):
 
 
 def test_other_contract_cannot_supply_parent_end_date():
-    fact = observation("contract_end_date", "2027-05-25", "Laufzeitende 25.05.2027", entity="other_contract")
+    fact = observation("contract_end_date", "2027-05-25", "Laufzeitende 25.05.2027", entity="other_source")
     result = checks(build_review_result(stored(), [extraction([fact])], "contract"))
     assert result["end_date"]["status"] == "WRONG_SCOPE"
     assert not result["end_date"]["can_apply"]
@@ -159,3 +156,39 @@ def test_monthly_amount_cannot_be_applied_as_annual_value():
     data = extraction([observation("annual_value", 120, "Monatliches Entgelt 120,00 EUR", currency="EUR", billing_interval="month")])
     field = checks(build_review_result(stored(), [data], "contract"))["annual_value"]
     assert field["status"] == "WRONG_SCOPE" and not field["can_apply"]
+
+
+@pytest.mark.parametrize("document_type", ["contract", "invoice"])
+@pytest.mark.parametrize("scope,value,quote", [
+    ("invoice_total_net", 8195, "Gesamt netto: 8.195,00 EUR"),
+    ("invoice_total_gross", 2155.28, "Upgrade Veeam 2 Stk 1.077,64 2.155,28 EUR"),
+    ("contract_value_gross", 5834, "VMw vSph EssPlus 6P 3yr E-LTU 5.834,00 EUR netto"),
+    ("invoice_total_gross", 8195, "Gesamt netto: 8.195,00 EUR"),
+    ("invoice_total_gross", 2155.28, "Upgrade 2.155,28 EUR; Gesamt brutto 9.752,05 EUR"),
+    ("invoice_total_gross", 2155.28, "Gesamt brutto 9.752,05 EUR; Upgrade 2.155,28 EUR"),
+])
+def test_only_labeled_gross_total_can_replace_total(document_type, scope, value, quote):
+    data = extraction([observation(scope, value, quote, currency="EUR")])
+    field = checks(build_review_result(stored(), [data], document_type))["value"]
+    assert not field["can_apply"] and not field["is_conflict"]
+
+
+@pytest.mark.parametrize("document_type", ["contract", "invoice"])
+def test_full_invoice_gross_including_services_confirms_value(document_type):
+    data = extraction([observation("invoice_total_gross", 9752.05, "Gesamt brutto: 9.752,05 EUR", currency="EUR")])
+    field = checks(build_review_result(stored(), [data], document_type))["value"]
+    assert field["status"] == "CONFIRMED" and not field["can_apply"]
+
+
+def test_gross_is_not_calculated_from_tax_of_another_invoice():
+    data = extraction([observation("invoice_total_net", 8195, "Gesamt netto 8.195,00 EUR", currency="EUR"),
+                       observation("tax_rate", 19, "Alte Rechnung: Umsatzsteuer 19 %")])
+    assert not checks(build_review_result(stored(), [data], "invoice"))["value"]["can_apply"]
+    assert not any(fact["scope"] == "invoice_total_gross" for fact in build_review_result(stored(), [data], "invoice")["observations"])
+
+
+def test_different_source_totals_never_silently_choose_one():
+    invoice = extraction([observation("invoice_total_gross", 9752.05, "Gesamt brutto 9.752,05 EUR", currency="EUR")])
+    contract = extraction([observation("contract_value_gross", 120, "Gesamt brutto 120 EUR", currency="EUR")], document_type="contract", document=2)
+    field = checks(build_review_result(stored(), [invoice, contract], "contract"))["value"]
+    assert field["status"] == "AMBIGUOUS" and not field["can_apply"]
