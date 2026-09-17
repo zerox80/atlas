@@ -16,17 +16,18 @@ from ai_client import (
     get_client,
     get_reasoning_options,
 )
-from ai_document_processing import MAX_OCR_CHARACTERS, MAX_PDF_PAGES, use_ocr_mode
+from ai_document_processing import MAX_PDF_PAGES, use_ocr_mode
 from ai_errors import InvalidStructuredAIResponse
 from ai_observability import response_finish_reason, review_context
 from ai_service import _parse_analysis_response, _processed_document_payload
 from review_evidence import verify_extraction
 from review_prompts import REVIEW_SYSTEM_PROMPT, extraction_prompt
-from review_response import correction_prompt, review_response_format, validation_issues
+from review_response import review_response_format, validation_issues
 from review_schema import ReviewExtraction
 
 SECTION_PAGES = max(1, min(10, int(os.getenv("MISTRAL_REVIEW_SECTION_PAGES", "4"))))
-SECTION_CHARACTERS = max(4000, min(MAX_OCR_CHARACTERS, 30_000))
+REVIEW_MAX_CHARACTERS = max(4000, int(os.getenv("MISTRAL_REVIEW_MAX_CHARACTERS", "400000")))
+REVIEW_REASONING_EFFORT = os.getenv("MISTRAL_REVIEW_REASONING_EFFORT", "high")
 logger = logging.getLogger("atlas.review")
 
 
@@ -94,70 +95,65 @@ def section_pages(text: str, section: Section) -> dict[int, str]:
     return pages
 
 
-def text_sections(pages: dict[int, str]):
-    """Split dense OCR too; retain source page labels on each fragment."""
-    fragments: list[str] = []
-    size = 0
-    for page, text in pages.items():
-        # Overlap retains quotes near a fragment boundary. Empty pages remain present.
-        for offset in range(0, max(1, len(text)), SECTION_CHARACTERS - 2500):
-            fragment = f"## Seite {page}\n{text[offset:offset + SECTION_CHARACTERS - 100]}"
-            if fragments and size + len(fragment) > SECTION_CHARACTERS:
-                yield "\n\n".join(fragments)
-                fragments, size = [], 0
-            fragments.append(fragment)
-            size += len(fragment)
-    if fragments:
-        yield "\n\n".join(fragments)
+async def scan_section(section: Section, owner_id: int, progress) -> dict[int, str]:
+    """OCR one small PDF packet; no model interpretation at this stage."""
+    progress("ocr")
+    _, text = await _processed_document_payload(section.pdf, owner_id)
+    if not isinstance(text, str):
+        raise ReviewProcessingError("OCR_REQUIRED", "OCR-Text fehlt. MISTRAL_USE_OCR=true konfigurieren.")
+    return section_pages(text, section)
 
 
-async def analyze_section(section: Section, owner_id: int, progress) -> list[dict]:
+async def analyze_bundle(sections: list[Section], progress) -> list[dict]:
+    """Exactly one logical model extraction across all scanned pages and attachments."""
+    sources: dict[int, dict[int, str]] = {}
+    names = {}
+    for section in sections:
+        expected = set(range(section.first_page, section.last_page + 1))
+        if section.ocr_pages is None or set(section.ocr_pages) != expected:
+            raise ReviewProcessingError("OCR_INCOMPLETE", "Es fehlen gescannte Seiten. Keine Teilprüfung durchgeführt.")
+        sources.setdefault(section.document, {}).update(section.ocr_pages)
+        names[section.document] = section.name
+    text = "\n\n".join(
+        f"# Dokument {document}\n" + "\n\n".join(f"## Seite {page}\n{content}" for page, content in sorted(pages.items()))
+        for document, pages in sources.items()
+    )
+    if not sources or len(text) > REVIEW_MAX_CHARACTERS:
+        raise ReviewProcessingError("REVIEW_CONTEXT_LIMIT", "Der vollständige Text überschreitet MISTRAL_REVIEW_MAX_CHARACTERS "
+                                    "oder ist leer. Keine Seiten wurden ausgelassen; OCR bleibt für einen erneuten Versuch gespeichert.")
     try:
-        reasoning = get_reasoning_options(MODEL)
+        reasoning = get_reasoning_options(MODEL, effort=REVIEW_REASONING_EFFORT)
     except ValueError as exc:
         raise ReviewProcessingError("MODEL_CONFIGURATION", str(exc)) from exc
-    if section.ocr_pages is None:
-        progress("ocr")
-        _, text = await _processed_document_payload(section.pdf, owner_id)
-        if not isinstance(text, str):
-            raise ReviewProcessingError("OCR_REQUIRED", "OCR-Text fehlt. MISTRAL_USE_OCR=true konfigurieren.")
-        section.ocr_pages = section_pages(text, section)
-    pages = section.ocr_pages
+    progress("analysis")
+    logger.info("Review bundle analysis %s files=%s pages=%s input_characters=%s", review_context.get(),
+                len(sources), sum(len(pages) for pages in sources.values()), len(text))
+    response = await complete_chat_with_timeout(
+        get_client(), model=MODEL, **reasoning,
+        messages=[{"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+                  {"role": "user", "content": extraction_prompt(text)}],
+        response_format=review_response_format(),
+    )
+    try:
+        if not response.choices or getattr(response.choices[0], "finish_reason", "stop") != "stop":
+            raise InvalidStructuredAIResponse("Incomplete review response")
+        content = extract_response_text(response.choices[0].message.content)
+        extraction = ReviewExtraction.model_validate(_parse_analysis_response(content))
+    except (InvalidStructuredAIResponse, ValidationError) as exc:
+        reason = ("schema_validation" if isinstance(exc, ValidationError) else
+                  "incomplete_response" if response_finish_reason(response) != "stop" else "invalid_json")
+        logger.warning("Review response rejected %s reason=%s finish_reason=%s retry=False validation_issues=%s",
+                       review_context.get(), reason, response_finish_reason(response),
+                       "; ".join(validation_issues(exc)) if isinstance(exc, ValidationError) else "-")
+        raise
     results = []
-    for fragment_number, fragment in enumerate(text_sections(pages), 1):
-        prompt = extraction_prompt(fragment, section.document, section.first_page, section.last_page)
-        feedback = ""
-        # Each bounded request, including the correction, gets its own deadline.
-        for attempt in range(2):
-            progress("analysis_retry" if attempt else "analysis")
-            response = await complete_chat_with_timeout(
-                get_client(), model=MODEL, **reasoning,
-                messages=[{"role": "system", "content": REVIEW_SYSTEM_PROMPT + feedback},
-                          {"role": "user", "content": prompt}],
-                response_format=review_response_format(),
-            )
-            try:
-                if not response.choices or getattr(response.choices[0], "finish_reason", "stop") != "stop":
-                    raise InvalidStructuredAIResponse("Incomplete review response")
-                content = extract_response_text(response.choices[0].message.content)
-                extraction = ReviewExtraction.model_validate(_parse_analysis_response(content))
-            except (InvalidStructuredAIResponse, ValidationError) as exc:
-                reason = ("schema_validation" if isinstance(exc, ValidationError) else
-                          "incomplete_response" if response_finish_reason(response) != "stop" else "invalid_json")
-                logger.warning(
-                    "Review response rejected %s document=%s pages=%s-%s fragment=%s attempt=%s "
-                    "reason=%s finish_reason=%s retry=%s validation_issues=%s",
-                    review_context.get(), section.document, section.first_page, section.last_page,
-                    fragment_number, attempt + 1, reason, response_finish_reason(response), not bool(attempt),
-                    "; ".join(validation_issues(exc)) if isinstance(exc, ValidationError) else "-",
-                )
-                if attempt:
-                    raise
-                # Never replay provider text as instructions or expose it in diagnostics.
-                feedback = "\n" + correction_prompt(exc)
-                continue
-            results.append(verify_extraction(extraction, pages, section.document, section.name))
-            break
+    # An invented document number must remain unverified, never silently disappear.
+    document_numbers = set(sources) | {fact.evidence.document if fact.evidence else 1 for fact in extraction.observations}
+    for document in sorted(document_numbers):
+        selected = extraction.model_copy(update={"observations": [
+            fact for fact in extraction.observations if (fact.evidence.document if fact.evidence else 1) == document
+        ]})
+        results.append(verify_extraction(selected, sources.get(document, {}), document, names.get(document, "Unbekannte Datei")))
     return results
 
 

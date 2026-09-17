@@ -1,4 +1,4 @@
-"""Resumable document review; one bounded, leased background section at a time."""
+"""Resumable document review; one leased OCR or analysis request at a time."""
 
 import json
 import logging
@@ -35,7 +35,7 @@ from models import (
 from review_analysis import ReviewProcessingError
 from review_comparison import result_status
 from review_schema import PIPELINE_VERSION, REVIEW_FIELDS
-from review_worker import STEP_TIMEOUT, process_review_section
+from review_worker import STEP_TIMEOUT, process_review_step
 from schemas import ContractUpdate
 from security_utils import log_audit
 
@@ -232,7 +232,7 @@ def advance_review(run_id: str, background_tasks: BackgroundTasks, user: User, s
         # The preceding lease expired, so its worker cannot be trusted to finish.
         # Mark the interruption once and let the queue move to other documents.
         item.status = "error"
-        item.error = "Vorheriger Verarbeitungsschritt wurde unterbrochen oder seine Sperre ist abgelaufen. Fertige Abschnitte bleiben gespeichert."
+        item.error = "Vorheriger Verarbeitungsschritt wurde unterbrochen oder seine Sperre ist abgelaufen. Bereits gescannte Seiten bleiben gespeichert."
         result = json.loads(item.result_json) if item.result_json else {}
         result["diagnostic"] = {"code": "INTERRUPTED", "stage": result.get("progress", {}).get("stage", "unknown"), "message": item.error}
         item.result_json = json.dumps(result, ensure_ascii=False)
@@ -276,7 +276,7 @@ def advance_review(run_id: str, background_tasks: BackgroundTasks, user: User, s
         return {"finished": False}
     subject = user.auth_subject
     session.commit()
-    background_tasks.add_task(process_review_section, session.get_bind(), run_id, item_id, token,
+    background_tasks.add_task(process_review_step, session.get_bind(), run_id, item_id, token,
                               subject, paths, names, skipped)
     return {"finished": False, "busy": True, "item_id": item_id, "retry_after_ms": 3000}
 

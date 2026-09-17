@@ -1,4 +1,4 @@
-"""Process one persisted review section after the HTTP response has been sent."""
+"""Process one OCR packet or the single final document analysis after the HTTP response has been sent."""
 
 import asyncio
 import json
@@ -10,19 +10,18 @@ from sqlmodel import Session, col, select, update
 from ai_client import AI_REQUEST_TIMEOUT_SECONDS, MODEL, OCR_MODEL
 from ai_observability import review_context
 from models import DocumentReviewItem, DocumentReviewRun, User
-from review_analysis import ReviewProcessingError, analyze_section, prepare_sections
+from review_analysis import REVIEW_REASONING_EFFORT, ReviewProcessingError, analyze_bundle, prepare_sections, scan_section
 from review_comparison import build_review_result, result_status
 from review_errors import error_details
 from review_schema import PIPELINE_VERSION
-from review_sections import expanded_sections, section_key
 
 # Guard one stage, with time for local preparation/persistence around a request.
-# A section can contain multiple text fragments and a format correction per fragment.
+# Each job performs one OCR request or one final analysis; completed OCR survives retries.
 STEP_TIMEOUT = AI_REQUEST_TIMEOUT_SECONDS + 30
 logger = logging.getLogger("atlas.review")
 
 
-async def process_review_section(bind, run_id: str, item_id: int, token: str,
+async def process_review_step(bind, run_id: str, item_id: int, token: str,
                                  subject: str, paths: list[str], names: list[str], skipped: list[str]):
     # A separate session owns the job; request dependency sessions may close as
     # soon as the small 202 response is delivered.
@@ -34,9 +33,10 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
             return
         before = json.loads(item.snapshot_json)
         result = json.loads(item.result_json) if item.result_json else {}
-        checkpoint = result.get("checkpoint", {"completed": 0, "extractions": []})
+        checkpoint = result.get("checkpoint", {"completed": 0, "ocr": {}})
         result = {"schema_version": PIPELINE_VERSION, "checkpoint": checkpoint,
-                  "progress": result.get("progress", {}), "model": MODEL, "ocr_model": OCR_MODEL}
+                  "progress": result.get("progress", {}), "model": MODEL, "ocr_model": OCR_MODEL,
+                  "reasoning_effort": REVIEW_REASONING_EFFORT}
         user = session.exec(select(User).where(User.auth_subject == subject)).first()
         document = _document(session, item.contract_id, user) if user and user.is_active else None
         document_id = item.contract_id
@@ -79,11 +79,6 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
         lease_until = started + timedelta(seconds=STEP_TIMEOUT + 30)
         result["progress"].update(stage=stage, stage_started_at=now, heartbeat_at=now,
                                   request_timeout_seconds=AI_REQUEST_TIMEOUT_SECONDS)
-        if stage in {"analysis", "analysis_retry"} and section is not None:
-            result["progress"]["ocr_completed_pages"] = result["progress"]["completed_pages"] + section.last_page - section.first_page + 1
-            if section.ocr_pages is not None:
-                cached = checkpoint.setdefault("ocr", {"document": section.document, "pages": {}})
-                cached["pages"].update({str(page): text for page, text in section.ocr_pages.items()})
         if save("processing") != "processing":
             raise ReviewProcessingError("DOCUMENT_CHANGED", "Dokument wurde geändert oder ist nicht mehr zugänglich.")
         logger.info("Review stage run=%s item=%s stage=%s", run_id, item_id, stage)
@@ -96,7 +91,6 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
                 return
 
     heartbeat_task = None
-    section = None
     stage = "read"
     context_token = review_context.set(f"run={run_id} item={item_id}")
     try:
@@ -117,80 +111,61 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
             plan = {"sections": [[part.document, part.first_page, part.last_page] for part in sections],
                     "ocr_model": OCR_MODEL, "model": MODEL}
             if checkpoint.get("plan", plan) != plan:
-                raise ReviewProcessingError("CONFIG_CHANGED", "Abschnittsgröße oder KI-Modell wurde geändert. Bitte einen neuen Prüflauf starten.")
+                raise ReviewProcessingError("CONFIG_CHANGED", "OCR-Paketgröße oder KI-Modell wurde geändert. Bitte einen neuen Prüflauf starten.")
             checkpoint["plan"] = plan
-            sections = expanded_sections(sections, checkpoint.get("splits", []))
             completed = checkpoint["completed"]
-            if not sections or completed >= len(sections):
+            if not sections or not 0 <= completed <= len(sections):
                 raise ReviewProcessingError("INVALID_CHECKPOINT", "Zwischenstand passt nicht zu den Dokumenten. Bitte einen neuen Prüflauf starten.")
-            section = sections[completed]
-            # Restore OCR only after checking the file fingerprint and model plan.
-            # Retain the remaining parent pages when an AI timeout split its PDF.
-            cached = checkpoint.get("ocr", {})
-            if cached.get("document") == section.document:
-                pages = cached.get("pages", {})
-                expected = range(section.first_page, section.last_page + 1)
-                if all(isinstance(pages.get(str(page)), str) for page in expected):
-                    section.ocr_pages = {page: pages[str(page)] for page in expected}
-            else:
-                checkpoint.pop("ocr", None)
+            # Restore all previous OCR packets after checking bytes and the scan plan.
+            for part in sections[:completed]:
+                cached = checkpoint["ocr"].get(str(part.document), {})
+                expected = range(part.first_page, part.last_page + 1)
+                if not all(isinstance(cached.get(str(page)), str) for page in expected):
+                    raise ReviewProcessingError("INVALID_CHECKPOINT", "Gespeicherte OCR-Seiten fehlen. Bitte einen neuen Prüflauf starten.")
+                part.ocr_pages = {page: cached[str(page)] for page in expected}
+            total_pages = sum(part.last_page - part.first_page + 1 for part in sections)
+            scanned_pages = sum(part.last_page - part.first_page + 1 for part in sections[:completed])
             files = [{"name": name, "pages": sum(part.last_page - part.first_page + 1 for part in sections if part.document == number)}
                      for number, name in enumerate(names, 1)]
             result["progress"].update(completed_sections=completed, total_sections=len(sections),
-                                      completed_pages=sum(part.last_page - part.first_page + 1 for part in sections[:completed]),
-                                      total_pages=sum(part.last_page - part.first_page + 1 for part in sections),
-                                      document_name=section.name, first_page=section.first_page, last_page=section.last_page,
-                                      files=files)
-            logger.info("Review section started run=%s item=%s document=%s pages=%s-%s ocr_cached=%s",
-                        run_id, item_id, section.document, section.first_page, section.last_page, section.ocr_pages is not None)
-            extractions = await analyze_section(section, owner_id, progress)
-            checkpoint["extractions"].extend(extractions)
-            checkpoint["completed"] = completed + 1
-            if "ocr" in checkpoint:
-                checkpoint["ocr"]["pages"] = {page: text for page, text in checkpoint["ocr"]["pages"].items()
-                                               if int(page) > section.last_page}
-                if not checkpoint["ocr"]["pages"]:
-                    checkpoint.pop("ocr")
-            result["progress"].pop("retry_message", None)
-            result["progress"]["completed_sections"] = completed + 1
-            result["progress"]["completed_pages"] += section.last_page - section.first_page + 1
-            if completed + 1 == len(sections):
-                final = build_review_result(before, checkpoint["extractions"], document_type)
-                final.update(progress={**result["progress"], "stage": "complete"},
-                             checked_files=len(paths), skipped_files=skipped, model=MODEL, ocr_model=OCR_MODEL)
+                                      completed_pages=0, ocr_completed_pages=scanned_pages, total_pages=total_pages, files=files)
+            if completed < len(sections):
+                section = sections[completed]
+                result["progress"].update(document_name=section.name, first_page=section.first_page, last_page=section.last_page)
+                pages = await scan_section(section, owner_id, progress)
+                checkpoint["ocr"].setdefault(str(section.document), {}).update({str(page): text for page, text in pages.items()})
+                checkpoint["completed"] = completed + 1
+                result["progress"].update(completed_sections=completed + 1,
+                                          ocr_completed_pages=scanned_pages + len(pages),
+                                          stage="analysis_pending" if completed + 1 == len(sections) else "waiting")
+                save("pending", release=True)
+                logger.info("Review OCR saved run=%s item=%s scanned_pages=%s total_pages=%s", run_id, item_id,
+                            result["progress"]["ocr_completed_pages"], total_pages)
+            else:
+                for key in ("document_name", "first_page", "last_page"):
+                    result["progress"].pop(key, None)
+                extractions = await analyze_bundle(sections, progress)
+                final = build_review_result(before, extractions, document_type)
+                final.update(progress={**result["progress"], "stage": "complete", "completed_pages": total_pages},
+                             checked_files=len(paths), skipped_files=skipped, model=MODEL, ocr_model=OCR_MODEL,
+                             reasoning_effort=REVIEW_REASONING_EFFORT)
                 if skipped:
                     final["warnings"].append(f"Nicht geprüft (kein PDF): {', '.join(skipped)}")
                 result = final
                 saved_status = save(result_status(final), release=True)
-            else:
-                result["progress"]["stage"] = "waiting"
-                saved_status = save("pending", release=True)
-            logger.info("Review section saved run=%s item=%s completed_sections=%s total_sections=%s status=%s",
-                        run_id, item_id, completed + 1, len(sections), saved_status)
+                logger.info("Review document saved run=%s item=%s pages=%s status=%s", run_id, item_id, total_pages, saved_status)
     except asyncio.CancelledError:
         result["diagnostic"] = {"code": "INTERRUPTED", "stage": result["progress"].get("stage", stage),
-                                "message": "Backend-Verarbeitung wurde unterbrochen. Fertige Abschnitte bleiben gespeichert."}
+                                "message": "Backend-Verarbeitung wurde unterbrochen. Bereits gescannte Seiten bleiben gespeichert."}
         save("error", result["diagnostic"]["message"], release=True)
         raise
     except Exception as exc:  # noqa: BLE001 - persist per-document failure without provider contents
         # Deliberately never log provider bodies, which can include document contents.
         result["diagnostic"] = error_details(exc, result["progress"].get("stage", stage), AI_REQUEST_TIMEOUT_SECONDS)
-        logger.warning("Review section failed run=%s item=%s stage=%s code=%s error_type=%s",
+        logger.warning("Review step failed run=%s item=%s stage=%s code=%s error_type=%s",
                        run_id, item_id, result["progress"].get("stage", stage), result["diagnostic"]["code"], type(exc).__name__)
         try:
-            if result["diagnostic"]["code"] in {"TIMEOUT", "PROVIDER_HTTP_504"} and section and section.first_page < section.last_page:
-                checkpoint.setdefault("splits", []).append(section_key(section))
-                reason = "Anbieter-Zeitlimit (HTTP 504)" if result["diagnostic"]["http_status"] == 504 else "Zeitlimit"
-                result["progress"].update(stage="retrying", total_sections=len(sections) + 1,
-                                          retry_message=f"{reason} bei Seiten {section.first_page}–{section.last_page}. "
-                                          "Dieser Seitenblock wird in kleineren Paketen erneut geprüft; fertige Seiten bleiben gespeichert.")
-                result.pop("diagnostic", None)
-                save("pending", release=True)
-                logger.info("Review section split for retry run=%s item=%s pages=%s-%s",
-                            run_id, item_id, section.first_page, section.last_page)
-            else:
-                result["progress"].pop("retry_message", None)
-                save("error", result["diagnostic"]["message"], release=True)
+            save("error", result["diagnostic"]["message"], release=True)
         except ReviewProcessingError:
             pass  # A newer token owns the item now.
     finally:

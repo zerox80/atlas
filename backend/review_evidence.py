@@ -40,18 +40,14 @@ def _quoted_dates(quote: str) -> set[str]:
 
 def verify_extraction(extraction: ReviewExtraction, pages: dict[int, str], document: int, name: str) -> dict:
     result = extraction.model_dump()
-    for record in [*result["observations"], *result["components"]]:
+    for record in result["observations"]:
         evidence = record.get("evidence")
         verified = bool(evidence and _normalize(evidence["quote"])
                         and _normalize(evidence["quote"]) in _normalize(pages.get(evidence["page"], "")))
-        record.update(document=document, document_name=name, document_type=extraction.document_type,
+        record.update(document=document, document_name=name, document_type=record.get("source_type") or extraction.document_type,
                       evidence_verified=verified)
         if not verified:
             record["confidence"] = min(record.get("confidence", 1), 0.4)
-        if "scope" not in record:
-            if not verified:
-                record["separate_contract_reasons"] = []
-            continue
         quote = evidence["quote"] if evidence else ""
         # An explicit delivery-note label must never turn into a contract/invoice date.
         if (record["scope"] in DATE_SCOPES and re.search(r"lieferschein|lieferdatum", quote, re.IGNORECASE)
@@ -62,8 +58,12 @@ def verify_extraction(extraction: ReviewExtraction, pages: dict[int, str], docum
                 and re.search(r"\bposition\b|\bpos\.|\d+\s*[x×]\s*\d", quote, re.IGNORECASE)
                 and not re.search(r"gesamt|summe|total", quote, re.IGNORECASE)):
             record["scope"] = "line_item_gross" if "brutto" in quote.casefold() else "line_item_net"
-            record["entity"] = "component"
+            record["entity"] = "line_item"
             record["reason"] = "Der Beleg beschreibt eine einzelne Rechnungsposition, keinen Gesamtbetrag."
+        if (record["scope"] in {"invoice_total_net", "invoice_total_gross", "contract_value_net", "contract_value_gross"}
+                and not re.search(r"gesamt|summe|total|rechnungsbetrag|zahlbetrag|vertragswert|netto(?:betrag)?\s*[:|]", quote, re.IGNORECASE)):
+            record.update(kind="ambiguous", confidence=0.4)
+            record["reason"] = "Der Beleg weist keinen eindeutig bezeichneten Gesamtbetrag aus. Keine Betragskorrektur."
         if record["scope"] == "notice_period":
             check = enforce_notice_evidence({"notice_period": int(record["value"]),
                                             "notice_period_evidence": quote}, pages.get(evidence["page"]) if evidence else None)
@@ -94,6 +94,8 @@ def add_verified_totals(observations: list[dict]) -> list[dict]:
         if len({(item["value"], item.get("currency")) for item in nets}) != 1 or len({item["value"] for item in taxes}) != 1:
             continue
         net, tax = nets[0], taxes[0]
+        if net["evidence"]["page"] != tax["evidence"]["page"]:
+            continue
         if not net.get("currency") or any(item["scope"] == "invoice_total_gross" for item in facts):
             continue
         gross = (Decimal(str(net["value"])) * (1 + Decimal(str(tax["value"])) / 100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
