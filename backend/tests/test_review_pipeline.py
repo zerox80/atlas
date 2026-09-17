@@ -46,7 +46,8 @@ def add_document(session, user, title):
     return document
 
 
-def test_22_pages_survive_failure_resume_and_other_documents_progress(auth_client, session, test_user, monkeypatch):
+@pytest.mark.parametrize("status", [None, 504])
+def test_22_pages_survive_failure_resume_and_other_documents_progress(auth_client, session, test_user, monkeypatch, status):
     add_document(session, test_user, "Lang")
     add_document(session, test_user, "Kurz")
     long_pdf, short_pdf = pdf_bytes(22), pdf_bytes(1)
@@ -61,6 +62,8 @@ def test_22_pages_survive_failure_resume_and_other_documents_progress(auth_clien
         calls.append((section.name, section.first_page, section.last_page))
         if section.first_page == 9 and not failed:
             failed = section.last_page == 9
+            if status:
+                raise SDKError("SECRET MODEL CONTENT", httpx.Response(status, request=httpx.Request("POST", "https://api.mistral.ai")), "SECRET RAW BODY")
             raise TimeoutError("SECRET MODEL CONTENT")
         return [extraction([])]
     monkeypatch.setattr(document_review, "_read_bundle", read)
@@ -75,7 +78,10 @@ def test_22_pages_survive_failure_resume_and_other_documents_progress(auth_clien
     assert first["result"]["progress"]["completed_pages"] == 8
     assert first["result"]["progress"]["total_pages"] == 22
     assert first["result"]["diagnostic"]["stage"] == "analysis"
-    assert first["result"]["diagnostic"]["code"] == "TIMEOUT"
+    assert first["result"]["diagnostic"]["code"] == ("TIMEOUT" if status is None else "PROVIDER_HTTP_504")
+    if status:
+        assert first["result"]["diagnostic"]["http_status"] == status
+        assert "Ein höheres Atlas-Zeitlimit" in first["error"]
     assert "retry_message" not in first["result"]["progress"]
     assert "SECRET" not in page.text and "checkpoint" not in page.text
     auth_client.post(endpoint + "/next")

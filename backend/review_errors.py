@@ -35,6 +35,8 @@ def error_details(exc: Exception, stage: str, timeout: int) -> dict:
             413: "Die Anfrage ist für Mistral zu groß. Abschnittsgröße reduzieren.",
             422: "Mistral akzeptiert die Anfrageparameter nicht. Modell und Reasoning-Konfiguration prüfen.",
             429: "Mistrals Raten- oder Kontingentlimit wurde auch nach Wiederholungen erreicht.",
+            504: "Das Gateway des KI-Anbieters hat beim Warten auf die Antwort sein Zeitlimit überschritten (HTTP 504). "
+                 "Ein höheres Atlas-Zeitlimit verlängert dieses Anbieter-Limit nicht. Fertige Abschnitte bleiben gespeichert.",
         }.get(status, "Mistral meldet einen Server- oder API-Fehler. Später erneut versuchen.")
     result: dict = {"code": code, "stage": stage, "message": message, "exception_type": type(exc).__name__, "http_status": status if isinstance(status, int) else None}
     if isinstance(exc, ValidationError):

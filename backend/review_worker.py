@@ -170,10 +170,11 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
         logger.warning("Review item %s failed at %s (%s)", item_id, result["progress"].get("stage", stage), type(exc).__name__)
         result["diagnostic"] = error_details(exc, result["progress"].get("stage", stage), AI_REQUEST_TIMEOUT_SECONDS)
         try:
-            if result["diagnostic"]["code"] == "TIMEOUT" and section and section.first_page < section.last_page:
+            if result["diagnostic"]["code"] in {"TIMEOUT", "PROVIDER_HTTP_504"} and section and section.first_page < section.last_page:
                 checkpoint.setdefault("splits", []).append(section_key(section))
+                reason = "Anbieter-Zeitlimit (HTTP 504)" if result["diagnostic"]["http_status"] == 504 else "Zeitlimit"
                 result["progress"].update(stage="retrying", total_sections=len(sections) + 1,
-                                          retry_message=f"Zeitlimit bei Seiten {section.first_page}–{section.last_page}. "
+                                          retry_message=f"{reason} bei Seiten {section.first_page}–{section.last_page}. "
                                           "Dieser Seitenblock wird in kleineren Paketen erneut geprüft; fertige Seiten bleiben gespeichert.")
                 result.pop("diagnostic", None)
                 save("pending", release=True)
