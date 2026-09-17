@@ -31,6 +31,9 @@ describe("ReviewItemCard", () => {
     expect(screen.getByRole("button", { name: "Ausgewählte Änderungen übernehmen (0)" })).toBeDisabled();
     expect(screen.queryByRole("checkbox", { name: "Kündigungsfrist (Tage) übernehmen" })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Bisheriges Start-/Rechnungsdatum übernehmen" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Prüfergebnis")).toHaveTextContent("Änderungsvorschläge");
+    expect(screen.getByText("Kündigungsfrist (Tage): 30 beibehalten")).not.toBeVisible();
+    await userEvent.click(screen.getByText("Prüfdetails zu 2 unveränderten Feldern"));
     expect(screen.getByText("Kündigungsfrist (Tage): 30 beibehalten")).toBeVisible();
     expect(screen.getByText("Lieferscheindatum, kein Vertragsbeginn.")).toBeVisible();
     expect(screen.getByRole("link", { name: "Dokument öffnen" })).toHaveAttribute("href", "/invoices?document_id=9");
@@ -51,20 +54,23 @@ describe("ReviewItemCard", () => {
     expect(screen.queryByRole("button", { name: /übernehmen/i })).not.toBeInTheDocument();
   });
 
-  it("keeps foreign currency visible with a clear recommendation to retain the EUR amount", () => {
+  it("keeps foreign currency in the details with a clear recommendation to retain the EUR amount", async () => {
     render(<ReviewItemCard runId="review-id" item={{ ...item, result: { changes: [
       { field: "value", before: 100, after: 120, currency: "USD", can_apply: false, status: "WRONG_SCOPE" },
     ] } }} />);
+    await userEvent.click(screen.getByText("Prüfdetails zu 1 unverändertem Feld"));
     expect(screen.getByText("Betrag / Gesamtwert (brutto): 100 € beibehalten")).toBeVisible();
     expect(screen.getByText("Nicht zur Übernahme empfohlen: 120 USD")).toBeVisible();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
-  it("recommends retaining an ambiguous date with an explanation instead of disabled controls", () => {
+  it("recommends retaining an ambiguous date with an explanation instead of disabled controls", async () => {
     render(<ReviewItemCard runId="review-id" item={{ ...item, result: { changes: [
       { field: "start_date", before: "2019-09-24", after: "2017-02-07", can_apply: false,
         status: "AMBIGUOUS", evidence_verified: false, evidence: { page: 14, quote: "RNW vSphere ..." } },
     ] } }} />);
+    expect(screen.getByLabelText("Prüfergebnis")).toHaveTextContent("Keine Änderungsvorschläge");
+    await userEvent.click(screen.getByText("Prüfdetails zu 1 unverändertem Feld"));
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.getByText("Bisheriges Start-/Rechnungsdatum: 24.09.2019 beibehalten")).toBeVisible();
     expect(screen.getByText(/Dokumentbeleg ist nicht eindeutig verifiziert/)).toBeVisible();
@@ -83,15 +89,31 @@ describe("ReviewItemCard", () => {
     expect(screen.getByText(/zai-glm-5-3.*mistral-ocr-4-1/)).toBeInTheDocument();
   });
 
-  it("retains a gross total when the document only gives a product net price", () => {
+  it("retains a gross total when the document only gives a product net price", async () => {
     render(<ReviewItemCard runId="review-id" item={{ ...item, result: { changes: [
       { field: "value", before: 9752.05, after: 2155.28, currency: "EUR", can_apply: false,
         status: "WRONG_SCOPE", reason: "Positionsnetto ersetzt keinen Bruttogesamtbetrag." },
     ] } }} />);
+    await userEvent.click(screen.getByText("Prüfdetails zu 1 unverändertem Feld"));
     expect(screen.getByText("Betrag / Gesamtwert (brutto): 9.752,05 € beibehalten")).toBeVisible();
     expect(screen.getByText("Nicht zur Übernahme empfohlen: 2.155,28 €")).toBeVisible();
     expect(screen.getByText("Positionsnetto ersetzt keinen Bruttogesamtbetrag.")).toBeVisible();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByText(/Vertragsbestandteile|Unterverträge/)).not.toBeInTheDocument();
+  });
+
+  it.each(["hints", "issues", "checked"])("does not advertise recommendations for an empty %s result", status => {
+    render(<ReviewItemCard runId="review-id" item={{ ...item, status, result: { changes: [], checks: [] } }} />);
+    expect(screen.getByLabelText("Prüfergebnis")).toHaveTextContent("Keine Änderungsvorschläge");
+    expect(screen.getByText(/Das bestätigt nicht automatisch/)).toBeVisible();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("also recognizes actionable changes present only in checks", () => {
+    render(<ReviewItemCard runId="review-id" item={{ ...item, result: {
+      changes: [], checks: [item.result!.changes![1]],
+    } }} />);
+    expect(screen.getByLabelText("Prüfergebnis")).toHaveTextContent("Änderungsvorschläge");
+    expect(screen.getByRole("checkbox", { name: "Betrag / Gesamtwert (brutto) übernehmen" })).toBeVisible();
   });
 });

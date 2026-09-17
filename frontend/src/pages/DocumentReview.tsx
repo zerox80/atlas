@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { FiCheckSquare, FiPause, FiPlay } from "react-icons/fi";
 import api from "../api";
 import { PageHeader } from "../components/ui";
@@ -10,8 +11,10 @@ import { parseApiDate } from "../utils/apiDate";
 
 export default function DocumentReview() {
   const client = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [offset, setOffset] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedId = searchParams.get("run_id");
+  const requestedOffset = Number(searchParams.get("offset") || 0);
+  const offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0;
   const [controlling, setControlling] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -44,8 +47,7 @@ export default function DocumentReview() {
     setError("");
     try {
       const { data } = await api.post<ReviewRun>("/ai/reviews", { start: true });
-      setSelectedId(data.id);
-      setOffset(0);
+      setSearchParams({ run_id: data.id });
       await client.invalidateQueries(["document-reviews"]);
     } catch (err) { setError(reviewRequestError(err, "Prüflauf konnte nicht angelegt werden.")); }
     finally { setCreating(false); }
@@ -59,17 +61,21 @@ export default function DocumentReview() {
   };
   const data = page.data;
   return <div className="app-page">
-    <PageHeader eyebrow="Datenqualität" title="Alle Dokumente prüfen"
+    <PageHeader eyebrow="Datenqualität" title="Dokumente prüfen"
       description="Konkrete Änderungsvorschläge für Verträge und Rechnungen erhalten, auswählen und übernehmen."
       actions={<button className="btn-primary" disabled={Boolean(anyRunning) || controlling || creating || !status.data?.available} onClick={() => void create()}>
         <FiCheckSquare /> {creating ? "Wird vorbereitet …" : "Alle Verträge & Rechnungen neu prüfen"}
     </button>} />
     <div className="surface mb-5 space-y-2 p-5 text-sm leading-6">
+      <p>Einzelne Dokumente prüfst du über „Dieses Dokument mit KI prüfen“ in den Dokumentdetails
+        oder über „Nur dieses Dokument erneut prüfen“ am gespeicherten Prüfergebnis.</p>
       <p>Bei jeder empfohlenen Änderung siehst du den gespeicherten Wert, den vorgeschlagenen Wert und die Begründung.
         Setze die Checkbox bei den gewünschten Änderungen und klicke auf „Ausgewählte Änderungen übernehmen“.
-        Wenn eine Änderung nicht sinnvoll belegt ist, erhältst du die Empfehlung, den Wert beizubehalten oder das Feld leer zu lassen.</p>
+        Unveränderte Felder und ihre Begründungen findest du in den aufklappbaren Prüfdetails.
+        Ein fehlender Änderungsvorschlag bedeutet nicht automatisch, dass alle gespeicherten Angaben bestätigt sind.</p>
       <details className="muted"><summary className="cursor-pointer">Umfang, API-Kosten und Ablauf · Modell {status.data?.model || "Nicht verfügbar"}</summary>
-      <p className="mt-2">Prüft alle zugänglichen Dokumente in allen Workspaces, einschließlich geschützter Dokumente und PDF-Anlagen.
+      <p className="mt-2">Die Einzelprüfung umfasst das ausgewählte Dokument mit seinen PDF-Anlagen.
+        „Alle Verträge &amp; Rechnungen neu prüfen“ umfasst alle zugänglichen Dokumente in allen Workspaces, einschließlich geschützter Dokumente und PDF-Anlagen.
         Papierkorb und nicht unterstützte Dateiformate werden nicht analysiert.</p>
       <p>Die Prüfung nutzt die konfigurierte Dokument-KI und verursacht API-Kosten.</p>
       <p>OCR scannt jeweils bis zu vier Seiten. Danach folgt eine einzige Auswertung aller Seiten und PDF-Anlagen.
@@ -87,7 +93,7 @@ export default function DocumentReview() {
     {(runs.isLoading || (runId && page.isLoading)) && <p role="status" className="mb-5 muted">Prüfergebnisse werden geladen …</p>}
     {Boolean(runs.data?.length) && <label className="mb-5 block max-w-xl">
       <span className="mb-2 block text-sm">Gespeicherter Prüflauf</span>
-      <select className="field" value={runId} disabled={creating} onChange={event => { setSelectedId(event.target.value); setOffset(0); }}>
+      <select className="field" value={runId} disabled={creating} onChange={event => setSearchParams({ run_id: event.target.value })}>
         {runs.data!.map(run => <option key={run.id} value={run.id}>
           {parseApiDate(run.created_at).toLocaleString("de-DE")} · {run.model} · {run.total - run.remaining}/{run.total}
         </option>)}
@@ -97,7 +103,7 @@ export default function DocumentReview() {
     {data && <>
       <section className="surface mb-5 space-y-4 p-5" aria-label="Prüffortschritt">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p role="status">{data.total - data.remaining} von {data.total} bearbeitet · {(data.counts.issues || 0) + (data.counts.hints || 0)} mit Empfehlungen
+          <p role="status">{data.total - data.remaining} von {data.total} bearbeitet · {(data.counts.issues || 0) + (data.counts.hints || 0)} mit Prüfhinweisen
             · {data.counts.error || 0} fehlgeschlagen · {data.counts.skipped || 0} nicht geprüft</p>
           <div className="flex flex-wrap gap-2">
             {running ? <button className="btn-secondary" disabled={controlling} onClick={() => void control(data.id, "pause")}><FiPause /> Prüfung pausieren</button>
@@ -115,9 +121,9 @@ export default function DocumentReview() {
       </section>
       <div className="space-y-4">{data.items.map(item => <ReviewItemCard key={`${data.id}-${item.id}`} item={item} runId={data.id} />)}</div>
       {data.total > 50 && <nav aria-label="Prüfergebnisse Seiten" className="mt-5 flex items-center gap-3">
-        <button className="btn-secondary" disabled={!offset} onClick={() => setOffset(offset - 50)}>Zurück</button>
+        <button className="btn-secondary" disabled={!offset} onClick={() => setSearchParams({ run_id: data.id, offset: String(offset - 50) })}>Zurück</button>
         <span>{offset + 1}–{Math.min(offset + 50, data.total)} von {data.total}</span>
-        <button className="btn-secondary" disabled={offset + 50 >= data.total} onClick={() => setOffset(offset + 50)}>Weiter</button>
+        <button className="btn-secondary" disabled={offset + 50 >= data.total} onClick={() => setSearchParams({ run_id: data.id, offset: String(offset + 50) })}>Weiter</button>
       </nav>}
     </>}
   </div>;

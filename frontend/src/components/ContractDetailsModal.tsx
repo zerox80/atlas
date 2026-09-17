@@ -10,6 +10,7 @@ import {
 import type { Contract } from "../types";
 import AttachmentList from "./upload-modal/AttachmentList";
 import NoticeResearch from "./NoticeResearch";
+import ReviewDocumentButton from "../features/documents/ReviewDocumentButton";
 import { formatGermanNumber } from "../utils/formatUtils";
 import { formatContractDate } from "../utils/contractPresentation";
 import { getDocumentDownloadFilename } from "../features/documents/documentUtils";
@@ -198,6 +199,10 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
             </section>
 
             <AttachmentList contractId={contract.id} attachments={contract.attachments ?? []} />
+
+            <div className="mt-5">
+              <ReviewDocumentButton documentId={contract.id} isPdf={contract.file_extension?.toLowerCase() === ".pdf"} />
+            </div>
 
             <div className="mt-5 flex flex-wrap gap-2">
               <span className="chip">

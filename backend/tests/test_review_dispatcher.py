@@ -155,13 +155,15 @@ async def test_stuck_analysis_times_out_and_releases_lease_without_resplitting(a
         assert fresh.get(DocumentReviewRun, run_id).lease_until is None
 
 
-def test_second_active_run_is_rejected_but_existing_run_can_resume(auth_client, session, test_user):
-    add_document(session, test_user, "synthetic")
+@pytest.mark.parametrize("single_document", [False, True])
+def test_second_active_run_is_rejected_but_existing_run_can_resume(auth_client, session, test_user, single_document):
+    document = add_document(session, test_user, "synthetic")
+    request = {"start": True, **({"document_id": document.id} if single_document else {})}
     first = auth_client.post("/ai/reviews", json={"start": True}).json()["id"]
-    assert auth_client.post("/ai/reviews", json={"start": True}).status_code == 409
+    assert auth_client.post("/ai/reviews", json=request).status_code == 409
     assert auth_client.post(f"/ai/reviews/{first}/start").status_code == 202
     assert auth_client.post(f"/ai/reviews/{first}/pause").status_code == 200
-    assert auth_client.post("/ai/reviews", json={"start": True}).status_code == 200
+    assert auth_client.post("/ai/reviews", json=request).status_code == 200
 
 
 async def test_changed_document_during_analysis_cannot_save_suggestions(auth_client, session, test_user, monkeypatch):

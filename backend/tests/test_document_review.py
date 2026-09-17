@@ -6,13 +6,16 @@ from unittest.mock import AsyncMock
 import limits.storage.memory
 import pytest
 from sqlmodel import select
+from test_review_response import response as model_response
 from test_review_semantics import extraction, observation
 
 import ai_routes
 import ai_service
 import document_review
+import review_analysis
 import review_worker
 from api_core import ensure_default_workspace, limiter
+from contract_queries.business_time import BUSINESS_TIMEZONE
 from main import app, get_current_user
 from models import Contract, ContractAttachment, ContractPermission, DocumentReviewRun
 from review_analysis import Section
@@ -49,6 +52,114 @@ def test_scope_has_no_page_cap_includes_invoices_and_protected_excludes_trash(ad
     assert response.json()["total"] == 502
     page = admin_client.get(f"/ai/reviews/{response.json()['id']}?offset=500").json()
     assert len(page["items"]) == 2
+
+
+@pytest.mark.parametrize("document_type", ["contract", "invoice"])
+def test_single_document_run_includes_only_requested_document(auth_client, session, test_user, document_type):
+    selected = document(session, test_user, document_type=document_type, is_protected=True)
+    document(session, test_user)
+    response = auth_client.post("/ai/reviews", json={"document_id": selected.id, "start": True})
+    assert response.status_code == 200, response.text
+    run = response.json()
+    assert run["total"] == 1 and run["running"]
+    page = auth_client.get(f"/ai/reviews/{run['id']}").json()
+    assert [item["contract_id"] for item in page["items"]] == [selected.id]
+
+
+@pytest.mark.parametrize("inaccessible", ["missing", "private", "deleted"])
+def test_single_document_cannot_fall_back_to_all_for_inaccessible_id(auth_client, session, test_user, inaccessible):
+    document(session, test_user)
+    target = Contract(title="Privat", file_path="uploads/private.pdf")
+    if inaccessible == "deleted":
+        target = document(session, test_user, deleted_at=datetime.now(UTC))
+    else:
+        session.add(target)
+        session.commit()
+    requested = target.id if inaccessible != "missing" else 99999
+    response = auth_client.post("/ai/reviews", json={"document_id": requested, "start": True})
+    assert response.status_code == 404
+    assert session.exec(select(DocumentReviewRun)).all() == []
+
+
+@pytest.mark.parametrize("document_id", [0, -1, True, "1"])
+def test_single_document_rejects_invalid_id(auth_client, document_id):
+    assert auth_client.post("/ai/reviews", json={"document_id": document_id}).status_code == 422
+
+
+def test_single_document_rejects_non_pdf(auth_client, session, test_user):
+    target = document(session, test_user)
+    target.file_path = "uploads/note.txt"
+    session.add(target)
+    session.commit()
+    response = auth_client.post("/ai/reviews", json={"document_id": target.id})
+    assert response.status_code == 422 and "PDF" in response.json()["detail"]
+    assert session.exec(select(DocumentReviewRun)).all() == []
+
+
+@pytest.mark.parametrize("reply_kind", ["verified", "empty", "unverified"])
+def test_single_document_model_response_reaches_review_and_apply(auth_client, session, test_user, monkeypatch, reply_kind):
+    """Exercise real parsing, evidence checks, comparison and storage without paid AI/OCR."""
+    selected = document(session, test_user, document_type="invoice", value=100)
+    selected_id = selected.id
+    other_id = document(session, test_user, value=200).id
+    session.add(ContractAttachment(contract_id=selected_id, filename="Rechnung.pdf", file_path="uploads/bill.pdf", size=100))
+    session.commit()
+    title = "Softwarewartung 2026"
+    total_quote = "Gesamt brutto: 119,00 EUR"
+    date_quote = "Rechnungsdatum: 17.09.2026"
+    facts = [observation("title", title, title),
+             observation("invoice_total_gross", 119, total_quote, currency="EUR",
+                         evidence={"document": 2, "page": 1, "quote": total_quote}),
+             observation("invoice_date", "2026-09-17", date_quote,
+                         evidence={"document": 2, "page": 1, "quote": date_quote})]
+    if reply_kind == "empty":
+        facts = []
+    elif reply_kind == "unverified":
+        for fact in facts:
+            fact["evidence"]["quote"] = "Nicht im Dokument vorhandener Beleg"
+    complete = AsyncMock(return_value=model_response({"document_type": "invoice", "observations": facts, "warnings": []}))
+    monkeypatch.setattr(review_analysis, "get_client", lambda: object())
+    monkeypatch.setattr(review_analysis, "complete_chat_with_timeout", complete)
+    monkeypatch.setattr(review_worker, "analyze_bundle", review_analysis.analyze_bundle)
+    monkeypatch.setattr(review_worker, "prepare_sections", AsyncMock(return_value=([
+        Section(1, "test.pdf", 1, 1, b"primary"), Section(2, "Rechnung.pdf", 1, 1, b"attachment"),
+    ], "fingerprint")))
+    monkeypatch.setattr(review_worker, "scan_section", AsyncMock(side_effect=[
+        {1: title}, {1: total_quote + "\n" + date_quote},
+    ]))
+    run = auth_client.post("/ai/reviews", json={"document_id": selected_id}).json()
+    assert run["total"] == 1
+    endpoint = f"/ai/reviews/{run['id']}"
+    for _ in range(3):
+        assert auth_client.post(endpoint + "/next").status_code == 202
+    complete.assert_awaited_once()
+    assert all(call.args[0] == ["uploads/test.pdf", "uploads/bill.pdf"] for call in document_review._read_bundle.call_args_list)
+    page = auth_client.get(endpoint).json()
+    assert page["remaining"] == 0 and len(page["items"]) == 1
+    item = page["items"][0]
+    assert item["contract_id"] == selected_id and item["result"]["checked_files"] == 2
+    assert item["status"] != "error", item
+    proposals = {change["field"]: change for change in item["result"]["changes"] if change["can_apply"]}
+    session.expire_all()
+    assert session.get(Contract, selected_id).value == 100
+    assert session.get(Contract, other_id).value == 200
+    apply_endpoint = endpoint + f"/items/{item['id']}/apply"
+    if reply_kind == "verified":
+        assert set(proposals) == {"title", "value", "start_date"}
+        assert proposals["value"]["after"] == 119 and proposals["value"]["evidence_verified"]
+        assert auth_client.post(apply_endpoint, json={"fields": list(proposals)}).status_code == 200
+        session.expire_all()
+        saved = session.get(Contract, selected_id)
+        assert saved.title == title and saved.value == 119
+        assert saved.start_date.replace(tzinfo=UTC).astimezone(BUSINESS_TIMEZONE).date().isoformat() == "2026-09-17"
+    else:
+        assert proposals == {}
+        expected_status = 409 if reply_kind == "empty" else 422
+        assert auth_client.post(apply_endpoint, json={"fields": ["value"]}).status_code == expected_status
+        session.expire_all()
+        assert session.get(Contract, selected_id).title == "Alt"
+        assert session.get(Contract, selected_id).value == 100
+    assert session.get(Contract, other_id).title == "Alt" and session.get(Contract, other_id).value == 200
 
 
 def test_review_extracts_bundle_and_applies_only_selected_fields(auth_client, session, test_user, monkeypatch):

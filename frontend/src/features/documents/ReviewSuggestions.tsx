@@ -3,21 +3,20 @@ import { useQueryClient } from "@tanstack/react-query";
 import api from "../../api";
 import { invalidateDocumentAndTagQueries } from "../../queryKeys";
 import { FieldFinding } from "./ReviewFindings";
-import { labels, recommendationFor, recommendationReason, valueText } from "./reviewPresentation";
+import { labels, proposalKey, recommendationFor, recommendationReason, reviewFields, valueText } from "./reviewPresentation";
 import { reviewRequestError } from "./reviewRequestError";
 import type { ReviewChange, ReviewItem } from "./reviewTypes";
 
-const proposalKey = (change: ReviewChange) => JSON.stringify([change.field, change.before, change.after]);
-
-export default function ReviewSuggestions({ item, runId }: { item: ReviewItem; runId: string }) {
+export default function ReviewSuggestions({ item, runId, hasSplit, onApplied }: {
+  item: ReviewItem; runId: string; hasSplit: boolean; onApplied: (changes: ReviewChange[]) => void;
+}) {
   const [selected, setSelected] = useState<string[]>([]);
   const [applied, setApplied] = useState<string[]>([]);
   const [savedFields, setSavedFields] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const client = useQueryClient();
-  const fields = Array.from(new Map([...(item.result?.checks || []), ...(item.result?.changes || [])]
-    .map(change => [change.field, change])).values());
+  const fields = reviewFields(item.result);
   const remaining = fields.filter(change => !applied.includes(proposalKey(change)));
   const proposals = remaining.filter(change => recommendationFor(change) === "update");
   const unchanged = remaining.filter(change => recommendationFor(change) !== "update");
@@ -30,6 +29,7 @@ export default function ReviewSuggestions({ item, runId }: { item: ReviewItem; r
     try {
       await api.post(`/ai/reviews/${runId}/items/${item.id}/apply`, { fields: chosen.map(change => change.field) });
       setApplied(current => [...current, ...chosen.map(proposalKey)]);
+      onApplied(chosen);
       setSavedFields(chosen.map(change => change.field));
       setSelected([]);
       await Promise.all([client.invalidateQueries(["document-reviews"]), invalidateDocumentAndTagQueries(client)]);
@@ -38,7 +38,7 @@ export default function ReviewSuggestions({ item, runId }: { item: ReviewItem; r
     } finally { setBusy(false); }
   };
 
-  if (!item.result || (!fields.length && !["checked", "applied"].includes(item.status))) return null;
+  if (!item.result) return null;
   return <div className="mt-5 space-y-4">
     {proposals.length > 0 && <section aria-label="Änderungsvorschläge" className="space-y-3">
       <h3 className="font-semibold">{proposals.length} {proposals.length === 1 ? "Änderung vorgeschlagen" : "Änderungen vorgeschlagen"}</h3>
@@ -73,10 +73,15 @@ export default function ReviewSuggestions({ item, runId }: { item: ReviewItem; r
       </button>}
     </section>}
     {savedFields.length > 0 && <p role="status" className="text-sm">Übernommen: {savedFields.map(field => labels[field] || field).join(", ")}.</p>}
-    {!proposals.length && <p className="font-medium">{savedFields.length || item.status === "applied"
-      ? "Keine weiteren Änderungen empfohlen." : "Keine Änderung empfohlen."}</p>}
-    {unchanged.length > 0 && <section aria-label="Empfehlungen für unveränderte Angaben" className="rounded-xl border border-[var(--line)] p-3 sm:p-4">
-      <h3 className="font-semibold">Diese Angaben bleiben erhalten</h3>
+    {!proposals.length && <div className="space-y-2">
+      <p className="font-medium">{hasSplit ? "Keine Feldänderung empfohlen." : savedFields.length || item.status === "applied"
+        ? "Keine weiteren Änderungen empfohlen." : "Keine Änderung empfohlen."}</p>
+      {(!fields.length || unchanged.some(change => change.status !== "CONFIRMED")) && <p className="text-sm muted">
+        Die KI-Prüfung hat keinen ausreichend belegten Änderungsvorschlag für diese Felder geliefert.
+        Das bestätigt nicht automatisch die gespeicherten Angaben.</p>}
+    </div>}
+    {unchanged.length > 0 && <details className="rounded-xl border border-[var(--line)] p-3 sm:p-4">
+      <summary className="cursor-pointer text-sm muted">Prüfdetails zu {unchanged.length} {unchanged.length === 1 ? "unverändertem Feld" : "unveränderten Feldern"}</summary>
       <dl className="mt-3 space-y-4">{unchanged.map(change => <div key={change.field}>
         <dt className="text-sm font-medium">{labels[change.field] || change.field}: {recommendationFor(change) === "leave_empty"
           ? "Leer lassen" : `${valueText(change.before, change.field)} beibehalten`}</dt>
@@ -89,7 +94,7 @@ export default function ReviewSuggestions({ item, runId }: { item: ReviewItem; r
           </details>}
         </dd>
       </div>)}</dl>
-    </section>}
+    </details>}
     {error && <p role="alert" className="text-sm text-[var(--danger)]">{error}</p>}
   </div>;
 }
