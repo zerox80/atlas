@@ -5,8 +5,9 @@ import api from "../api";
 import { PageHeader } from "../components/ui";
 import ReviewItemCard from "../features/documents/ReviewItemCard";
 import type { ReviewPage, ReviewRun } from "../features/documents/reviewTypes";
-import { getApiErrorMessage } from "../utils/errorUtils";
+import { reviewRequestError } from "../features/documents/reviewRequestError";
 import { parseApiDate } from "../utils/apiDate";
+import { isAxiosError } from "axios";
 
 export default function DocumentReview() {
   const client = useQueryClient();
@@ -21,25 +22,40 @@ export default function DocumentReview() {
   const runId = selectedId || runs.data?.[0]?.id;
   const page = useQuery(["document-reviews", runId, offset], async () => (
     await api.get<ReviewPage>(`/ai/reviews/${runId}`, { params: { offset, limit: 50 } })
-  ).data, { enabled: Boolean(runId), refetchInterval: running ? 5000 : false });
-  const status = useQuery(["ai-status"], async () => (await api.get<{available: boolean; model?: string}>("/ai/status")).data);
+  ).data, { enabled: Boolean(runId), refetchInterval: data => running || Boolean(data?.counts.processing) ? 3000 : false });
+  const status = useQuery(["ai-status"], async () => (await api.get<{available: boolean; model?: string; external_document_processing?: boolean}>("/ai/status")).data);
 
   const execute = async (id: string) => {
     if (active.current) return;
     active.current = id;
     setRunning(true);
     setError("");
+    let connectionErrors = 0;
     try {
       while (active.current === id) {
         const started = Date.now();
-        const response = await api.post<{finished: boolean}>(`/ai/reviews/${id}/next`, {}, { timeout: 0 });
+        let response;
+        try {
+          response = await api.post<{finished: boolean; retry_after_ms?: number}>(`/ai/reviews/${id}/next`, {}, { timeout: 30000 });
+          connectionErrors = 0;
+        } catch (err) {
+          // A lost response does not mean the server-side job failed. Its lease
+          // makes polling/resuming safe without starting the document twice.
+          if (isAxiosError(err) && (!err.response || [502, 503, 504].includes(err.response.status)) && ++connectionErrors <= 3) {
+            await client.invalidateQueries(["document-reviews"]);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            continue;
+          }
+          throw err;
+        }
         await client.invalidateQueries(["document-reviews"]);
         if (response.data.finished) break;
         // The server rate limit also applies when documents are skipped quickly.
-        await new Promise(resolve => setTimeout(resolve, Math.max(0, 2200 - (Date.now() - started))));
+        if (active.current !== id) break;
+        await new Promise(resolve => setTimeout(resolve, Math.max(0, (response.data.retry_after_ms || 3000) - (Date.now() - started))));
       }
     } catch (err) {
-      setError(getApiErrorMessage(err, "Prüfung unterbrochen. Gespeicherte Ergebnisse bleiben erhalten."));
+      setError(reviewRequestError(err, "Verbindung zur Prüfung unterbrochen. Der laufende Abschnitt kann auf dem Server weiterarbeiten. Fortschritt bleibt gespeichert."));
     } finally {
       active.current = null;
       setRunning(false);
@@ -55,7 +71,7 @@ export default function DocumentReview() {
       setOffset(0);
       await client.invalidateQueries(["document-reviews"]);
       void execute(data.id);
-    } catch (err) { setError(getApiErrorMessage(err, "Prüflauf konnte nicht angelegt werden.")); }
+    } catch (err) { setError(reviewRequestError(err, "Prüflauf konnte nicht angelegt werden.")); }
     finally { setCreating(false); }
   };
   const retry = async () => {
@@ -63,7 +79,7 @@ export default function DocumentReview() {
     try {
       await api.post(`/ai/reviews/${runId}/retry`);
       void execute(runId);
-    } catch (err) { setError(getApiErrorMessage(err, "Erneuter Versuch fehlgeschlagen.")); }
+    } catch (err) { setError(reviewRequestError(err, "Erneuter Versuch fehlgeschlagen.")); }
   };
   const data = page.data;
   return <div className="app-page">
@@ -71,16 +87,24 @@ export default function DocumentReview() {
       description="Verträge und Rechnungen erneut mit dem aktuellen KI-Modell gegen die Originaldokumente abgleichen."
       actions={<button className="btn-primary" disabled={running || creating || !status.data?.available} onClick={() => void create()}>
         <FiCheckSquare /> {creating ? "Wird vorbereitet …" : "Alle Verträge & Rechnungen neu prüfen"}
-      </button>} />
+    </button>} />
     <div className="surface mb-5 space-y-2 p-5 text-sm leading-6">
-      <p>Prüft alle zugänglichen Dokumente in allen Workspaces, einschließlich geschützter Dokumente und PDF-Anlagen.
+      <p>Korrekturen wählst du einzeln aus. Fehlende Angaben löschen keine gespeicherten Werte.
+        Fertige Seitenabschnitte bleiben für die Fortsetzung gespeichert.</p>
+      <details className="muted"><summary className="cursor-pointer">Umfang, API-Kosten und Ablauf · Modell {status.data?.model || "Nicht verfügbar"}</summary>
+      <p className="mt-2">Prüft alle zugänglichen Dokumente in allen Workspaces, einschließlich geschützter Dokumente und PDF-Anlagen.
         Papierkorb und nicht unterstützte Dateiformate werden nicht analysiert.</p>
-      <p>Modell: <strong>{status.data?.model || "Nicht verfügbar"}</strong>. Die Prüfung nutzt die konfigurierte Dokument-KI und verursacht API-Kosten.
-        Korrekturen wählst du einzeln aus. Unbelegte Kündigungsfristen werden als leer vorgeschlagen.</p>
-      <p className="muted">Lass diese Seite für die Prüfung geöffnet. Beim Verlassen stoppt sie nach dem aktuellen Dokument;
-        Ergebnisse werden gespeichert und der Lauf kann später fortgesetzt werden. Ein KI-Prüfergebnis kann Fehler enthalten.</p>
+      <p>Die Prüfung nutzt die konfigurierte Dokument-KI und verursacht API-Kosten.</p>
+      <p>Dokumente werden abschnittsweise geprüft. Beim Verlassen stoppt die Prüfung nach dem laufenden Abschnitt;
+        fertige Abschnitte bleiben gespeichert. Fehlerhafte Dokumente halten die übrige Prüfung nicht auf. Ein KI-Prüfergebnis kann Fehler enthalten.</p>
+      </details>
     </div>
-    {(error || runs.isError || page.isError) && <p role="alert" className="mb-5 text-red-300">{error || "Prüfergebnisse konnten nicht geladen werden."}</p>}
+    {(error || runs.isError || page.isError || status.isError) && <p role="alert" className="mb-5 text-[var(--danger)]">
+      {error || reviewRequestError(runs.error || page.error || status.error, "Prüfergebnisse oder KI-Status konnten nicht geladen werden.")}</p>}
+    {status.data && !status.data.available && <p role="status" className="mb-5 text-[var(--warning)]">
+      {status.data.external_document_processing === false ? "KI-Dokumentverarbeitung ist in der Backend-Konfiguration deaktiviert."
+        : "KI-Prüfung nicht verfügbar. MISTRAL_API_KEY ist im Backend nicht konfiguriert."}</p>}
+    {(runs.isLoading || (runId && page.isLoading)) && <p role="status" className="mb-5 muted">Prüfergebnisse werden geladen …</p>}
     {Boolean(runs.data?.length) && <label className="mb-5 block max-w-xl">
       <span className="mb-2 block text-sm">Gespeicherter Prüflauf</span>
       <select className="field" value={runId} disabled={running || creating} onChange={event => { setSelectedId(event.target.value); setOffset(0); }}>
@@ -93,11 +117,12 @@ export default function DocumentReview() {
       <section className="surface mb-5 space-y-4 p-5" aria-label="Prüffortschritt">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p role="status">{data.total - data.remaining} von {data.total} bearbeitet · {data.counts.issues || 0} mit Prüfbedarf
+            · {data.counts.hints || 0} mit Hinweisen
             · {data.counts.error || 0} fehlgeschlagen · {data.counts.skipped || 0} nicht geprüft</p>
           <div className="flex flex-wrap gap-2">
-            {running ? <button className="btn-secondary" onClick={() => { active.current = null; }}><FiPause /> Nach diesem Dokument pausieren</button>
+            {running ? <button className="btn-secondary" onClick={() => { active.current = null; }}><FiPause /> Nach diesem Abschnitt pausieren</button>
               : data.remaining > 0 && <button className="btn-primary" disabled={!status.data?.available} onClick={() => void execute(data.id)}><FiPlay /> Prüfung fortsetzen</button>}
-            {!running && Boolean(data.counts.error) && <button className="btn-secondary" onClick={() => void retry()}>Fehler erneut versuchen</button>}
+            {!running && Boolean(data.counts.error) && <button className="btn-secondary" disabled={!status.data?.available} onClick={() => void retry()}>Fehler erneut versuchen</button>}
           </div>
         </div>
         <progress className="h-2 w-full accent-[#b8f15a]" value={data.total - data.remaining} max={data.total || 1} aria-label="Bearbeitete Dokumente" />
