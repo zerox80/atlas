@@ -58,22 +58,23 @@ def business_month_bounds_utc(now: datetime) -> tuple[datetime, datetime]:
 
 
 def cancellation_day(end_date_column, notice_period_column):
-    notice_period = func.coalesce(notice_period_column, 30)
     if IS_SQLITE:
         return func.business_cancellation_julianday(
             end_date_column,
             notice_period_column,
         )
-    return end_date_column - (notice_period * literal(timedelta(days=1)))
+    return end_date_column - (notice_period_column * literal(timedelta(days=1)))
 
 
-def cancellation_deadline_utc(end_date: datetime, notice_period: int | None) -> datetime:
+def cancellation_deadline_utc(end_date: datetime, notice_period: int | None) -> datetime | None:
     """Compute a deadline, raising OverflowError for unrepresentable dates."""
+    if notice_period is None:
+        return None
     if end_date.tzinfo is None:
         end_date = end_date.replace(tzinfo=UTC)
     local_end_date = end_date.astimezone(BUSINESS_TIMEZONE).date()
     local_deadline_date = local_end_date - timedelta(
-        days=notice_period if notice_period is not None else 30
+        days=notice_period
     )
     return datetime.combine(
         local_deadline_date, time.min, tzinfo=BUSINESS_TIMEZONE
@@ -85,7 +86,7 @@ def sqlite_business_cancellation_julianday(
     notice_period_value: object,
 ) -> float | None:
     """Return the UTC Julian day for a local-calendar cancellation deadline."""
-    if end_date_value is None:
+    if end_date_value is None or notice_period_value is None:
         return None
 
     if isinstance(end_date_value, datetime):
@@ -104,13 +105,15 @@ def sqlite_business_cancellation_julianday(
         notice_period = (
             int(notice_period_value)
             if isinstance(notice_period_value, (str, int, float, bytes, bytearray))
-            else 30
+            else None
         )
     except (TypeError, ValueError, OverflowError):
-        notice_period = 30
+        return None
 
     try:
         deadline_utc = cancellation_deadline_utc(end_date, notice_period)
+        if deadline_utc is None:
+            return None
         return deadline_utc.timestamp() / 86_400 + 2_440_587.5
     except (OverflowError, ValueError):
         # Legacy data has no valid deadline; never invent one or abort the query.
@@ -140,7 +143,7 @@ def contract_state_condition(
         )
     return end_date_column.is_(None) | (
         (end_date_column >= today_start)
-        & (cancellation >= cancellation_boundary(attention_end_exclusive))
+        & (cancellation.is_(None) | (cancellation >= cancellation_boundary(attention_end_exclusive)))
     )
 
 

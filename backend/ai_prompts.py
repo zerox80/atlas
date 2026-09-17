@@ -11,7 +11,9 @@ CONTRACT_ANALYSIS_PROMPT = (
     '    "annual_value": 0.0,\n'
     '    "start_date": "YYYY-MM-DD",\n'
     '    "end_date": "YYYY-MM-DD",\n'
-    '    "notice_period": 30,\n'
+    '    "notice_period": null,\n'
+    '    "notice_period_evidence": null,\n'
+    '    "analysis_warnings": [],\n'
     '    "tags": ["Kategorie1", "Kategorie2"]\n'
     "}\n\n"
     "Regeln:\n"
@@ -22,8 +24,18 @@ CONTRACT_ANALYSIS_PROMPT = (
     "Kosten * 12. Falls nicht zutreffend, null.\n"
     "- start_date/end_date: Vertragslaufzeit im ISO-Format. Wenn kein Datum explizit genannt "
     "wird oder es z.B. unbefristet ist, setze das Feld zwingend auf null.\n"
-    "- notice_period: Kündigungsfrist in Tagen. Falls KEINE Frist explizit genannt ist, "
-    "verwende null.\n"
+    "- notice_period: Ordentliche Kündigungsfrist in Tagen. Sonderkündigungsrechte oder "
+    "außerordentliche Kündigung nicht übernehmen. Falls KEINE Frist explizit genannt ist, "
+    "verwende null. Nur eindeutig genannte Tage oder Wochen (7 Tage) übernehmen. "
+    "Kalendermonate/Jahre NICHT pauschal in Tage umrechnen; dann null und einen Hinweis "
+    "in analysis_warnings ausgeben. Keine gesetzlichen, branchenüblichen oder vermuteten "
+    "Fristen. Widerruf, Zahlungsfrist, Mindestlaufzeit und Verlängerung sind KEINE "
+    "Kündigungsfrist. Bei widersprüchlichen Klauseln oder unleserlichem OCR: null.\n"
+    "- notice_period_evidence: Für jede Frist die vollständige relevante Klausel "
+    "WÖRTLICH aus dem Dokument zitieren (max. 2000 Zeichen); ohne Beleg null.\n"
+    "- analysis_warnings: Konkrete Widersprüche, unleserliche Angaben, fehlende Seiten "
+    "oder unklare Beträge nennen. Dokumente und Anlagen gemeinsam prüfen; individuelle "
+    "Vereinbarungen beachten. Fehlende Angaben nicht ergänzen. Maximal 20 kurze Hinweise.\n"
     '- tags: 1-3 passende Kategorien (z.B. "Software", "Lizenz", "Miete", "Service")\n'
     "- WICHTIG: Wenn ein Wert nicht explizit im Text steht, gib null zurück. Erfinde KEINE "
     "Daten. Insbesondere bei Kündigungsfristen und Start-/Enddaten: Wenn unklar, nimm null!"

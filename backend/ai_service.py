@@ -36,6 +36,7 @@ from ai_document_processing import (
     format_ocr_text as _format_ocr_text,
 )
 from ai_errors import AIProcessingCapacityError, InvalidStructuredAIResponse
+from ai_evidence import enforce_notice_evidence
 from ai_prompts import (
     CONTRACT_ANALYSIS_PROMPT,
     CONTRACT_ANALYSIS_SYSTEM_PROMPT,
@@ -264,34 +265,38 @@ async def analyze_contract_pdf(
     owner_id: DocumentOwnerId = None,
 ) -> dict:
     """Analyze a PDF and extract structured contract or invoice data."""
+    return await analyze_document_bundle(
+        [pdf_bytes], document_type=document_type, owner_id=owner_id
+    )
+
+
+async def analyze_document_bundle(
+    documents: list[bytes],
+    document_type: str = "contract",
+    *,
+    owner_id: DocumentOwnerId = None,
+) -> dict:
+    """Re-extract from the primary PDF and every PDF attachment, without old values."""
     if document_type not in {"contract", "invoice"}:
         raise ValueError("Ungültiger Dokumenttyp.")
-
-    await validate_pdf_for_ai(pdf_bytes)
     client = get_client()
-    processing_mode, document_payload = await _processed_document_payload(
-        pdf_bytes, owner_id
-    )
-    if processing_mode == "ocr":
-        logger.info("Using OCR mode for contract analysis")
-        if not isinstance(document_payload, str):
-            raise RuntimeError("Invalid cached OCR payload")
-        document_text = document_payload
-        if not document_text:
-            raise ValueError("OCR konnte keinen Text aus dem PDF extrahieren")
-        content = [
-            {"type": "text", "text": build_ocr_analysis_prompt(document_text)}
-        ]
-    else:
-        logger.info("Using image mode for contract analysis")
-        if isinstance(document_payload, str):
-            raise TypeError("Invalid cached image payload")
-        images_base64 = document_payload
-        content = [
-            {"type": "image_url", "image_url": image} for image in images_base64
-        ]
-        content.append({"type": "text", "text": CONTRACT_ANALYSIS_PROMPT})
+    content: list[dict[str, str]] = []
+    source_texts: list[str] = []
+    for index, pdf_bytes in enumerate(documents, start=1):
+        await validate_pdf_for_ai(pdf_bytes)
+        part, text = await _analysis_document_content(pdf_bytes, owner_id)
+        content.append({"type": "text", "text": f"Dokument {index} (1 = Hauptdokument):"})
+        content.extend(part)
+        if text:
+            source_texts.append(text)
+    from ai_document_processing import MAX_IMAGE_PDF_PAGES, MAX_OCR_CHARACTERS
 
+    if sum(part.get("type") == "image_url" for part in content) > MAX_IMAGE_PDF_PAGES:
+        raise ValueError("Dokument und Anlagen überschreiten das Bildseitenlimit; keine vollständige Prüfung möglich.")
+    if sum(map(len, source_texts)) > MAX_OCR_CHARACTERS or any(
+        "[Dokumenttext wegen Kontextlimit gekürzt]" in text for text in source_texts
+    ):
+        raise ValueError("Dokument und Anlagen überschreiten das OCR-Kontextlimit; keine vollständige Prüfung möglich.")
     if document_type == "invoice":
         content.append({"type": "text", "text": INVOICE_ANALYSIS_PROMPT})
 
@@ -307,21 +312,45 @@ async def analyze_contract_pdf(
     )
     response_content = extract_response_text(response.choices[0].message.content)
     result = _parse_analysis_response(response_content)
-
     defaults: dict = {
-        "title": None,
-        "description": None,
-        "value": None,
-        "annual_value": None,
-        "start_date": None,
-        "end_date": None,
-        "notice_period": None,
-        "tags": [],
+        "title": None, "description": None, "value": None,
+        "annual_value": None, "start_date": None, "end_date": None,
+        "notice_period": None, "notice_period_evidence": None,
+        "analysis_warnings": [], "tags": [],
     }
     for key, default in defaults.items():
         if key not in result or result[key] is None:
             result[key] = default
-    return result
+    return enforce_notice_evidence(result, "\n\n".join(source_texts) or None)
+
+
+async def _analysis_document_content(
+    pdf_bytes: bytes, owner_id: DocumentOwnerId
+) -> tuple[list[dict[str, str]], str | None]:
+    processing_mode, document_payload = await _processed_document_payload(
+        pdf_bytes, owner_id
+    )
+    if processing_mode == "ocr":
+        logger.info("Using OCR mode for contract analysis")
+        if not isinstance(document_payload, str):
+            raise RuntimeError("Invalid cached OCR payload")
+        document_text = document_payload
+        if not document_text:
+            raise ValueError("OCR konnte keinen Text aus dem PDF extrahieren")
+        content = [
+            {"type": "text", "text": build_ocr_analysis_prompt(document_text)}
+        ]
+        return content, document_text
+    else:
+        logger.info("Using image mode for contract analysis")
+        if isinstance(document_payload, str):
+            raise TypeError("Invalid cached image payload")
+        images_base64 = document_payload
+        content = [
+            {"type": "image_url", "image_url": image} for image in images_base64
+        ]
+        content.append({"type": "text", "text": CONTRACT_ANALYSIS_PROMPT})
+        return content, None
 
 
 async def _question_content(

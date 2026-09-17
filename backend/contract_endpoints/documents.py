@@ -61,7 +61,7 @@ async def create_contract(
     end_date: Annotated[str | None, Form()] = None,
     value: Annotated[str | None, Form()] = None,
     annual_value: Annotated[str | None, Form()] = None,
-    notice_period: Annotated[str | None, Form()] = "30",
+    notice_period: Annotated[str | None, Form()] = None,
     description: Annotated[str | None, Form()] = None,
     tags: Annotated[str | None, Form(max_length=2_550)] = "",
     document_type: Annotated[str, Form()] = "contract",
@@ -113,7 +113,7 @@ async def create_contract(
         end_date=parse_date_form(end_date),
         value=parse_float_form(value),
         annual_value=parse_float_form(annual_value),
-        notice_period=parsed_notice_period if parsed_notice_period is not None else 30,
+        notice_period=parsed_notice_period,
         tags=parse_tags_form(tags),
         document_type=document_type,
     )
@@ -276,6 +276,7 @@ async def update_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
 
     expected_version = version
+    notice_provided = "notice_period" in await request.form()
     if expected_version != contract.version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -301,12 +302,12 @@ async def update_contract(
         notice_period=parse_int_form(notice_period),
         tags=parse_tags_form(tags) if tags is not None else None,
     )
-    if end_date is not None or notice_period is not None:
+    if end_date is not None or notice_provided:
         validate_cancellation_date(
             update_data.end_date if end_date is not None else contract.end_date,
             (
                 update_data.notice_period
-                if notice_period is not None
+                if notice_provided
                 else contract.notice_period
             ),
         )
@@ -329,7 +330,7 @@ async def update_contract(
         value is not None,
     )
     check_and_update("annual_value", update_data.annual_value, annual_value is not None)
-    check_and_update("notice_period", update_data.notice_period, notice_period is not None)
+    check_and_update("notice_period", update_data.notice_period, notice_provided)
 
     new_file_path: str | None = None
     old_file_path: str | None = None

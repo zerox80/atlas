@@ -115,7 +115,7 @@ def migration_001_legacy_columns(cursor: sqlite3.Cursor) -> None:
         cursor,
         "contract",
         (
-            ("notice_period", "notice_period INTEGER DEFAULT 30"),
+            ("notice_period", "notice_period INTEGER"),
             ("value", "value FLOAT DEFAULT 0.0"),
             ("annual_value", "annual_value FLOAT"),
             ("is_protected", "is_protected BOOLEAN DEFAULT 0"),
@@ -349,7 +349,7 @@ def migration_008_sanitize_contract_numeric_values(cursor: sqlite3.Cursor) -> No
         if isinstance(notice_period, int) and 0 <= notice_period <= 36_500:
             clean_notice_period = notice_period
         else:
-            clean_notice_period = 30
+            clean_notice_period = None
         cursor.execute(
             """
             UPDATE contract

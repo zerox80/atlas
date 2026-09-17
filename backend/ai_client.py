@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 from ai_mistral_transport import MAX_REASONING_HEADER, create_mistral_http_client
+from ai_models import is_glm_model
 
 try:
     from mistralai import Mistral  # type: ignore[attr-defined]
@@ -38,14 +39,14 @@ def get_reasoning_effort(
     """Resolve model-specific effort without downgrading GLM's max to high."""
     effort = os.getenv("MISTRAL_REASONING_EFFORT", "auto").strip().lower()
     if effort == "auto":
-        effort = "max" if model == "zai-glm-5-3" else "high"
+        effort = "max" if is_glm_model(model) else "high"
     if effort == "high":
         return "high"
     if effort == "none":
         return "none"
-    if effort == "max" and model == "zai-glm-5-3":
+    if effort == "max" and is_glm_model(model):
         return "max"
-    allowed = "auto, none, high, max" if model == "zai-glm-5-3" else "auto, none, high"
+    allowed = "auto, none, high, max" if is_glm_model(model) else "auto, none, high"
     raise ValueError(
         f"MISTRAL_REASONING_EFFORT für {model} muss einer dieser Werte sein: {allowed}."
     )

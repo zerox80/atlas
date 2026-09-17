@@ -32,10 +32,12 @@ from catalog_routes import router as catalog_router
 from contract_queries import router as contract_query_router
 from contract_routes import router as contract_router
 from database import create_db_and_tables, get_session
+from document_review import router as document_review_router
 from file_cleanup import process_pending_file_deletions
 from list_routes import router as list_router
 from migrate_db import get_default_db_path, migrate
 from models import Contract, Tag, User
+from notice_research import router as notice_research_router
 from security_utils import log_audit
 
 __all__ = [
@@ -183,3 +185,5 @@ app.include_router(catalog_router)
 app.include_router(admin_router)
 app.include_router(list_router)
 app.include_router(ai_router)
+app.include_router(document_review_router)
+app.include_router(notice_research_router)
