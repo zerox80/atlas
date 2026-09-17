@@ -12,6 +12,7 @@ import AttachmentList from "./upload-modal/AttachmentList";
 import NoticeResearch from "./NoticeResearch";
 import { formatGermanNumber } from "../utils/formatUtils";
 import { formatContractDate } from "../utils/contractPresentation";
+import { getDocumentDownloadFilename } from "../features/documents/documentUtils";
 
 interface ContractDetailsModalProps {
   contract: Contract | null;
@@ -34,6 +35,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
   if (!contract) return null;
 
   const isInvoice = contract.document_type === "invoice";
+  const mainDocumentFilename = getDocumentDownloadFilename(contract);
   const fields = isInvoice
     ? [
         {
@@ -175,6 +177,26 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
               ))}
             </div>
 
+            <section className="mt-5 min-w-0" aria-labelledby="main-document-title">
+              <h3 id="main-document-title" className="eyebrow">Hauptdokument</h3>
+              <div className="mt-3 flex min-w-0 flex-col gap-3 rounded-xl border border-white/10 p-3 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <FiFileText className="shrink-0 text-[#b8f15a]" size={20} aria-hidden="true" />
+                  <p className="truncate text-sm text-[var(--ink-soft)]" title={mainDocumentFilename}>
+                    {mainDocumentFilename}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onDownload(contract)}
+                  className="btn-secondary shrink-0"
+                  aria-label="Hauptdokument herunterladen"
+                >
+                  <FiDownload aria-hidden="true" /> Herunterladen
+                </button>
+              </div>
+            </section>
+
             <AttachmentList contractId={contract.id} attachments={contract.attachments ?? []} />
 
             <div className="mt-5 flex flex-wrap gap-2">
@@ -220,7 +242,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
                 onClick={() => onDownload(contract)}
                 className="btn-primary"
               >
-                <FiDownload /> Herunterladen
+                <FiDownload /> Hauptdokument herunterladen
               </button>
             </div>
           </footer>
