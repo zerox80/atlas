@@ -98,6 +98,62 @@ def test_edit_adds_and_removes_attachments_without_replacing_main(auth_client, s
     assert len(list(Path("uploads").glob("*"))) == 2
 
 
+@pytest.mark.parametrize("target", ["main", "attachment"])
+def test_replace_one_file_at_capacity_preserves_the_document_and_other_files(
+    auth_client, session, target,
+):
+    document = create_document(auth_client, [
+        (f"Anlage-{index}.pdf", f"%PDF-1.4\nAnlage {index}".encode())
+        for index in range(9)
+    ])
+    original_paths = set(Path("uploads").glob("*"))
+    replaced = document["attachments"][3]
+    old_path = (
+        session.get(Contract, document["id"]).file_path if target == "main"
+        else session.get(ContractAttachment, replaced["id"]).file_path
+    )
+    data: dict[str, int | list[int]] = {"version": document["version"]}
+    if target == "attachment":
+        data["removed_attachment_ids"] = [replaced["id"]]
+    replacement = b"%PDF-1.4\nUnterschriebener Vertrag"
+    response = auth_client.put(f"/contracts/{document['id']}", data=data, files=[
+        ("file" if target == "main" else "attachments", ("Unterschrieben.pdf", replacement, "application/pdf")),
+    ])
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    for key, value in document.items():
+        if key not in {"version", "attachments", "file_extension"}:
+            assert updated[key] == value, key
+    assert updated["version"] == document["version"] + 1
+    assert len(updated["attachments"]) == 9
+    assert len(session.exec(select(Contract)).all()) == 1
+    assert len(list(Path("uploads").glob("*"))) == 10
+    assert not Path(old_path).exists()
+    assert all(path.exists() for path in original_paths - {Path(old_path)})
+    main_download = auth_client.get(f"/contracts/{document['id']}/download")
+    assert main_download.content == (replacement if target == "main" else b"Hauptvertrag")
+    for attachment in document["attachments"]:
+        if target == "attachment" and attachment["id"] == replaced["id"]:
+            continue
+        assert attachment in updated["attachments"]
+    if target == "attachment":
+        new_attachment = next(item for item in updated["attachments"] if item["filename"] == "Unterschrieben.pdf")
+        download = auth_client.get(f"/contracts/{document['id']}/attachments/{new_attachment['id']}/download")
+        assert download.content == replacement
+
+
+def test_invalid_replacement_preserves_the_original_attachment(auth_client):
+    document = create_document(auth_client)
+    original_paths = set(Path("uploads").glob("*"))
+    response = auth_client.put(f"/contracts/{document['id']}", data={
+        "version": document["version"],
+        "removed_attachment_ids": [document["attachments"][0]["id"]],
+    }, files=[("attachments", ("bad.pdf", b"\x00invalid", "application/pdf"))])
+    assert response.status_code == 400, response.text
+    assert auth_client.get(f"/contracts/{document['id']}").json() == document
+    assert set(Path("uploads").glob("*")) == original_paths
+
+
 def test_failed_edit_preserves_existing_files_and_removes_new_uploads(auth_client, session):
     document = create_document(auth_client)
     original_paths = set(Path("uploads").glob("*"))
