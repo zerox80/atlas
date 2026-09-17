@@ -65,7 +65,8 @@ export default function DocumentReview() {
         <FiCheckSquare /> {creating ? "Wird vorbereitet …" : "Alle Verträge & Rechnungen neu prüfen"}
     </button>} />
     <div className="surface mb-5 space-y-2 p-5 text-sm leading-6">
-      <p>Korrekturen wählst du einzeln aus. Fehlende Angaben löschen keine gespeicherten Werte.
+      <p>Jeden fertigen Prüfvorschlag bestätigst du mit Ja oder Nein. Einzelne Änderungen kannst du in den Belegen auswählen.
+        Fehlende Angaben löschen keine gespeicherten Werte.
         OCR scannt jeweils bis zu vier Seiten. Danach folgt eine einzige Auswertung aller Seiten und PDF-Anlagen.
         Betrag / Gesamtwert bedeutet immer Gesamtbrutto; Positionspreise ersetzen ihn nicht.</p>
       <details className="muted"><summary className="cursor-pointer">Umfang, API-Kosten und Ablauf · Modell {status.data?.model || "Nicht verfügbar"}</summary>
