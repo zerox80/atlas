@@ -7,7 +7,9 @@ import type { ReviewItem } from "./reviewTypes";
 import { valueText } from "./reviewPresentation";
 import { reviewRequestError } from "./reviewRequestError";
 
-export default function ReviewSplitProposal({ item, runId }: { item: ReviewItem; runId: string }) {
+export default function ReviewSplitProposal({ item, runId, onResolved }: {
+  item: ReviewItem; runId: string; onResolved: () => void;
+}) {
   const proposals = item.result?.split_proposals || [];
   const [selected, setSelected] = useState<number[]>(proposals.map((_, index) => index));
   const [busy, setBusy] = useState(false);
@@ -24,6 +26,7 @@ export default function ReviewSplitProposal({ item, runId }: { item: ReviewItem;
       const response = await api.post(`/ai/reviews/${runId}/items/${item.id}/split`, { accept, selected: accept ? selected : [] });
       if (accept || response.data.already_created) setCreated(response.data.created);
       else setDeclined(true);
+      onResolved();
       await Promise.all([client.invalidateQueries(["document-reviews"]), invalidateDocumentAndTagQueries(client)]);
     } catch (err) { setError(reviewRequestError(err, "Aufteilung konnte nicht gespeichert werden.")); }
     finally { setBusy(false); }

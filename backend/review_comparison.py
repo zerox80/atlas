@@ -109,7 +109,7 @@ def compare_field(field: str, before: dict, facts: list[dict], document_type: st
     scope = stored_scope(field, document_type)
     base = {"field": field, "before": old, "after": None, "status": "NOT_EVIDENCED",
             "is_conflict": False, "can_apply": False, "confidence": None, "stored_scope": scope,
-            "document_scope": None, "reason": "Das geprüfte Dokument enthält hierzu keine Aussage.",
+            "document_scope": None, "reason": "Die KI-Auswertung hat für dieses Feld keine belegte Angabe geliefert.",
             "evidence": None, "document_type": None}
     target = _target_scopes(field, document_type)
     candidates = [fact for fact in facts if fact["scope"] in target and fact["entity"] == "document"]

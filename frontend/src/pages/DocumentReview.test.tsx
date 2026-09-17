@@ -9,6 +9,7 @@ const run = { id: "saved-run", model: "zai-glm-latest", created_at: "2026-09-17T
 let running = false;
 beforeEach(() => {
   vi.clearAllMocks();
+  window.history.replaceState({}, "", "/reviews");
   running = false;
   api.get.mockImplementation(async (url: string) => ({ data:
     url === "/ai/status" ? { available: true, model: "zai-glm-latest" } :
@@ -18,6 +19,13 @@ beforeEach(() => {
     running = url.endsWith("/start");
     return { data: { ...run, running } };
   });
+});
+
+it("opens the requested single-document run without triggering a new review", async () => {
+  window.history.replaceState({}, "", "/reviews?run_id=single-run");
+  render(<DocumentReview />);
+  await waitFor(() => expect(api.get).toHaveBeenCalledWith("/ai/reviews/single-run", { params: { offset: 0, limit: 50 } }));
+  expect(api.post).not.toHaveBeenCalled();
 });
 
 it("loads a paused run without paid work and starts server execution only on demand", async () => {

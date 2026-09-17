@@ -30,13 +30,15 @@ describe("Änderungsvorschläge auswählen", () => {
       expect(invalidate).toHaveBeenCalledWith([key]);
     expect(screen.queryByRole("checkbox", { name: "Betrag / Gesamtwert (brutto) übernehmen" })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Enddatum übernehmen" })).toBeEnabled();
+    expect(screen.getByLabelText("Prüfergebnis")).toHaveTextContent("Änderungsvorschläge");
     await userEvent.click(screen.getByRole("checkbox", { name: "Enddatum übernehmen" }));
     await userEvent.click(screen.getByRole("button", { name: "Ausgewählte Änderungen übernehmen (1)" }));
     await waitFor(() => expect(api.post).toHaveBeenLastCalledWith("/ai/reviews/run/items/1/apply", { fields: ["end_date"] }));
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Prüfergebnis")).toHaveTextContent("Änderungen übernommen");
   });
 
-  it("gives keep and leave-empty recommendations without asking for an empty decision", () => {
+  it("collapses unchanged fields and does not call them change recommendations", async () => {
     render(<ReviewItemCard item={{ ...item, result: { changes: [], checks: [
       { field: "value", before: 9752.05, after: 2155.28, can_apply: false, status: "WRONG_SCOPE", recommendation: "keep",
         recommendation_reason: "Den Gesamtbetrag beibehalten; der kleinere Betrag gehört zu einer Position." },
@@ -44,9 +46,13 @@ describe("Änderungsvorschläge auswählen", () => {
         recommendation_reason: "Kein Laufzeitende belegt; das Feld leer lassen." },
     ] } }} runId="run" />);
     expect(screen.getByText("Keine Änderung empfohlen.")).toBeVisible();
+    expect(screen.getByLabelText("Prüfergebnis")).toHaveTextContent("Keine Änderungsvorschläge");
+    expect(screen.getByText(/Das bestätigt nicht automatisch/)).toBeVisible();
+    expect(screen.getByText("Enddatum: Leer lassen")).not.toBeVisible();
+    await userEvent.click(screen.getByText("Prüfdetails zu 2 unveränderten Feldern"));
     expect(screen.getByText("Betrag / Gesamtwert (brutto): 9.752,05 € beibehalten")).toBeVisible();
     expect(screen.getByText("Enddatum: Leer lassen")).toBeVisible();
-    expect(screen.getByText("Kein Laufzeitende belegt; das Feld leer lassen.")).toBeVisible();
+    expect(screen.getByText("Die KI-Auswertung hat für dieses Feld keine belegte Angabe geliefert.")).toBeVisible();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
@@ -88,10 +94,14 @@ describe("Änderungsvorschläge auswählen", () => {
     render(<ReviewItemCard item={splitItem} runId="run" />);
     expect(api.post).not.toHaveBeenCalled();
     expect(screen.getByText(/Original bleibt zusätzlich/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Prüfergebnis")).toHaveTextContent("Aufteilung vorgeschlagen");
+    expect(screen.getByText("Keine Feldänderung empfohlen.")).toBeVisible();
+    expect(screen.queryByText("Keine Änderung empfohlen.")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("checkbox", { name: "Veeam" }));
     await userEvent.click(screen.getByRole("button", { name: "Ja, 1 Eintrag mit eigenen PDFs erstellen" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/ai/reviews/run/items/1/split", { accept: true, selected: [1] }));
     expect(await screen.findByRole("link", { name: "VMware" })).toHaveAttribute("href", "/contracts?document_id=23");
     expect(screen.queryByRole("button", { name: /PDFs erstellen/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Prüfergebnis")).not.toHaveTextContent("Aufteilung vorgeschlagen");
   });
 });

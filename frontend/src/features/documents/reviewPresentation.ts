@@ -1,4 +1,4 @@
-import type { ReviewChange } from "./reviewTypes";
+import type { ReviewChange, ReviewItem } from "./reviewTypes";
 import { formatGermanNumber } from "../../utils/formatUtils";
 
 export const labels: Record<string, string> = {
@@ -27,6 +27,11 @@ export const sourceLabels: Record<string, string> = {
   invoice: "Rechnung", contract: "Vertrag", amendment: "Nachtrag", order_confirmation: "Auftragsbestätigung",
   delivery_note: "Lieferschein", unknown: "Unbekannter Dokumenttyp",
 };
+export const proposalKey = (change: ReviewChange) => JSON.stringify([change.field, change.before, change.after]);
+export function reviewFields(result: ReviewItem["result"]): ReviewChange[] {
+  return Array.from(new Map([...(result?.checks || []), ...(result?.changes || [])]
+    .map(change => [change.field, change])).values());
+}
 export function canApply(change: ReviewChange): boolean {
   return change.can_apply && change.after != null && (!change.recommendation || change.recommendation === "update")
     && ["EXPLICIT_CONFLICT", "NEW_INFORMATION", "DERIVED"].includes(change.status || "");
@@ -37,13 +42,13 @@ export function recommendationFor(change: ReviewChange): "update" | "keep" | "le
     ? "leave_empty" : "keep";
 }
 export function recommendationReason(change: ReviewChange): string {
+  if (change.status === "NOT_EVIDENCED") return "Die KI-Auswertung hat für dieses Feld keine belegte Angabe geliefert.";
   if (change.recommendation_reason) return change.recommendation_reason;
   if (change.reason) return change.reason;
   if (change.evidence_verified === false) return "Der Dokumentbeleg ist nicht eindeutig verifiziert und rechtfertigt keine Änderung.";
   if (change.status === "CONFIRMED") return "Die gespeicherte Angabe stimmt mit dem Dokument überein.";
   if (change.status === "WRONG_SCOPE") return "Die Dokumentangabe gehört zu einem anderen Feld und ersetzt diesen Wert nicht.";
   if (change.status === "AMBIGUOUS") return "Wert oder Zuordnung sind nicht eindeutig belegt; eine Änderung ist nicht empfohlen.";
-  if (change.status === "NOT_EVIDENCED") return "Das Dokument enthält für dieses Feld keine belegte Angabe.";
   if (canApply(change)) return "Die Dokumentangabe ist ausreichend belegt und wird zur Übernahme empfohlen.";
   return "Es gibt keinen ausreichend belegten anderen Wert für dieses Feld.";
 }

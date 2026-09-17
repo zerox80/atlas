@@ -59,7 +59,7 @@ def test_missing_evidence_gives_explicit_keep_or_leave_empty_recommendation(old,
     result = build_review_result(stored(description=old), [extraction([])], "invoice")
     check = checks(result)["description"]
     assert check["recommendation"] == expected and not check["can_apply"]
-    assert "keine Aussage" in check["recommendation_reason"]
+    assert "KI-Auswertung hat für dieses Feld keine belegte Angabe geliefert" in check["recommendation_reason"]
     assert all(entry["recommendation"] in {"update", "keep", "leave_empty"} and entry["recommendation_reason"] for entry in result["checks"])
     assert checks(result)["tags"]["recommendation"] == "leave_empty"
 

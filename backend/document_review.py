@@ -54,6 +54,7 @@ class ReviewApply(BaseModel):
 class ReviewCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     start: bool = False
+    document_id: int | None = Field(default=None, gt=0, strict=True)
 
 
 class ReviewDecision(BaseModel):
@@ -133,11 +134,19 @@ def create_review(request: Request, body: ReviewCreate | None = None,
     _require_ai_availability("Prüfung")
     if body and body.start:
         _guard_active_run(session, user)
-    # All accessible contracts AND invoices, including protected documents,
-    # independent of pagination, search filters, and the selected workspace.
-    document_ids = session.exec(filter_contracts_for_user(
-        select(Contract.id).where(col(Contract.deleted_at).is_(None)), user
-    )).all()
+    if body and body.document_id is not None:
+        document = _document(session, body.document_id, user)
+        if document is None:
+            raise HTTPException(404, "Dokument nicht gefunden.")
+        if document.file_extension.lower() != ".pdf":
+            raise HTTPException(422, "Die KI-Prüfung unterstützt derzeit nur PDF-Hauptdokumente.")
+        document_ids = [body.document_id]
+    else:
+        # All accessible contracts AND invoices, including protected documents,
+        # independent of pagination, search filters, and the selected workspace.
+        document_ids = session.exec(filter_contracts_for_user(
+            select(Contract.id).where(col(Contract.deleted_at).is_(None)), user
+        )).all()
     run = DocumentReviewRun(owner_subject=user.auth_subject, model=MODEL)
     session.add(run)
     session.flush()
