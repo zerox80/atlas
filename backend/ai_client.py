@@ -35,10 +35,10 @@ _client = None
 
 
 def get_reasoning_effort(
-    model: str = MODEL,
+    model: str = MODEL, *, configured: str | None = None,
 ) -> Literal["none", "high", "max"]:
     """Resolve model-specific effort without downgrading GLM's max to high."""
-    effort = os.getenv("MISTRAL_REASONING_EFFORT", "auto").strip().lower()
+    effort = (configured if configured is not None else os.getenv("MISTRAL_REASONING_EFFORT", "auto")).strip().lower()
     if effort == "auto":
         effort = "max" if is_glm_model(model) else "high"
     if effort == "high":
@@ -53,9 +53,9 @@ def get_reasoning_effort(
     )
 
 
-def get_reasoning_options(model: str = MODEL) -> dict[str, Any]:
+def get_reasoning_options(model: str = MODEL, *, effort: str | None = None) -> dict[str, Any]:
     """Use SDK-native options or the transport override for GLM max."""
-    effort = get_reasoning_effort(model)
+    effort = get_reasoning_effort(model, configured=effort)
     if effort == "max":
         return {"http_headers": {MAX_REASONING_HEADER: "max"}}
     return {"reasoning_effort": effort}

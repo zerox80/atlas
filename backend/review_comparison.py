@@ -127,7 +127,7 @@ def result_status(result: dict) -> str:
     if any(check["status"] in {"EXPLICIT_CONFLICT", "AMBIGUOUS"} for check in checks):
         return "issues"
     if (any(check["status"] in {"NEW_INFORMATION", "DERIVED", "WRONG_SCOPE"} for check in checks)
-            or result.get("warnings") or result.get("components")):
+            or result.get("warnings")):
         return "hints"
     return "checked"
 
@@ -135,15 +135,7 @@ def result_status(result: dict) -> str:
 def build_review_result(before: dict, extractions: list[dict], document_type: str) -> dict:
     facts = add_verified_totals([fact for extraction in extractions for fact in extraction["observations"]])
     checks = [compare_field(field, before, facts, document_type) for field in REVIEW_FIELDS]
-    components = []
-    seen = set()
-    for extraction in extractions:
-        for component in extraction["components"]:
-            key = (component["document"], component["name"], component["evidence"]["page"])
-            if key not in seen:
-                components.append(component)
-                seen.add(key)
     return {"schema_version": PIPELINE_VERSION, "checks": checks,
             "changes": [check for check in checks if check["status"] != "CONFIRMED"],
-            "observations": facts, "components": components,
+            "observations": facts,
             "warnings": list(dict.fromkeys(warning for extraction in extractions for warning in extraction["warnings"]))}

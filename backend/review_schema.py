@@ -26,7 +26,7 @@ DATE_SCOPES = {
     "delivery_date", "contract_end_date",
 }
 REVIEW_FIELDS = ("title", "description", "value", "annual_value", "start_date", "end_date", "notice_period", "tags")
-PIPELINE_VERSION = 2
+PIPELINE_VERSION = 3
 
 
 class StrictRecord(BaseModel):
@@ -34,6 +34,7 @@ class StrictRecord(BaseModel):
 
 
 class Evidence(StrictRecord):
+    document: int = Field(default=1, ge=1)
     page: int = Field(ge=1)
     quote: str = Field(min_length=1, max_length=2000)
 
@@ -45,7 +46,8 @@ class Observation(StrictRecord):
     confidence: float = Field(ge=0, le=1)
     reason: str = Field(min_length=1, max_length=1000)
     evidence: Evidence | None
-    entity: Literal["document", "component", "other_contract"]
+    entity: Literal["document", "line_item", "other_source"]
+    source_type: SourceType | None = None
     currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     billing_interval: Literal["month", "quarter", "year", "once", "unknown"] | None = None
 
@@ -73,21 +75,9 @@ class Observation(StrictRecord):
         return self
 
 
-class Component(StrictRecord):
-    name: str = Field(min_length=1, max_length=255)
-    evidence: Evidence
-    amount_net: float | None = Field(default=None, ge=0, le=1_000_000_000_000_000)
-    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
-    separate_contract_reasons: list[Literal[
-        "different_contract_number", "different_counterparty", "independent_term",
-        "independent_termination", "independent_renewal", "independent_obligation",
-    ]] = Field(default_factory=list, max_length=6)
-
-
 class ReviewExtraction(StrictRecord):
     document_type: SourceType
-    observations: list[Observation] = Field(max_length=200)
-    components: list[Component] = Field(max_length=100)
+    observations: list[Observation] = Field(max_length=64)
     warnings: list[str] = Field(max_length=20)
 
     @model_validator(mode="after")

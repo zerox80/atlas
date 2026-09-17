@@ -13,7 +13,7 @@ def error_details(exc: Exception, stage: str, timeout: int) -> dict:
     if isinstance(exc, ReviewProcessingError):
         code, message = exc.code, str(exc)
     elif isinstance(exc, (TimeoutError, httpx.TimeoutException)):
-        code, message = "TIMEOUT", f"Zeitlimit überschritten (Anfrage bis {timeout} Sekunden). Bereits abgeschlossene Abschnitte bleiben gespeichert."
+        code, message = "TIMEOUT", f"Zeitlimit überschritten (Anfrage bis {timeout} Sekunden). Bereits gescannte Seiten bleiben gespeichert. Ein erneuter Versuch benötigt keine neuen Scans."
     elif isinstance(exc, (InvalidStructuredAIResponse, ValidationError)):
         code, message = "INVALID_AI_RESPONSE", "Die KI-Antwort war unvollständig oder entsprach nicht dem erwarteten JSON-Schema."
     elif isinstance(exc, AIProcessingCapacityError):
@@ -32,11 +32,11 @@ def error_details(exc: Exception, stage: str, timeout: int) -> dict:
             401: "Mistral hat den API-Schlüssel abgelehnt.",
             403: "Mistral verweigert den Zugriff. Schlüsselrechte und Modellfreigabe prüfen.",
             404: "Mistral hat Modell oder Endpunkt nicht gefunden. Die konfigurierte Modellkennung prüfen.",
-            413: "Die Anfrage ist für Mistral zu groß. Abschnittsgröße reduzieren.",
+            413: "Die Anfrage ist für Mistral zu groß. Vollständiger Dokumenttext überschreitet die Anbietergrenze; es werden keine Seiten stillschweigend ausgelassen.",
             422: "Mistral akzeptiert die Anfrageparameter nicht. Modell und Reasoning-Konfiguration prüfen.",
             429: "Mistrals Raten- oder Kontingentlimit wurde auch nach Wiederholungen erreicht.",
             504: "Das Gateway des KI-Anbieters hat beim Warten auf die Antwort sein Zeitlimit überschritten (HTTP 504). "
-                 "Ein höheres Atlas-Zeitlimit verlängert dieses Anbieter-Limit nicht. Fertige Abschnitte bleiben gespeichert.",
+                 "Ein höheres Atlas-Zeitlimit verlängert dieses Anbieter-Limit nicht. Bereits gescannte Seiten bleiben gespeichert.",
         }.get(status, "Mistral meldet einen Server- oder API-Fehler. Später erneut versuchen.")
     result: dict = {"code": code, "stage": stage, "message": message, "exception_type": type(exc).__name__, "http_status": status if isinstance(status, int) else None}
     if isinstance(exc, ValidationError):
