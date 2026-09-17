@@ -43,7 +43,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
             contract.business_timezone,
           ),
         },
-        { label: "Betrag", value: formatMoney(contract.value) },
+        { label: "Gesamtbetrag (brutto)", value: formatMoney(contract.value) },
         {
           label: "Hochgeladen am",
           value: formatDate(
@@ -73,7 +73,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
               ? `${contract.notice_period} Tage`
               : "Nicht hinterlegt",
         },
-        { label: "Gesamtwert", value: formatMoney(contract.value) },
+        { label: "Gesamtbetrag (brutto)", value: formatMoney(contract.value) },
         {
           label: "Jährlicher Preis",
           value: formatMoney(contract.annual_value),

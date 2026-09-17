@@ -9,7 +9,10 @@ Extrahiere belegte Gesamtbeträge, Laufzeiten, Kündigungsfristen und Kategorien
 Keine vollständige Positionsliste abschreiben. Lizenz, Service, Wartung und Zusatzpakete
 gehören zum Gesamtumfang: Ein Einzelpreis/Positionsbetrag ist niemals der Gesamtbetrag.
 Das Feld Betrag/Gesamtwert bedeutet immer Gesamtbrutto inklusive aller Leistungen und Steuern.
-Fehlt Gesamtbrutto, keine Position und kein Netto als Ersatz angeben.
+Ein Gesamtbetrag inklusive MwSt./USt. ist bereits brutto: unverändert übernehmen, keine Steuer erneut addieren.
+Bei Netto/zzgl. MwSt. nur mit belegtem zugehörigem Steuersatz zu brutto umrechnen.
+Dafür Nettogesamtsumme und Steuer zusammen im Beleg zitieren.
+Fehlt Gesamtbrutto und eine belegte Berechnungsgrundlage, keine Position und kein Netto als Ersatz angeben.
 Unterscheide netto/brutto, Gesamtbetrag/Position, einmalig/wiederkehrend und Währung.
 Alle unterschiedlichen belegten Gesamtsummen nennen; historische oder fremde Angaben
 als entity=other_source kennzeichnen. Bei Unsicherheit kind=ambiguous verwenden.

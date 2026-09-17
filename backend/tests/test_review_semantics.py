@@ -192,3 +192,52 @@ def test_different_source_totals_never_silently_choose_one():
     contract = extraction([observation("contract_value_gross", 120, "Gesamt brutto 120 EUR", currency="EUR")], document_type="contract", document=2)
     field = checks(build_review_result(stored(), [invoice, contract], "contract"))["value"]
     assert field["status"] == "AMBIGUOUS" and not field["can_apply"]
+
+
+@pytest.mark.parametrize("document_type,scope", [("contract", "contract_value_gross"), ("invoice", "invoice_total_gross")])
+@pytest.mark.parametrize("quote", [
+    "Gesamtbetrag inkl. MwSt.: 119,00 EUR",
+    "Gesamtbetrag inklusive 19 % Mehrwertsteuer: 119,00 EUR",
+    "Gesamtbetrag: 119,00 EUR inkl. MwSt.",
+    "Vertragswert einschließlich Umsatzsteuer 119,00 EUR",
+])
+def test_vat_inclusive_total_is_kept_without_adding_tax_again(document_type, scope, quote):
+    facts = [observation(scope, 119, quote, currency="EUR"),
+             observation("tax_rate", 19, "Umsatzsteuer 19 %")]
+    result = build_review_result(stored(value=100), [extraction(facts, document_type=document_type)], document_type)
+    field = checks(result)["value"]
+    assert field["after"] == 119 and field["can_apply"]
+    assert not any(fact.get("derivation_verified") for fact in result["observations"])
+
+
+@pytest.mark.parametrize("document_type,scope", [("contract", "contract_value_net"), ("invoice", "invoice_total_net")])
+def test_net_total_plus_documented_tax_produces_gross(document_type, scope):
+    quote = "Gesamt netto 100,00 EUR zzgl. Umsatzsteuer 19 %"
+    facts = [observation(scope, 100, quote, currency="EUR"), observation("tax_rate", 19, "Umsatzsteuer 19 %")]
+    result = build_review_result(stored(value=100), [extraction(facts, document_type=document_type)], document_type)
+    field = checks(result)["value"]
+    assert field["after"] == 119 and field["can_apply"] and field["status"] == "DERIVED"
+
+
+@pytest.mark.parametrize("quote", ["Positionsbrutto 119,00 EUR", "Einzelpreis inkl. MwSt. 119,00 EUR"])
+def test_vat_inclusive_product_is_not_a_total(quote):
+    data = extraction([observation("invoice_total_gross", 119, quote, currency="EUR")])
+    assert not checks(build_review_result(stored(), [data], "invoice"))["value"]["can_apply"]
+
+
+@pytest.mark.parametrize("rate,gross", [(0, 100), (7, 107), (16, 116), (19, 119), (21, 121)])
+def test_gross_uses_document_tax_rate_without_current_rate_assumption(rate, gross):
+    quote = f"Gesamt netto 100,00 EUR zzgl. Umsatzsteuer {rate} %"
+    facts = [observation("invoice_total_net", 100, quote, currency="EUR"),
+             observation("tax_rate", rate, f"Umsatzsteuer {rate} %")]
+    field = checks(build_review_result(stored(value=None), [extraction(facts)], "invoice"))["value"]
+    assert field["after"] == gross and field["can_apply"]
+
+
+def test_mixed_document_tax_rates_are_not_applied_to_entire_net_total():
+    quote = "Gesamt netto 100,00 EUR; Umsatzsteuer 7 % und 19 %"
+    facts = [observation("invoice_total_net", 100, quote, currency="EUR"),
+             observation("tax_rate", 7, "Umsatzsteuer 7 %"), observation("tax_rate", 19, "19 %")]
+    result = build_review_result(stored(), [extraction(facts)], "invoice")
+    assert not checks(result)["value"]["can_apply"]
+    assert not any(fact.get("derivation_verified") for fact in result["observations"])

@@ -47,9 +47,16 @@ def _labeled_total(scope: str, value, quote: str) -> bool:
     # Markdown separators/currency may surround the value, but not another number or prose.
     separators = r"[\s:|*€$=().-]*(?:(?:EUR|USD|CHF)\s*)?"
     number = r"(\d[\d.,]*)"
-    for match in re.finditer(label + separators + number, quote, re.IGNORECASE):
-        if Decimal(str(value)) in _quoted_numbers(match.group(1)):
-            return True
+    patterns = [r"\b" + label + r"\b" + separators + number]
+    if scope.endswith("gross"):
+        total = r"\b(?:gesamt(?:betrag|summe|preis|wert)?|vertrags(?:wert|preis)|rechnungs(?:end)?betrag|endbetrag)\b"
+        included = r"(?:inkl(?:usive)?\.?|einschließlich)\s*(?:\d+(?:[.,]\d+)?\s*%\s*)?(?:MwSt\.?|USt\.?|Mehrwertsteuer|Umsatzsteuer)"
+        patterns += [total + separators + included + separators + number,
+                     total + separators + number + separators + included]
+    for pattern in patterns:
+        for match in re.finditer(pattern, quote, re.IGNORECASE):
+            if Decimal(str(value)) in _quoted_numbers(match.group(1)):
+                return True
     return False
 
 
@@ -104,7 +111,7 @@ def add_verified_totals(observations: list[dict]) -> list[dict]:
     for document in {item["document"] for item in observations}:
         facts = [item for item in observations if item["document"] == document
                  and item["entity"] == "document" and item["evidence_verified"] and item["kind"] == "explicit"]
-        nets = [item for item in facts if item["scope"] == "invoice_total_net"]
+        nets = [item for item in facts if item["scope"] in {"invoice_total_net", "contract_value_net"}]
         taxes = [item for item in facts if item["scope"] == "tax_rate"]
         if len({(item["value"], item.get("currency")) for item in nets}) != 1 or len({item["value"] for item in taxes}) != 1:
             continue
@@ -112,11 +119,11 @@ def add_verified_totals(observations: list[dict]) -> list[dict]:
         if (net["evidence"]["page"] != tax["evidence"]["page"]
                 or _normalize(tax["evidence"]["quote"]) not in _normalize(net["evidence"]["quote"])):
             continue
-        if not net.get("currency") or any(item["scope"] == "invoice_total_gross" for item in facts):
+        if not net.get("currency") or any(item["scope"] in {"invoice_total_gross", "contract_value_gross"} for item in facts):
             continue
         gross = (Decimal(str(net["value"])) * (1 + Decimal(str(tax["value"])) / 100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        output.append({**net, "scope": "invoice_total_gross", "value": float(gross), "kind": "derived",
+        output.append({**net, "scope": net["scope"].replace("_net", "_gross"), "value": float(gross), "kind": "derived",
                        "confidence": min(net["confidence"], tax["confidence"]), "derivation_verified": True,
-                       "reason": f"Rechnungsnetto {net['value']} + {tax['value']} % USt = {gross} {net['currency']} brutto.",
+                       "reason": f"Gesamtnetto {net['value']} + {tax['value']} % USt = {gross} {net['currency']} brutto.",
                        "supporting_evidence": [net["evidence"], tax["evidence"]]})
     return output

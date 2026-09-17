@@ -158,7 +158,7 @@ const InvoiceCard: FC<InvoiceCardProps> = ({
             formatContractDate(invoiceDate, invoice.business_timezone),
           ],
           [
-            "Betrag",
+            "Gesamtbetrag (brutto)",
             invoice.value != null
               ? `${formatGermanNumber(invoice.value)} €`
               : "–",
