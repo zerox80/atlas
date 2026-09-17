@@ -17,7 +17,7 @@ export const scopeLabels: Record<string, string> = {
 };
 export const checkLabels: Record<string, string> = {
   CONFIRMED: "Bestätigt", EXPLICIT_CONFLICT: "Echter Widerspruch", NOT_EVIDENCED: "Im Dokument nicht belegt",
-  NEW_INFORMATION: "Ergänzung verfügbar", AMBIGUOUS: "Manuell prüfen", DERIVED: "Abgeleiteter Vorschlag", WRONG_SCOPE: "Anderer Geltungsbereich",
+  NEW_INFORMATION: "Ergänzung verfügbar", AMBIGUOUS: "Nicht eindeutig belegt", DERIVED: "Abgeleiteter Vorschlag", WRONG_SCOPE: "Angabe für ein anderes Feld",
 };
 export const stageLabels: Record<string, string> = {
   read: "Datei lesen", prepare: "PDF vorbereiten", ocr: "OCR-Texterkennung", analysis: "KI-Auswertung",
@@ -29,6 +29,16 @@ export const sourceLabels: Record<string, string> = {
 };
 export function canApply(change: ReviewChange): boolean {
   return change.can_apply && change.after != null && ["EXPLICIT_CONFLICT", "NEW_INFORMATION", "DERIVED"].includes(change.status || "");
+}
+export function applyBlockedReason(change: ReviewChange, legacy: boolean, canWrite: boolean): string | null {
+  if (legacy) return "Älterer Prüfbericht – bitte neu prüfen.";
+  if (!canWrite) return "Keine Schreibberechtigung für dieses Dokument.";
+  if (canApply(change)) return null;
+  if (change.evidence_verified === false) return "Beleg nicht verifiziert – Originaldokument prüfen.";
+  if (change.status === "WRONG_SCOPE") return "Diese Angabe gehört nicht zum zu korrigierenden Feld.";
+  if (change.status === "AMBIGUOUS") return "Zuordnung oder Wert ist nicht eindeutig belegt.";
+  if (change.status === "DERIVED") return "Die Berechnung ist nicht ausreichend belegt.";
+  return "Kein belegter, abweichender Wert zur Übernahme vorhanden.";
 }
 export function valueText(value: ReviewChange["before"], field: string, currency: string | null = "EUR"): string {
   if (value == null) return "Keine Angabe";

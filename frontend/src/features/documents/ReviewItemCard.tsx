@@ -5,9 +5,11 @@ import api from "../../api";
 import { invalidateDocumentAndTagQueries } from "../../queryKeys";
 import { reviewRequestError } from "./reviewRequestError";
 import type { ReviewItem } from "./reviewTypes";
-import { canApply, labels, stageLabels, valueText } from "./reviewPresentation";
+import { applyBlockedReason, canApply, labels, stageLabels, valueText } from "./reviewPresentation";
 import { FieldFinding, ReviewEvidence } from "./ReviewFindings";
 import ReviewProgress from "./ReviewProgress";
+import ReviewDecision from "./ReviewDecision";
+import ReviewSplitProposal from "./ReviewSplitProposal";
 
 const statuses: Record<string, string> = {
   pending: "Ausstehend", processing: "Wird geprüft …", checked: "Kein Widerspruch erkannt", hints: "Hinweise / Ergänzungen",
@@ -57,30 +59,42 @@ export default function ReviewItemCard({ item, runId }: { item: ReviewItem; runI
         Analysemodell: {item.result?.model || "unbekannt"} · OCR-Modell: {item.result?.ocr_model || "unbekannt"}</p>
     </div>}
     <ReviewProgress item={item} />
+    <ReviewDecision item={item} runId={runId} />
+    <ReviewSplitProposal key={`${item.id}-${item.result?.split_proposals?.length || 0}`} item={item} runId={runId} />
     {item.result?.legacy_report && <p className="mt-3 text-sm text-[var(--warning)]">Älterer Prüfbericht aus dem vorherigen Prüfverfahren.
       Für belegte Vorschläge bitte einen neuen Prüflauf starten.</p>}
     {item.result?.checked_files != null && <p className="mt-3 text-xs muted">{item.result.checked_files} PDF-Datei(en) geprüft, einschließlich PDF-Anlagen.</p>}
     {Boolean(item.result?.warnings?.length) && <ul className="mt-3 space-y-1 text-sm text-[var(--warning)]">
       {item.result!.warnings!.map((warning, index) => <li key={index}>{warning}</li>)}
     </ul>}
-    {Boolean(changes.length) && <div className="mt-5 space-y-4">
-      {changes.map(change => <section key={change.field} aria-label={`${labels[change.field]} prüfen`}
+    {Boolean(changes.length) && !item.result?.decision && <details className="mt-5 space-y-4">
+      <summary className="cursor-pointer text-sm">Belege ansehen und Änderungen einzeln auswählen</summary>
+      {changes.map(change => {
+        const blocked = applyBlockedReason(change, Boolean(item.result?.legacy_report), Boolean(item.can_write));
+        const reasonId = `review-${item.id}-${change.field}-blocked`;
+        return <section key={change.field} aria-label={`${labels[change.field]} prüfen`}
         className="rounded-xl border border-[var(--line)] p-3 sm:p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold">{labels[change.field]}</h3>
-          {canApply(change) && !item.result?.legacy_report && <label className="flex min-h-8 cursor-pointer items-center gap-2 text-sm">
+          <label className="flex min-h-8 items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4 accent-[var(--accent)]" aria-label={`${labels[change.field]} übernehmen`}
-              disabled={busy || !item.can_write} checked={selected.includes(change.field)}
+              aria-describedby={blocked ? reasonId : undefined}
+              disabled={busy || Boolean(blocked)} checked={!blocked && selected.includes(change.field)}
               onChange={event => setSelected(current => event.target.checked ? [...current, change.field] : current.filter(field => field !== change.field))} />
-            Übernehmen</label>}
+            Übernehmen</label>
         </div>
+        {blocked && <p id={reasonId} className="mb-3 text-sm muted">Übernahme gesperrt: {blocked}</p>}
         <div className="grid gap-4 text-sm lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)]">
           <div className="min-w-0 break-words"><p className="mb-1 text-xs muted">Gespeichert</p>{valueText(change.before, change.field)}</div>
           <div className="min-w-0 break-words"><p className="mb-1 text-xs muted">Dokumentangabe</p>{valueText(change.after, change.field, change.currency)}</div>
           <div className="min-w-0 break-words"><FieldFinding change={change} /></div>
         </div>
-      </section>)}
-    </div>}
+      </section>;
+      })}
+      {changes.some(canApply) && item.can_write && !item.result?.legacy_report && <button className="btn-primary mt-4" disabled={busy || !applicable.length} onClick={() => void apply()}>
+        {busy ? "Speichert …" : `${applicable.length} ausgewählte Korrektur(en) übernehmen`}
+      </button>}
+    </details>}
     {unmentioned.length > 0 && <details className="mt-4 text-sm muted"><summary className="cursor-pointer">
       {unmentioned.length} {unmentioned.length === 1 ? "Feld" : "Felder"} im Dokument nicht belegt · gespeicherte Werte bleiben erhalten</summary>
       <dl className="mt-3 grid gap-2 sm:grid-cols-2">{unmentioned.map(change => <div key={change.field}>
@@ -93,9 +107,6 @@ export default function ReviewItemCard({ item, runId }: { item: ReviewItem; runI
     {item.result?.notice_period_evidence && <blockquote className="mt-4 border-l-2 border-[#b8f15a]/50 pl-3 text-sm muted">
       Beleg zur Kündigungsfrist: {item.result.notice_period_evidence}
     </blockquote>}
-    {changes.some(canApply) && item.can_write && !item.result?.legacy_report && <button className="btn-primary mt-4" disabled={busy || !applicable.length} onClick={() => void apply()}>
-      {busy ? "Speichert …" : `${applicable.length} ausgewählte Korrektur(en) übernehmen`}
-    </button>}
     {error && <p role="alert" className="mt-3 text-red-300">{error}</p>}
   </article>;
 }

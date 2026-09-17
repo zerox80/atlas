@@ -13,9 +13,9 @@ from test_review_semantics import observation
 
 import ai_client
 import review_analysis
-from ai_observability import review_context
 from ai_errors import InvalidStructuredAIResponse
 from ai_mistral_transport import MAX_REASONING_HEADER, create_mistral_http_client
+from ai_observability import review_context
 from review_analysis import Section, analyze_bundle
 from review_errors import error_details
 from review_response import validation_issues

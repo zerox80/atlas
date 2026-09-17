@@ -24,9 +24,10 @@ describe("ReviewItemCard", () => {
     render(<ReviewItemCard item={item} runId="review-id" />);
     expect(screen.getByRole("button", { name: /Korrektur\(en\) übernehmen/ })).toBeDisabled();
     expect(screen.queryByRole("checkbox", { name: "Kündigungsfrist (Tage) übernehmen" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /Start.*übernehmen/ })).not.toBeInTheDocument();
     expect(screen.getByText(/gespeicherte Werte bleiben erhalten/)).toBeInTheDocument();
     expect(screen.getByText("Echter Widerspruch")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Bisheriges Start-/Rechnungsdatum übernehmen" })).toBeDisabled();
+    expect(screen.getByText(/Übernahme gesperrt: Diese Angabe gehört nicht/)).toBeInTheDocument();
     expect(screen.getByText("Rechnung.pdf · Seite 2")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Dokument öffnen" })).toHaveAttribute("href", "/invoices?document_id=9");
     expect(api.post).not.toHaveBeenCalled();
@@ -48,7 +49,17 @@ describe("ReviewItemCard", () => {
     ] } }} />);
     expect(screen.getByText("100 €")).toBeInTheDocument();
     expect(screen.getByText("120 USD")).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+  });
+
+  it("shows a disabled selection and the reason for an unverified date from another source", () => {
+    render(<ReviewItemCard runId="review-id" item={{ ...item, result: { changes: [
+      { field: "start_date", before: "2019-09-24", after: "2017-02-07", can_apply: false,
+        status: "AMBIGUOUS", evidence_verified: false, evidence: { page: 14, quote: "RNW vSphere ..." } },
+    ] } }} />);
+    const checkbox = screen.getByRole("checkbox", { name: "Bisheriges Start-/Rechnungsdatum übernehmen" });
+    expect(checkbox).toBeDisabled();
+    expect(checkbox).toHaveAccessibleDescription("Übernahme gesperrt: Beleg nicht verifiziert – Originaldokument prüfen.");
   });
 
   it("shows the failed stage, exact page checkpoint and configured models", () => {
@@ -70,7 +81,7 @@ describe("ReviewItemCard", () => {
     ] } }} />);
     expect(screen.getByText("9.752,05 €")).toBeInTheDocument();
     expect(screen.getByText("2.155,28 €")).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).toBeDisabled();
     expect(screen.queryByText(/Vertragsbestandteile|Unterverträge/)).not.toBeInTheDocument();
   });
 });

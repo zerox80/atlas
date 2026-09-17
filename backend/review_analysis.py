@@ -154,6 +154,9 @@ async def analyze_bundle(sections: list[Section], progress) -> list[dict]:
             fact for fact in extraction.observations if (fact.evidence.document if fact.evidence else 1) == document
         ]})
         results.append(verify_extraction(selected, sources.get(document, {}), document, names.get(document, "Unbekannte Datei")))
+    from review_splits import verify_suggestions
+
+    results[0]["split_proposals"] = verify_suggestions(extraction.document_suggestions, sources, names)
     return results
 
 
