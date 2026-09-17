@@ -27,6 +27,9 @@ Titel und Beschreibung müssen alle hier erkennbaren Vertragsbestandteile abdeck
 eine einzelne Upgrade-Position darf vorhandene Maintenance-Leistungen nicht aus der Zusammenfassung verdrängen.
 Mehrere Positionen zunächst auf gemeinsame Bestellung/Vertragsbindung prüfen und als components erfassen.
 Alle Maintenance-/Wartungspositionen berücksichtigen. Niemals automatisch Unterverträge erzeugen.
+Geräte-/Lizenzpreis und Support-/Wartungskosten als unterschiedliche Vertragsbestandteile erfassen;
+Supportkosten nicht als Gerätepreis oder Gesamtvertragswert behandeln. Technische Seitengrenzen
+begründen keine inhaltliche Trennung oder eigenständige Verträge.
 Nur starke eigenständige Vertragsmerkmale als separate_contract_reasons vorschlagen;
 ein anderer Betrag oder eine andere Position allein genügt nicht.
 entity=document nur für Angaben des geprüften Gesamtvertrags/der Rechnung;

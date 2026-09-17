@@ -58,7 +58,7 @@ describe("ReviewItemCard", () => {
       progress: { completed_pages: 8, total_pages: 22, document_name: "Vertrag.pdf", first_page: 9, last_page: 12, stage: "ocr" },
     } }} />);
     expect(screen.getByRole("note", { name: "Fehlerdetails" })).toHaveTextContent("PROVIDER_HTTP_404 · OCR-Texterkennung · HTTP 404");
-    expect(screen.getByText(/8 von 22 Seiten gespeichert/)).toBeInTheDocument();
+    expect(screen.getByText(/8 von 22 PDF-Seiten fertig geprüft/)).toBeInTheDocument();
     expect(screen.getByText(/Vertrag.pdf · Seiten 9–12/)).toBeInTheDocument();
     expect(screen.getByText(/zai-glm-5-3.*mistral-ocr-4-1/)).toBeInTheDocument();
   });

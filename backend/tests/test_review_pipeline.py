@@ -60,14 +60,14 @@ def test_22_pages_survive_failure_resume_and_other_documents_progress(auth_clien
         progress("analysis")
         calls.append((section.name, section.first_page, section.last_page))
         if section.first_page == 9 and not failed:
-            failed = True
+            failed = section.last_page == 9
             raise TimeoutError("SECRET MODEL CONTENT")
         return [extraction([])]
     monkeypatch.setattr(document_review, "_read_bundle", read)
     monkeypatch.setattr(review_worker, "analyze_section", analyze)
     run = auth_client.post("/ai/reviews").json()
     endpoint = f"/ai/reviews/{run['id']}"
-    for _ in range(3):
+    for _ in range(5):
         assert auth_client.post(endpoint + "/next").status_code == 202
     page = auth_client.get(endpoint)
     first = page.json()["items"][0]
@@ -81,12 +81,12 @@ def test_22_pages_survive_failure_resume_and_other_documents_progress(auth_clien
     assert auth_client.get(endpoint).json()["counts"]["checked"] == 1
     assert auth_client.post(endpoint + "/next").json()["finished"]
     auth_client.post(endpoint + "/retry")
-    for _ in range(4):
+    for _ in range(6):
         auth_client.post(endpoint + "/next")
     page = auth_client.get(endpoint).json()
     assert page["remaining"] == 0 and page["counts"]["checked"] == 2
     assert page["items"][0]["result"]["progress"]["completed_pages"] == 22
-    assert [first for name, first, _ in calls if "Lang" in name] == [1, 5, 9, 9, 13, 17, 21]
+    assert [first for name, first, _ in calls if "Lang" in name] == [1, 5, 9, 9, 9, 9, 10, 11, 13, 17, 21]
 
 
 def test_actual_page_limit_error_includes_setting_count_and_continues(auth_client, session, test_user, monkeypatch):

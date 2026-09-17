@@ -24,7 +24,13 @@ from contract_queries.business_time import BUSINESS_TIMEZONE
 from contract_queries.forms import parse_date_form, validate_cancellation_date
 from database import get_session
 from file_utils import resolve_file_path
-from models import Contract, DocumentReviewItem, DocumentReviewRun, User
+from models import (
+    Contract,
+    DocumentReviewControl,
+    DocumentReviewItem,
+    DocumentReviewRun,
+    User,
+)
 from review_analysis import ReviewProcessingError
 from review_comparison import result_status
 from review_schema import PIPELINE_VERSION, REVIEW_FIELDS
@@ -39,6 +45,11 @@ MAX_BUNDLE_BYTES = 32 * 1024 * 1024
 class ReviewApply(BaseModel):
     model_config = ConfigDict(extra="forbid")
     fields: list[str] = Field(min_length=1, max_length=len(REVIEW_FIELDS))
+
+
+class ReviewCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    start: bool = False
 
 
 def _run(session: Session, run_id: str, user: User) -> DocumentReviewRun:
@@ -76,10 +87,13 @@ def _summary(session: Session, run: DocumentReviewRun) -> dict:
     ).all()
     counts = dict(rows)
     total = sum(counts.values())
+    control = session.get(DocumentReviewControl, run.id)
     return {
         "id": run.id, "model": run.model, "created_at": run.created_at,
         "total": total, "counts": counts,
         "remaining": counts.get("pending", 0) + counts.get("processing", 0),
+        "running": bool(control and control.running and (counts.get("pending", 0) or counts.get("processing", 0))),
+        "run_error": control.error if control else None,
     }
 
 
@@ -94,7 +108,8 @@ def list_reviews(user: User = Depends(get_current_user), session: Session = Depe
 
 @router.post("")
 @limiter.limit("3/hour")
-def create_review(request: Request, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+def create_review(request: Request, body: ReviewCreate | None = None,
+                  user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     _require_ai_availability("Prüfung")
     # All accessible contracts AND invoices, including protected documents,
     # independent of pagination, search filters, and the selected workspace.
@@ -106,6 +121,8 @@ def create_review(request: Request, user: User = Depends(get_current_user), sess
     session.flush()
     for document_id in document_ids:
         session.add(DocumentReviewItem(run_id=run.id, contract_id=document_id))
+    if body and body.start:
+        session.add(DocumentReviewControl(run_id=run.id, running=True))
     session.commit()
     return _summary(session, run)
 
@@ -152,10 +169,38 @@ async def _read_bundle(paths: list[str]) -> list[bytes]:
     return documents
 
 
+@router.post("/{run_id}/start", status_code=202)
+def start_review(run_id: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    _require_ai_availability("Prüfung")
+    run = _run(session, run_id, user)
+    if run.model != MODEL:
+        raise HTTPException(409, "Das Analysemodell wurde geändert. Bitte einen neuen Prüflauf starten.")
+    control = session.get(DocumentReviewControl, run_id) or DocumentReviewControl(run_id=run_id)
+    control.running, control.error = True, None
+    session.add(control)
+    session.commit()
+    return _summary(session, run)
+
+
+@router.post("/{run_id}/pause")
+def pause_review(run_id: str, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    run = _run(session, run_id, user)
+    control = session.get(DocumentReviewControl, run_id)
+    if control:
+        control.running = False
+        session.add(control)
+        session.commit()
+    return _summary(session, run)
+
+
 @router.post("/{run_id}/next", status_code=202)
 @limiter.limit("30/minute")
 async def review_next(run_id: str, request: Request, background_tasks: BackgroundTasks,
                       user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return advance_review(run_id, background_tasks, user, session)
+
+
+def advance_review(run_id: str, background_tasks: BackgroundTasks, user: User, session: Session):
     _require_ai_availability("Prüfung")
     run = _run(session, run_id, user)
     if run.model != MODEL:

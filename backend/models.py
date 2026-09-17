@@ -211,6 +211,14 @@ class DocumentReviewRun(SQLModel, table=True):
     lease_until: datetime | None = None
 
 
+class DocumentReviewControl(SQLModel, table=True):
+    """Persist explicit run/pause intent independently of browser connections."""
+
+    run_id: str = Field(foreign_key="documentreviewrun.id", primary_key=True)
+    running: bool = Field(default=False, nullable=False)
+    error: str | None = None
+
+
 class DocumentReviewItem(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("run_id", "contract_id", name="uq_review_run_document"),

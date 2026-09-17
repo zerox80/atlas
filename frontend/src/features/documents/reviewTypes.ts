@@ -5,6 +5,8 @@ export interface ReviewRun {
   total: number;
   remaining: number;
   counts: Record<string, number>;
+  running?: boolean;
+  run_error?: string | null;
 }
 
 export interface ReviewChange {
@@ -53,6 +55,12 @@ export interface ReviewItem {
       document_name?: string;
       first_page?: number;
       last_page?: number;
+      files?: { name: string; pages: number }[];
+      ocr_completed_pages?: number;
+      stage_started_at?: string;
+      heartbeat_at?: string;
+      request_timeout_seconds?: number;
+      retry_message?: string;
     };
     diagnostic?: { code: string; stage: string; message: string; exception_type?: string; http_status?: number | null; validation_issues?: string[] };
     components?: { name: string; amount_net?: number | null; currency?: string | null; document_name: string;

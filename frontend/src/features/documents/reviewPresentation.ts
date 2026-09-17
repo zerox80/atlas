@@ -21,7 +21,7 @@ export const checkLabels: Record<string, string> = {
 };
 export const stageLabels: Record<string, string> = {
   read: "Datei lesen", prepare: "PDF vorbereiten", ocr: "OCR-Texterkennung", analysis: "KI-Auswertung",
-  waiting: "Nächster Abschnitt ausstehend", complete: "Abgeschlossen", unknown: "Unbekannter Schritt",
+  waiting: "Nächstes Seitenpaket ausstehend", retrying: "Wiederholung mit kleinerem Seitenpaket", complete: "Abgeschlossen", unknown: "Unbekannter Schritt",
 };
 export const sourceLabels: Record<string, string> = {
   invoice: "Rechnung", contract: "Vertrag", amendment: "Nachtrag", order_confirmation: "Auftragsbestätigung",
