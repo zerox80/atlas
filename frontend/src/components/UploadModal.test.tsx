@@ -29,6 +29,24 @@ beforeEach(() => {
 });
 
 describe("UploadModal", () => {
+  it("keeps web research available while editing or clearing a saved notice period", async () => {
+    mocks.get.mockImplementation(async (path) => ({ data: path === "/ai/notice-research"
+      ? { available: true, provider: "mistral", model: "mistral-medium-latest" }
+      : [{ id: 7, name: "Workspace", can_write: true, is_default: true, owner_user_id: 1 }] }));
+    render(<UploadModal isOpen initialData={{ ...existing, title: "Magenta L", description: "Telekom Deutschland", notice_period: 3 }} onClose={vi.fn()} />);
+    const period = screen.getByLabelText("Kündigungsfrist (Tage)");
+    await waitFor(() => expect(period).toHaveValue("3"));
+    await userEvent.click(screen.getByRole("button", { name: "Websuche zur Kündigungsfrist" }));
+    expect(screen.getByRole("textbox", { name: "Öffentliche Suchanfrage" })).toHaveValue("Kündigungsfrist Magenta L – Telekom Deutschland");
+    await userEvent.clear(period);
+    expect(screen.getByRole("button", { name: "Websuche zur Kündigungsfrist" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Öffentliche Suchanfrage" })).toHaveValue("Kündigungsfrist Magenta L – Telekom Deutschland");
+    expect(mocks.post).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledOnce());
+    expect((mocks.put.mock.calls[0][1] as FormData).get("notice_period")).toBe("");
+  });
+
   it("analyzes only the selected PDF and uploads all files in one contract", async () => {
     const close = vi.fn();
     const main = pdf("Hauptvertrag.pdf");

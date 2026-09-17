@@ -159,7 +159,7 @@ const ContractDetailsModal: React.FC<ContractDetailsModalProps> = ({
               </p>
             </div>
 
-            {contract.notice_period == null && <NoticeResearch key={contract.id} />}
+            {!isInvoice && <NoticeResearch key={contract.id} title={contract.title} description={contract.description} />}
             <div
               className={[
                 "mt-5 grid gap-px overflow-hidden rounded-2xl border border-white/[0.07]",

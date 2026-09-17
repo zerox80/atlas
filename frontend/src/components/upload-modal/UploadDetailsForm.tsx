@@ -164,8 +164,9 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
         <label className="block">
           <FieldLabel>Kündigungsfrist (Tage)</FieldLabel>
           <input
-            type="number"
-            min="0"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             value={controller.noticePeriod}
             onChange={(event) => controller.setNoticePeriod(event.target.value)}
             placeholder="Unbekannt – leer lassen"
@@ -173,7 +174,7 @@ const UploadDetailsForm = ({ controller }: UploadDetailsFormProps) => (
           />
         </label>
       )}
-      {!controller.isInvoice && !controller.noticePeriod && <NoticeResearch />}
+      {!controller.isInvoice && <NoticeResearch title={controller.title} description={controller.description} />}
       {controller.analysisWarnings.length > 0 && <ul className="space-y-1 text-sm text-amber-200">
         {controller.analysisWarnings.map((warning, index) => <li key={index}>{warning}</li>)}
       </ul>}
