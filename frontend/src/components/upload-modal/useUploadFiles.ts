@@ -18,6 +18,18 @@ export const formatUploadSize = (bytes: number) =>
 const sameFile = (left: File, right: File) =>
   left.name === right.name && left.size === right.size && left.lastModified === right.lastModified;
 
+export const describeFileRejections = (rejections: FileRejection[]) =>
+  rejections.map(({ file: rejected, errors: reasons }) => {
+    const reason = reasons[0]?.code === "file-too-large"
+      ? `maximal ${formatUploadSize(MAX_UPLOAD_SIZE)} pro Datei`
+      : reasons[0]?.code === "file-too-small"
+        ? "leere Dateien sind nicht erlaubt"
+        : reasons[0]?.code === "too-many-files"
+          ? "bitte genau eine Ersatzdatei auswählen"
+          : "nur PDF, PNG, JPG oder TXT erlaubt";
+    return `${rejected.name}: ${reason}.`;
+  });
+
 export const useUploadFiles = (
   isOpen: boolean,
   initialData: Contract | null | undefined,
@@ -25,35 +37,38 @@ export const useUploadFiles = (
 ) => {
   const [files, setFiles] = useState<File[]>([]);
   const [analysisFile, setAnalysisFile] = useState<File | null>(null);
-  const [replaceMain, setReplaceMain] = useState(false);
+  const [mainReplacement, setMainReplacement] = useState<File | null>(null);
+  const [attachmentReplacements, setAttachmentReplacements] = useState<Record<number, File>>({});
   const [removedAttachmentIds, setRemovedAttachmentIds] = useState<number[]>([]);
   const [fileError, setFileError] = useState("");
   const existingAttachments = initialData?.attachments ?? [];
   const retainedCount = existingAttachments.length - removedAttachmentIds.length;
-  const file = !initialData || replaceMain ? files[0] ?? null : null;
-  const attachments = file ? files.slice(1) : files;
-  const selectedAnalysisFile = analysisFile && files.includes(analysisFile)
+  const file = initialData ? mainReplacement : files[0] ?? null;
+  const replacements = Object.values(attachmentReplacements);
+  const attachments = [...(initialData ? files : files.slice(1)), ...replacements];
+  const attachmentIdsToRemove = [
+    ...removedAttachmentIds, ...Object.keys(attachmentReplacements).map(Number),
+  ];
+  const analysisFiles = [...(mainReplacement ? [mainReplacement] : []), ...files, ...replacements];
+  const selectedAnalysisFile = analysisFile && analysisFiles.includes(analysisFile)
     ? analysisFile
-    : files.find((item) => item.name.toLowerCase().endsWith(".pdf")) ?? null;
+    : analysisFiles.find((item) => item.name.toLowerCase().endsWith(".pdf")) ?? null;
 
   useEffect(() => {
     if (!isOpen) return;
     setFiles([]);
     setAnalysisFile(null);
-    setReplaceMain(false);
+    setMainReplacement(null);
+    setAttachmentReplacements({});
     setRemovedAttachmentIds([]);
     setFileError("");
   }, [isOpen, initialData]);
 
   const onDrop = (acceptedFiles: File[], rejections: FileRejection[]) => {
-    const errors = rejections.map(({ file: rejected, errors: reasons }) => {
-      const reason = reasons[0]?.code === "file-too-large"
-        ? `maximal ${formatUploadSize(MAX_UPLOAD_SIZE)} pro Datei`
-        : "nur PDF, PNG, JPG oder TXT erlaubt";
-      return `${rejected.name}: ${reason}.`;
-    });
+    if (disabled) return;
+    const errors = describeFileRejections(rejections);
     const nextFiles = [...files];
-    const capacity = MAX_DOCUMENT_FILES - retainedCount - (initialData && !replaceMain ? 1 : 0);
+    const capacity = MAX_DOCUMENT_FILES - retainedCount - (initialData ? 1 : 0);
     for (const candidate of acceptedFiles) {
       if (nextFiles.some((existing) => sameFile(existing, candidate))) continue;
       if (nextFiles.length >= capacity) {
@@ -71,6 +86,7 @@ export const useUploadFiles = (
     accept: ACCEPTED_UPLOAD_TYPES,
     multiple: true,
     maxSize: MAX_UPLOAD_SIZE,
+    minSize: 1,
     disabled,
   });
 
@@ -81,32 +97,54 @@ export const useUploadFiles = (
   };
   const makePrimary = (target: File) => {
     if (disabled) return;
-    setFiles((current) => [target, ...current.filter((item) => item !== target)]);
-    if (initialData) setReplaceMain(true);
+    if (initialData) {
+      setMainReplacement(target);
+      setFiles((current) => current.filter((item) => item !== target));
+    } else {
+      setFiles((current) => [target, ...current.filter((item) => item !== target)]);
+    }
+    setFileError("");
+  };
+  const replaceMain = (replacement: File) => {
+    if (disabled) return;
+    setMainReplacement(replacement);
+    setFileError("");
+  };
+  const keepAttachment = (id: number) => {
+    if (disabled) return;
+    setAttachmentReplacements((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    setFileError("");
+  };
+  const replaceAttachment = (id: number, replacement: File) => {
+    if (disabled || removedAttachmentIds.includes(id)) return;
+    setAttachmentReplacements((current) => ({ ...current, [id]: replacement }));
     setFileError("");
   };
   const toggleAttachmentRemoval = (id: number) => {
     if (disabled) return;
-    if (removedAttachmentIds.includes(id) && 1 + retainedCount + attachments.length >= MAX_DOCUMENT_FILES) {
+    if (removedAttachmentIds.includes(id) && 1 + retainedCount + files.length >= MAX_DOCUMENT_FILES) {
       setFileError(`Maximal ${MAX_DOCUMENT_FILES} Dateien pro Dokument.`);
       return;
     }
     setRemovedAttachmentIds((current) => current.includes(id)
       ? current.filter((item) => item !== id) : [...current, id]);
-    setFileError("");
+    keepAttachment(id);
   };
   const keepOriginal = () => {
-    if (1 + retainedCount + files.length > MAX_DOCUMENT_FILES) {
-      setFileError(`Maximal ${MAX_DOCUMENT_FILES} Dateien pro Dokument. Entferne zuerst eine neue Datei.`);
-      return;
-    }
-    setReplaceMain(false);
+    if (disabled) return;
+    setMainReplacement(null);
+    setFileError("");
   };
 
   return {
-    file, files, attachments, fileError, dropzone, selectedAnalysisFile,
-    existingAttachments, removedAttachmentIds, replaceMain,
-    setAnalysisFile, removeFile, makePrimary, toggleAttachmentRemoval, keepOriginal,
+    file, files, attachments, fileError, dropzone, selectedAnalysisFile, analysisFiles,
+    existingAttachments, removedAttachmentIds, attachmentIdsToRemove, attachmentReplacements,
+    setAnalysisFile, setFileError, removeFile, makePrimary, toggleAttachmentRemoval,
+    replaceMain, replaceAttachment, keepOriginal, keepAttachment,
   };
 };
 
