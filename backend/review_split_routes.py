@@ -12,12 +12,22 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, col, select, update
 
-from api_core import check_contract_permission, check_workspace_permission, get_current_user
+from api_core import (
+    check_contract_permission,
+    check_workspace_permission,
+    get_current_user,
+)
 from contract_queries.forms import parse_date_form, validate_cancellation_date
 from database import get_session
 from document_review import _document, _lock_item, _read_bundle, _run
 from file_utils import delete_upload_file, save_upload_file
-from models import Contract, ContractPermission, DocumentReviewItem, DocumentSplitRecord, User
+from models import (
+    Contract,
+    ContractPermission,
+    DocumentReviewItem,
+    DocumentSplitRecord,
+    User,
+)
 from review_schema import PIPELINE_VERSION
 from schemas import ContractCreate
 from security_utils import log_audit
@@ -91,7 +101,7 @@ async def decide_split(run_id: str, item_id: int, body: SplitDecision,
     if (not body.selected or len(set(body.selected)) != len(body.selected)
             or any(index < 0 or index >= len(proposals) for index in body.selected)):
         raise HTTPException(422, "Bitte gültige Einträge auswählen.")
-    if any(not check_workspace_permission(user, workspace.id, "write", session) for workspace in source.lists):
+    if any(workspace.id is None or not check_workspace_permission(user, workspace.id, "write", session) for workspace in source.lists):
         raise HTTPException(403, "Für neue Einträge sind Schreibrechte in den Arbeitsbereichen des Originals erforderlich.")
     paths = [source.file_path] + [attachment.file_path for attachment in source.attachments
                                   if Path(attachment.file_path).suffix.lower() == ".pdf"]
@@ -122,6 +132,7 @@ async def decide_split(run_id: str, item_id: int, body: SplitDecision,
             document.lists = list(source.lists)
             session.add(document)
             session.flush()
+            assert document.id is not None
             for permission in permissions:
                 session.add(ContractPermission(user_id=permission.user_id, contract_id=document.id,
                                                permission_level=permission.permission_level))

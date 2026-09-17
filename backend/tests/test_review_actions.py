@@ -12,7 +12,7 @@ from test_review_semantics import extraction, observation
 from document_review import snapshot
 from models import Contract, ContractPermission, DocumentReviewItem, DocumentReviewRun
 from review_comparison import build_review_result
-from review_schema import DocumentSuggestion, PIPELINE_VERSION
+from review_schema import PIPELINE_VERSION, DocumentSuggestion
 from review_splits import verify_suggestions
 
 
@@ -110,7 +110,7 @@ def test_split_creates_real_independent_pdfs_once_and_preserves_original(auth_cl
 
 @pytest.mark.parametrize("failure", ["version", "bytes", "permission", "selection", "declined"])
 def test_split_rejects_unsafe_or_declined_creation(auth_client, session, test_user, tmp_path, monkeypatch, failure):
-    source, item, url, _ = make_review(session, test_user, tmp_path, monkeypatch)
+    source, _, url, _ = make_review(session, test_user, tmp_path, monkeypatch)
     if failure == "version":
         source.version += 1
         session.add(source)

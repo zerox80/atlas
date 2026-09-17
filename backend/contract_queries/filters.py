@@ -91,9 +91,9 @@ def build_contract_query(
             ContractListLink.list_id == list_id
         )
     if min_value is not None:
-        statement = statement.where(Contract.value >= min_value)
+        statement = statement.where(col(Contract.value) >= min_value)
     if max_value is not None:
-        statement = statement.where(Contract.value <= max_value)
+        statement = statement.where(col(Contract.value) <= max_value)
     if start_date_from:
         statement = statement.where(
             col(Contract.start_date).is_not(None),

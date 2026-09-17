@@ -17,12 +17,12 @@ def migration_015_nullable_gross_value(cursor: sqlite3.Cursor) -> None:
     try:
         schema = cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='contract'").fetchone()[0]
         schema, count = re.subn(r'((?:"value"|`value`|\[value\]|\bvalue\b)\s+[^,)]*?)\s+NOT\s+NULL\b',
-                                r"\1", schema, count=1, flags=re.I | re.S)
+                                r"\1", schema, count=1, flags=re.IGNORECASE | re.DOTALL)
         if count != 1:
             raise RuntimeError("Could not make contract.value nullable")
         schema, count = re.subn(r'^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?'
                                 r'(?:"contract"|`contract`|\[contract\]|contract)(?=\s|\()',
-                                "CREATE TABLE contract_rebuild", schema, count=1, flags=re.I)
+                                "CREATE TABLE contract_rebuild", schema, count=1, flags=re.IGNORECASE)
         if count != 1:
             raise RuntimeError("Could not rebuild contract table")
         objects = cursor.execute("SELECT sql FROM sqlite_master WHERE tbl_name='contract' "
