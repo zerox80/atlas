@@ -13,6 +13,7 @@ from test_review_semantics import observation
 
 import ai_client
 import review_analysis
+from ai_observability import review_context
 from ai_errors import InvalidStructuredAIResponse
 from ai_mistral_transport import MAX_REASONING_HEADER, create_mistral_http_client
 from review_analysis import Section, analyze_section
@@ -107,6 +108,31 @@ async def test_transport_failure_does_not_trigger_format_retry(monkeypatch, ocr,
     with pytest.raises(type(error)):
         await analyze_section(SECTION, 1, lambda stage: None)
     assert complete.await_count == 1
+
+
+@pytest.mark.parametrize("bad, reason, issue", [
+    (response(invalid_reply()), "schema_validation", "observations.0.entity: missing"),
+    (response("PRIVATE_INVALID_JSON"), "invalid_json", "validation_issues=-"),
+    (response("PRIVATE_TRUNCATED", "length"), "incomplete_response", "finish_reason=length"),
+    (SimpleNamespace(choices=[]), "incomplete_response", "finish_reason=missing_choice"),
+])
+async def test_rejection_logs_explain_both_attempts_without_response_text(monkeypatch, ocr, caplog, bad, reason, issue):
+    complete = AsyncMock(return_value=bad)
+    monkeypatch.setattr(review_analysis, "complete_chat_with_timeout", complete)
+    token = review_context.set("run=synthetic item=151")
+    try:
+        with pytest.raises((ValidationError, InvalidStructuredAIResponse)):
+            await analyze_section(SECTION, 1, lambda stage: None)
+    finally:
+        review_context.reset(token)
+    messages = [record.message for record in caplog.records if "Review response rejected" in record.message]
+    assert len(messages) == 2
+    assert "attempt=1" in messages[0] and "retry=True" in messages[0]
+    assert "attempt=2" in messages[1] and "retry=False" in messages[1]
+    for message in messages:
+        assert "run=synthetic item=151 document=1 pages=5-5 fragment=1" in message
+        assert f"reason={reason}" in message and issue in message
+        assert "PRIVATE" not in message and "UNTRUSTED" not in message
 
 
 async def test_corrected_schema_still_requires_verified_source_evidence(monkeypatch, ocr):

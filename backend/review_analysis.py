@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -17,14 +18,16 @@ from ai_client import (
 )
 from ai_document_processing import MAX_OCR_CHARACTERS, MAX_PDF_PAGES, use_ocr_mode
 from ai_errors import InvalidStructuredAIResponse
+from ai_observability import response_finish_reason, review_context
 from ai_service import _parse_analysis_response, _processed_document_payload
 from review_evidence import verify_extraction
 from review_prompts import REVIEW_SYSTEM_PROMPT, extraction_prompt
-from review_response import correction_prompt, review_response_format
+from review_response import correction_prompt, review_response_format, validation_issues
 from review_schema import ReviewExtraction
 
 SECTION_PAGES = max(1, min(10, int(os.getenv("MISTRAL_REVIEW_SECTION_PAGES", "4"))))
 SECTION_CHARACTERS = max(4000, min(MAX_OCR_CHARACTERS, 30_000))
+logger = logging.getLogger("atlas.review")
 
 
 class ReviewProcessingError(ValueError):
@@ -121,7 +124,7 @@ async def analyze_section(section: Section, owner_id: int, progress) -> list[dic
         section.ocr_pages = section_pages(text, section)
     pages = section.ocr_pages
     results = []
-    for fragment in text_sections(pages):
+    for fragment_number, fragment in enumerate(text_sections(pages), 1):
         prompt = extraction_prompt(fragment, section.document, section.first_page, section.last_page)
         feedback = ""
         # Each bounded request, including the correction, gets its own deadline.
@@ -139,6 +142,15 @@ async def analyze_section(section: Section, owner_id: int, progress) -> list[dic
                 content = extract_response_text(response.choices[0].message.content)
                 extraction = ReviewExtraction.model_validate(_parse_analysis_response(content))
             except (InvalidStructuredAIResponse, ValidationError) as exc:
+                reason = ("schema_validation" if isinstance(exc, ValidationError) else
+                          "incomplete_response" if response_finish_reason(response) != "stop" else "invalid_json")
+                logger.warning(
+                    "Review response rejected %s document=%s pages=%s-%s fragment=%s attempt=%s "
+                    "reason=%s finish_reason=%s retry=%s validation_issues=%s",
+                    review_context.get(), section.document, section.first_page, section.last_page,
+                    fragment_number, attempt + 1, reason, response_finish_reason(response), not bool(attempt),
+                    "; ".join(validation_issues(exc)) if isinstance(exc, ValidationError) else "-",
+                )
                 if attempt:
                     raise
                 # Never replay provider text as instructions or expose it in diagnostics.

@@ -34,7 +34,7 @@ export default function ReviewProgress({ item }: { item: ReviewItem }) {
         {progress.request_timeout_seconds != null && ` · Zeitlimit je OCR-/KI-Anfrage: ${progress.request_timeout_seconds} Sekunden`}</p>
       {progress.heartbeat_at && <p className={stale ? "text-[var(--warning)]" : ""}>{stale
         ? "Kein aktuelles Lebenszeichen empfangen. Verbindung oder Serververarbeitung prüfen."
-        : "Serververarbeitung aktiv · Lebenszeichen wird regelmäßig aktualisiert."}</p>}
+        : "Atlas-Server aktiv · Das Lebenszeichen bestätigt keinen Fortschritt beim KI-Anbieter."}</p>}
     </div>}
   </div>;
 }
