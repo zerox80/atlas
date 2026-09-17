@@ -1,6 +1,7 @@
 import { FiCheck, FiUploadCloud, FiX, FiZap } from "react-icons/fi";
 import type { Contract } from "../types";
 import AttachmentList from "./upload-modal/AttachmentList";
+import ReplaceFileButton from "./upload-modal/ReplaceFileButton";
 import {
   formatUploadSize, MAX_DOCUMENT_FILES, MAX_UPLOAD_SIZE,
   type UploadFilesController,
@@ -18,9 +19,9 @@ interface UploadSourcePanelProps {
 const UploadSourcePanel = ({
   controller, initialData, documentLabel, analyzing, uploading, onAnalyze,
 }: UploadSourcePanelProps) => {
-  const { files, file, fileError, dropzone, selectedAnalysisFile } = controller;
+  const { files, file, fileError, dropzone, selectedAnalysisFile, analysisFiles } = controller;
   const busy = analyzing || uploading;
-  const pdfFiles = files.filter((item) => item.name.toLowerCase().endsWith(".pdf"));
+  const pdfFiles = analysisFiles.filter((item) => item.name.toLowerCase().endsWith(".pdf"));
 
   return (
     <aside className="min-w-0 border-b border-white/[0.07] bg-black/15 p-5 sm:p-7 lg:border-b-0 lg:border-r">
@@ -53,15 +54,24 @@ const UploadSourcePanel = ({
       </div>
 
       {initialData && (
-        <div className="mt-4 min-w-0 rounded-2xl border border-white/10 p-3 text-xs">
+        <section aria-label="Gespeichertes Hauptdokument" className="mt-4 min-w-0 rounded-2xl border border-white/10 p-3 text-xs">
           <p className="font-semibold">Gespeichertes Hauptdokument</p>
-          <p className="mt-1 truncate text-white/50" title={initialData.title}>{initialData.title}</p>
+          <p className={`mt-1 truncate text-white/50 ${file ? "line-through" : ""}`} title={initialData.title}>{initialData.title}{initialData.file_extension}</p>
           {file && (
-            <button type="button" disabled={busy} onClick={controller.keepOriginal} className="mt-2 text-amber-200 underline">
-              Wird ersetzt · Original behalten
-            </button>
+            <>
+              <p className="mt-2 truncate text-sm font-semibold text-emerald-100" title={file.name}>{file.name}</p>
+              <p className="mt-1 text-white/40">{formatUploadSize(file.size)} · Wird beim Speichern ersetzt</p>
+            </>
           )}
-        </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <ReplaceFileButton name="Hauptdokument" disabled={busy} onReplace={controller.replaceMain} onError={controller.setFileError} />
+            {file && (
+              <button type="button" aria-label="Hauptdokument beibehalten" disabled={busy} onClick={controller.keepOriginal} className="btn-ghost px-2 text-xs disabled:opacity-40">
+                Original behalten
+              </button>
+            )}
+          </div>
+        </section>
       )}
 
       {files.length > 0 && (
@@ -92,7 +102,11 @@ const UploadSourcePanel = ({
           contractId={initialData.id}
           attachments={controller.existingAttachments}
           removedIds={controller.removedAttachmentIds}
+          replacements={controller.attachmentReplacements}
           onToggleRemoval={controller.toggleAttachmentRemoval}
+          onReplace={controller.replaceAttachment}
+          onKeepOriginal={controller.keepAttachment}
+          onError={controller.setFileError}
           disabled={busy}
         />
       )}
@@ -103,16 +117,16 @@ const UploadSourcePanel = ({
 
       {selectedAnalysisFile && (
         <div className="mt-5 min-w-0">
-          {files.length > 1 && (
+          {pdfFiles.length > 1 && (
             <label className="block min-w-0 text-xs font-semibold text-[var(--muted)]">
               KI-Quelldatei
               <select
                 className="field mt-2 min-w-0 max-w-full truncate"
-                value={files.indexOf(selectedAnalysisFile)}
+                value={analysisFiles.indexOf(selectedAnalysisFile)}
                 disabled={busy}
-                onChange={(event) => controller.setAnalysisFile(files[Number(event.target.value)])}
+                onChange={(event) => controller.setAnalysisFile(analysisFiles[Number(event.target.value)])}
               >
-                {pdfFiles.map((item) => <option key={files.indexOf(item)} value={files.indexOf(item)}>{item.name}</option>)}
+                {pdfFiles.map((item) => <option key={analysisFiles.indexOf(item)} value={analysisFiles.indexOf(item)}>{item.name}</option>)}
               </select>
             </label>
           )}
@@ -128,6 +142,7 @@ const UploadSourcePanel = ({
         </div>
       )}
       <div className="mt-7 space-y-3 text-xs text-white/40">
+        {initialData && <p>Dateien einzeln ersetzen oder Anhänge mit × entfernen. Änderungen gelten erst nach dem Speichern.</p>}
         <p className="eyebrow">So funktioniert’s</p>
         <p>01 · Hauptdokument und Anhänge auswählen</p>
         <p>02 · Optional Details aus einer PDF mit KI übernehmen</p>

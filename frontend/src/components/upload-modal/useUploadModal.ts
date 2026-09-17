@@ -38,7 +38,7 @@ export const useUploadModal = ({
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const uploadFiles = useUploadFiles(isOpen, initialData, uploading || analyzing);
-  const { file, attachments, removedAttachmentIds, selectedAnalysisFile } = uploadFiles;
+  const { file, attachments, attachmentIdsToRemove, selectedAnalysisFile } = uploadFiles;
   const [workspaceId, setWorkspaceId] = useState(0);
   const queryClient = useQueryClient();
   const { user } = useUser();
@@ -178,7 +178,7 @@ export const useUploadModal = ({
       const formData = new FormData();
       if (file) formData.append("file", file);
       attachments.forEach((attachment) => formData.append("attachments", attachment));
-      removedAttachmentIds.forEach((id) => formData.append("removed_attachment_ids", id.toString()));
+      attachmentIdsToRemove.forEach((id) => formData.append("removed_attachment_ids", id.toString()));
       formData.append("title", title);
       formData.append("description", description || "");
       formData.append("value", parsedValue !== null ? parsedValue.toString() : "");
