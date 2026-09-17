@@ -168,9 +168,11 @@ async def test_real_sdk_transmits_schema_and_preserves_reasoning(monkeypatch, oc
     schema = fmt["json_schema"]["schema"]
     assert "schema_definition" not in fmt["json_schema"]
     for node in [schema, *schema["$defs"].values()]:
-        assert node["additionalProperties"] is False
-        assert set(node["required"]) == set(node["properties"])
-    assert {"evidence", "entity"} <= set(schema["$defs"]["Observation"]["required"])
+        for variant in node.get("anyOf", [node]):
+            assert variant["additionalProperties"] is False
+            assert set(variant["required"]) == set(variant["properties"])
+    for variant in schema["$defs"]["Observation"]["anyOf"]:
+        assert {"evidence", "entity"} <= set(variant["required"])
 
 
 async def test_default_review_uses_high_even_when_general_chat_uses_max(monkeypatch, ocr):
