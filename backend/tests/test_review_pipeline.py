@@ -47,53 +47,53 @@ def add_document(session, user, title):
 
 
 @pytest.mark.parametrize("status", [None, 504])
-def test_22_pages_survive_failure_resume_and_other_documents_progress(auth_client, session, test_user, monkeypatch, status):
+def test_22_pages_scan_once_and_failed_analysis_resumes_without_rescanning(auth_client, session, test_user, monkeypatch, status):
     add_document(session, test_user, "Lang")
     add_document(session, test_user, "Kurz")
     long_pdf, short_pdf = pdf_bytes(22), pdf_bytes(1)
     async def read(paths):
         return [long_pdf if "Lang" in paths[0] else short_pdf]
     calls = []
-    failed = False
-    async def analyze(section, owner_id, progress):
-        nonlocal failed
+    async def scan(section, owner_id, progress):
         progress("ocr")
-        progress("analysis")
         calls.append((section.name, section.first_page, section.last_page))
-        if section.first_page == 9 and not failed:
-            failed = section.last_page == 9
-            if status:
-                raise SDKError("SECRET MODEL CONTENT", httpx.Response(status, request=httpx.Request("POST", "https://api.mistral.ai")), "SECRET RAW BODY")
-            raise TimeoutError("SECRET MODEL CONTENT")
+        return {page: f"PRIVATE_SOURCE_{page}" for page in range(section.first_page, section.last_page + 1)}
+    error = TimeoutError() if status is None else SDKError(
+        "SECRET MODEL CONTENT", httpx.Response(status, request=httpx.Request("POST", "https://api.mistral.ai")), "SECRET RAW BODY")
+    async def analyze(sections, progress):
+        progress("analysis")
+        if "Lang" in sections[0].name and analyze_mock.await_count == 1:
+            raise error
         return [extraction([])]
+    analyze_mock = AsyncMock(side_effect=analyze)
     monkeypatch.setattr(document_review, "_read_bundle", read)
-    monkeypatch.setattr(review_worker, "analyze_section", analyze)
-    run = auth_client.post("/ai/reviews").json()
-    endpoint = f"/ai/reviews/{run['id']}"
-    for _ in range(5):
+    monkeypatch.setattr(review_worker, "scan_section", scan)
+    monkeypatch.setattr(review_worker, "analyze_bundle", analyze_mock)
+    endpoint = "/ai/reviews/" + auth_client.post("/ai/reviews").json()["id"]
+    for index in range(6):
         assert auth_client.post(endpoint + "/next").status_code == 202
+        item = auth_client.get(endpoint).json()["items"][0]
+        assert item["result"]["progress"]["ocr_completed_pages"] == min((index + 1) * 4, 22)
+        assert item["result"]["progress"]["completed_pages"] == 0
+        assert analyze_mock.await_count == 0
+    auth_client.post(endpoint + "/next")
     page = auth_client.get(endpoint)
     first = page.json()["items"][0]
     assert first["status"] == "error"
-    assert first["result"]["progress"]["completed_pages"] == 8
-    assert first["result"]["progress"]["total_pages"] == 22
+    assert first["result"]["progress"]["ocr_completed_pages"] == 22
     assert first["result"]["diagnostic"]["stage"] == "analysis"
     assert first["result"]["diagnostic"]["code"] == ("TIMEOUT" if status is None else "PROVIDER_HTTP_504")
-    if status:
-        assert first["result"]["diagnostic"]["http_status"] == status
-        assert "Ein höheres Atlas-Zeitlimit" in first["error"]
-    assert "retry_message" not in first["result"]["progress"]
-    assert "SECRET" not in page.text and "checkpoint" not in page.text
-    auth_client.post(endpoint + "/next")
-    assert auth_client.get(endpoint).json()["counts"]["checked"] == 1
-    assert auth_client.post(endpoint + "/next").json()["finished"]
-    auth_client.post(endpoint + "/retry")
-    for _ in range(6):
+    assert "SECRET" not in page.text and "PRIVATE_SOURCE" not in page.text and "checkpoint" not in page.text
+    for _ in range(2):
         auth_client.post(endpoint + "/next")
+    assert auth_client.get(endpoint).json()["counts"]["checked"] == 1
+    auth_client.post(endpoint + "/retry")
+    auth_client.post(endpoint + "/next")
     page = auth_client.get(endpoint).json()
     assert page["remaining"] == 0 and page["counts"]["checked"] == 2
     assert page["items"][0]["result"]["progress"]["completed_pages"] == 22
-    assert [first for name, first, _ in calls if "Lang" in name] == [1, 5, 9, 9, 9, 9, 10, 11, 13, 17, 21]
+    assert [first for name, first, _ in calls if "Lang" in name] == [1, 5, 9, 13, 17, 21]
+    assert analyze_mock.await_count == 3  # failed long + successful short + manual long retry
 
 
 def test_actual_page_limit_error_includes_setting_count_and_continues(auth_client, session, test_user, monkeypatch):
@@ -148,16 +148,12 @@ def test_real_22_page_pdf_is_split_without_the_image_limit():
 
 async def test_each_document_has_independent_prompt_without_other_contracts(monkeypatch):
     monkeypatch.setattr(review_analysis, "get_client", lambda: object())
-    monkeypatch.setattr(review_analysis, "_processed_document_payload", AsyncMock(side_effect=[
-        ("ocr", "## Seite 1\nALPHA_UNIQUE_CONTRACT"), ("ocr", "## Seite 1\nBETA_UNIQUE_CONTRACT"),
-    ]))
     complete = AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(
-        content=json.dumps({"document_type": "contract", "observations": [], "components": [], "warnings": []}))) ]))
+        content=json.dumps({"document_type": "contract", "observations": [], "warnings": []}))) ]))
     monkeypatch.setattr(review_analysis, "complete_chat_with_timeout", complete)
-    for name in ("alpha", "beta"):
-        await review_analysis.analyze_section(Section(1, name, 1, 1, b"pdf"), 1, lambda stage: None)
+    for name in ("ALPHA", "BETA"):
+        await review_analysis.analyze_bundle([Section(1, name, 1, 1, b"pdf", {1: name + "_UNIQUE_CONTRACT"})], lambda stage: None)
     first, second = [call.kwargs["messages"] for call in complete.call_args_list]
-    assert [message["role"] for message in second] == ["system", "user"]
     assert "ALPHA_UNIQUE_CONTRACT" in first[1]["content"] and "ALPHA_UNIQUE_CONTRACT" not in str(second)
     assert "BETA_UNIQUE_CONTRACT" in second[1]["content"] and "BETA_UNIQUE_CONTRACT" not in str(first)
 
@@ -172,16 +168,16 @@ def test_provider_diagnostics_preserve_status_without_response_body():
 def test_changed_section_size_never_skips_pages_on_resume(auth_client, session, test_user, monkeypatch):
     add_document(session, test_user, "Planwechsel")
     monkeypatch.setattr(document_review, "_read_bundle", AsyncMock(return_value=[pdf_bytes(22)]))
-    analyze = AsyncMock(return_value=[extraction([])])
-    monkeypatch.setattr(review_worker, "analyze_section", analyze)
+    scan = AsyncMock(return_value={page: "source" for page in range(1, 5)})
+    monkeypatch.setattr(review_worker, "scan_section", scan)
     endpoint = "/ai/reviews/" + auth_client.post("/ai/reviews").json()["id"]
     auth_client.post(endpoint + "/next")
     monkeypatch.setattr(review_analysis, "SECTION_PAGES", 8)
     auth_client.post(endpoint + "/next")
     item = auth_client.get(endpoint).json()["items"][0]
     assert item["status"] == "error" and item["result"]["diagnostic"]["code"] == "CONFIG_CHANGED"
-    assert item["result"]["progress"]["completed_pages"] == 4
-    assert analyze.await_count == 1
+    assert item["result"]["progress"]["ocr_completed_pages"] == 4
+    assert scan.await_count == 1
 
 
 def test_split_pdfs_are_stable_for_existing_ocr_cache():
@@ -189,3 +185,18 @@ def test_split_pdfs_are_stable_for_existing_ocr_cache():
     first, _ = split_documents([data], ["cache.pdf"])
     second, _ = split_documents([data], ["cache.pdf"])
     assert [part.pdf for part in first] == [part.pdf for part in second]
+
+
+async def test_100_page_document_has_one_model_call_and_complete_text(monkeypatch):
+    sections, _ = split_documents([pdf_bytes(100)], ["long.pdf"])
+    for section in sections:
+        section.ocr_pages = {page: f"UNIQUE_PAGE_{page}_END" for page in range(section.first_page, section.last_page + 1)}
+    complete = AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(
+        content=json.dumps({"document_type": "contract", "observations": [], "warnings": []})))]))
+    monkeypatch.setattr(review_analysis, "get_client", lambda: object())
+    monkeypatch.setattr(review_analysis, "complete_chat_with_timeout", complete)
+    await review_analysis.analyze_bundle(sections, lambda stage: None)
+    complete.assert_awaited_once()
+    text = complete.call_args.kwargs["messages"][1]["content"]
+    for page in range(1, 101):
+        assert text.count(f"UNIQUE_PAGE_{page}_END") == 1
