@@ -35,6 +35,10 @@ _PRIVATE_PATTERNS = re.compile(
 )
 
 
+class UnverifiedResearchAnswer(ValueError):
+    """A provider answered without a usable answer grounded in web sources."""
+
+
 class ResearchRequest(BaseModel):
     # No document ID, title, description, OCR, attachments, or conversation field.
     model_config = ConfigDict(extra="forbid")
@@ -91,9 +95,16 @@ def _source(value: dict) -> dict | None:
 
 
 def parse_research_response(payload: dict, provider: str) -> tuple[str, list[dict]]:
+    if not isinstance(payload, dict):
+        raise TypeError("Invalid provider response")
+    outputs = payload.get("outputs" if provider == "mistral" else "output", [])
+    if not isinstance(outputs, list):
+        raise TypeError("Invalid provider outputs")
     texts, sources = [], []
     searched = False
-    for output in payload.get("outputs" if provider == "mistral" else "output", []):
+    for output in outputs:
+        if not isinstance(output, dict):
+            raise TypeError("Invalid provider output")
         if provider == "mistral":
             searched |= output.get("type") == "tool.execution" and output.get("name") in {"web_search", "web_search_premium"}
             if output.get("type") != "message.output":
@@ -106,10 +117,20 @@ def parse_research_response(payload: dict, provider: str) -> tuple[str, list[dic
         if isinstance(content, str):
             texts.append(content)
             continue
+        if not isinstance(content, list):
+            raise TypeError("Invalid provider content")
         for part in content:
+            if not isinstance(part, dict):
+                raise TypeError("Invalid provider content part")
             if part.get("type") in {"text", "output_text"}:
-                texts.append(part.get("text", ""))
-                for annotation in part.get("annotations", []):
+                text = part.get("text", "")
+                annotations = part.get("annotations", [])
+                if not isinstance(text, str) or not isinstance(annotations, list):
+                    raise TypeError("Invalid provider text")
+                texts.append(text)
+                for annotation in annotations:
+                    if not isinstance(annotation, dict):
+                        raise TypeError("Invalid provider annotation")
                     if annotation.get("type") == "url_citation":
                         sources.append(annotation)
             elif part.get("type") == "tool_reference" and part.get("tool") in {"web_search", "web_search_premium"}:
@@ -119,8 +140,8 @@ def parse_research_response(payload: dict, provider: str) -> tuple[str, list[dic
         source = _source(item)
         if source:
             unique[source["url"]] = source
-    if not searched or not unique or not any(texts):
-        raise ValueError("Keine durch Websuche belegten Quellen zurückgegeben.")
+    if not searched or not unique or not any(text.strip() for text in texts):
+        raise UnverifiedResearchAnswer("Keine durch Websuche belegte Antwort zurückgegeben.")
     return "\n\n".join(texts), list(unique.values())
 
 
@@ -134,7 +155,9 @@ async def research_public_query(query: str) -> dict:
         url = "https://api.mistral.ai/v1/conversations"
         payload = {"model": model, "instructions": INSTRUCTIONS, "inputs": query,
                    "tools": [{"type": "web_search"}], "store": False, "stream": False,
-                   "completion_args": {"tool_choice": "any", "max_tokens": 4000}}
+                   # Allow the server's tool loop to finish with an answer. The parser
+                   # still requires actual web-search execution and source references.
+                   "completion_args": {"max_tokens": 4000}}
     else:
         url = "https://api.openai.com/v1/responses"
         payload = {"model": model, "instructions": INSTRUCTIONS, "input": query,
@@ -151,10 +174,30 @@ async def research_public_query(query: str) -> dict:
 @router.post("")
 @limiter.limit("5/minute")
 async def research_notice(body: ResearchRequest, request: Request, user: User = Depends(get_current_user)):
+    provider = {"mistral": "Mistral", "openai": "OpenAI"}.get(_config()[0], "Der Suchanbieter")
+    unchanged = " Die Kündigungsfrist bleibt unverändert."
     try:
         return await research_public_query(body.query)
     except HTTPException:
         raise
-    except (httpx.HTTPError, TimeoutError, ValueError, TypeError, KeyError):
-        # No prompt/provider payload in errors or logs.
-        raise HTTPException(502, "Webrecherche fehlgeschlagen oder ohne belegte Quellen. Die Kündigungsfrist bleibt unverändert.") from None
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        reason = {
+            400: "hat die Suchanfrage abgelehnt. Suchmodell und Websuche-Konfiguration prüfen",
+            401: "hat den API-Schlüssel abgelehnt. Den Suchschlüssel auf dem Server prüfen",
+            402: "verlangt verfügbares Guthaben für die Websuche. Abrechnung beim Anbieter prüfen",
+            403: "verweigert den Zugriff. Berechtigungen für Suchmodell und Websuche prüfen",
+            404: "konnte das konfigurierte Suchmodell oder den Recherche-Endpunkt nicht finden",
+            422: "hat die Suchanfrage abgelehnt. Suchmodell und Websuche-Konfiguration prüfen",
+            429: "meldet ein Anfrage- oder Kontingentlimit. Später erneut versuchen und das Kontingent prüfen",
+        }.get(status, "konnte die Websuche nicht ausführen. Später erneut versuchen")
+        # Never expose the provider's body, request query, or credentials.
+        raise HTTPException(502, f"{provider} {reason} (HTTP {status})." + unchanged) from None
+    except (httpx.TimeoutException, TimeoutError):
+        raise HTTPException(504, f"{provider} hat die Websuche nicht innerhalb von {RESEARCH_TIMEOUT} Sekunden abgeschlossen." + unchanged) from None
+    except httpx.RequestError:
+        raise HTTPException(502, f"{provider} konnte vom Atlas-Server nicht erreicht werden." + unchanged) from None
+    except UnverifiedResearchAnswer:
+        raise HTTPException(502, f"{provider} hat keine durch Websuche belegte Antwort mit Quellen geliefert. Anbieter, Tarif und Vertragsjahr genauer angeben." + unchanged) from None
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(502, f"Die Antwort von {provider} konnte nicht verarbeitet werden. Das Antwortformat war ungültig." + unchanged) from None
