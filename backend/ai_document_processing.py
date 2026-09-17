@@ -17,6 +17,7 @@ from ai_client import (
     retry_on_rate_limit,
 )
 from ai_models import is_glm_model
+from ai_observability import observed_request
 
 OCR_TABLE_FORMAT = os.getenv("MISTRAL_OCR_TABLE_FORMAT", "markdown").lower()
 OCR_CONFIDENCE_GRANULARITY = os.getenv(
@@ -264,7 +265,7 @@ async def process_pdf_with_ocr(pdf_bytes: bytes) -> str:
     """Process a PDF with Mistral OCR and return normalized page text."""
     client = get_client()
     pdf_base64 = base64.b64encode(pdf_bytes).decode()
-    ocr_response = await asyncio.wait_for(
+    ocr_response = await observed_request(
         retry_on_rate_limit(
             client.ocr.process_async,
             **build_ocr_options(),
@@ -273,6 +274,6 @@ async def process_pdf_with_ocr(pdf_bytes: bytes) -> str:
                 "document_url": f"data:application/pdf;base64,{pdf_base64}",
             },
         ),
-        timeout=AI_REQUEST_TIMEOUT_SECONDS,
+        operation="ocr", model=OCR_MODEL, timeout=AI_REQUEST_TIMEOUT_SECONDS,
     )
     return format_ocr_text(ocr_response)

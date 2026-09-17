@@ -1,6 +1,7 @@
 """Resumable document review; one bounded, leased background section at a time."""
 
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -40,6 +41,7 @@ from security_utils import log_audit
 
 router = APIRouter(prefix="/ai/reviews", tags=["document review"])
 MAX_BUNDLE_BYTES = 32 * 1024 * 1024
+logger = logging.getLogger("atlas.review")
 
 
 class ReviewApply(BaseModel):
@@ -124,6 +126,7 @@ def create_review(request: Request, body: ReviewCreate | None = None,
     if body and body.start:
         session.add(DocumentReviewControl(run_id=run.id, running=True))
     session.commit()
+    logger.info("Review run created run=%s items=%s running=%s", run.id, len(document_ids), bool(body and body.start))
     return _summary(session, run)
 
 
@@ -179,6 +182,7 @@ def start_review(run_id: str, user: User = Depends(get_current_user), session: S
     control.running, control.error = True, None
     session.add(control)
     session.commit()
+    logger.info("Review run started run=%s", run.id)
     return _summary(session, run)
 
 
@@ -190,6 +194,7 @@ def pause_review(run_id: str, user: User = Depends(get_current_user), session: S
         control.running = False
         session.add(control)
         session.commit()
+    logger.info("Review run paused run=%s", run.id)
     return _summary(session, run)
 
 
