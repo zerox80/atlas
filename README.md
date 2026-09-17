@@ -130,7 +130,7 @@ Die KI Analyse nutzt standardmäßig Mistral OCR 4 über das Modell `mistral-ocr
 ```env
 MISTRAL_CHAT_MODEL=mistral-medium-3-5
 MISTRAL_REASONING_EFFORT=high
-MISTRAL_REQUEST_TIMEOUT_SECONDS=300
+MISTRAL_REQUEST_TIMEOUT_SECONDS=900
 MISTRAL_OCR_MODEL=mistral-ocr-4-0
 MISTRAL_OCR_TABLE_FORMAT=markdown
 MISTRAL_OCR_INCLUDE_BLOCKS=true
@@ -148,6 +148,7 @@ Alternativ unterstützt Atlas **GLM 5.3 als von Mistral gehostetes Modell**. Daf
 ```env
 MISTRAL_CHAT_MODEL=zai-glm-5-3
 MISTRAL_REASONING_EFFORT=max
+MISTRAL_REQUEST_TIMEOUT_SECONDS=900
 MISTRAL_USE_OCR=true
 ```
 
@@ -193,7 +194,7 @@ GLM übernimmt die Dokumentanalyse, das getrennte Suchmodell verwendet Mistrals 
 
 Nur tatsächlich zurückgegebene Webquellen werden als Quellen angezeigt. Die Recherche übernimmt keine Frist automatisch: Tarif, Land, Abschlussdatum, damalige AGB und individuelle Vereinbarungen müssen zum Vertrag passen.
 
-Ausführliches Reasoning benötigt zusätzliche Tokens und kann länger dauern. Das Zeitlimit pro Mistral-Aufruf beträgt standardmäßig 300 Sekunden. Wenn eine vorhandene `.env` noch `MISTRAL_REQUEST_TIMEOUT_SECONDS=120` enthält, setzen Sie den Wert auf `300`. Die mitgelieferten Nginx-Konfigurationen erlauben 660 Sekunden ohne Antwortdaten, damit OCR und anschließende Analyse ausreichend Zeit haben. Übernehmen Sie dieses `proxy_read_timeout` auch in bereits eingerichteten externen Reverse-Proxys; bei höheren API-Zeitlimits muss es entsprechend erhöht werden.
+Ausführliches Reasoning benötigt zusätzliche Tokens und kann länger dauern. Das Zeitlimit pro Mistral-Aufruf beträgt standardmäßig **900 Sekunden (15 Minuten)**, damit GLM 5.3 mit `max` Thinking mehr Zeit erhält. Modell und Reasoning-Stufe werden bei langsamen Antworten nicht herabgesetzt. Wenn eine vorhandene `.env` noch `MISTRAL_REQUEST_TIMEOUT_SECONDS=120` oder `300` enthält, setzen Sie den Wert auf `900`: Ein expliziter Wert überschreibt den neuen Docker-Standard. Erstellen Sie anschließend das Backend mit `docker compose up -d --build backend` neu und laden Sie den internen Proxy mit `docker compose restart frontend` neu. Die mitgelieferten Nginx-Konfigurationen erlauben mit `proxy_read_timeout 1860s;` insgesamt 31 Minuten ohne Antwortdaten für OCR und anschließende Analyse. Übernehmen Sie diesen Wert auch in bereits eingerichteten externen Reverse-Proxys und laden Sie Nginx nach erfolgreichem Konfigurationstest neu. Bei höheren API-Zeitlimits muss auch das Proxy-Zeitlimit entsprechend erhöht werden. Bei der serverseitigen KI-Prüfung erhalten einzelne Anfragen jeweils die vollen 900 Sekunden; die Oberfläche zeigt den tatsächlich konfigurierten Wert.
 
 Setzen Sie `MISTRAL_DOCUMENT_PROCESSING_ENABLED=false`, um die externe KI Dokumentverarbeitung vollständig zu deaktivieren.
 

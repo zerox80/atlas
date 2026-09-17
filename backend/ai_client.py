@@ -24,7 +24,7 @@ MODEL = os.getenv("MISTRAL_CHAT_MODEL", "mistral-medium-3-5")
 OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-4-0")
 AI_REQUEST_TIMEOUT_SECONDS = max(
     10,
-    int(os.getenv("MISTRAL_REQUEST_TIMEOUT_SECONDS", "300")),
+    int(os.getenv("MISTRAL_REQUEST_TIMEOUT_SECONDS", "900")),
 )
 MAX_RETRIES = 5
 BASE_DELAY = 2

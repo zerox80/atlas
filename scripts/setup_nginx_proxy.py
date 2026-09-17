@@ -243,7 +243,7 @@ def proxy_block(port: int, scheme: str) -> str:
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto {scheme};
         proxy_buffering off;
-        proxy_read_timeout 660s;
+        proxy_read_timeout 1860s;
         proxy_send_timeout 300s;
     }}"""
 
