@@ -1,5 +1,6 @@
 import asyncio
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,9 +10,10 @@ from test_review_semantics import extraction
 
 import ai_routes
 import document_review
+import review_analysis
 import review_worker
 from api_core import limiter
-from models import DocumentReviewControl, DocumentReviewItem
+from models import DocumentReviewControl, DocumentReviewItem, DocumentReviewRun
 from review_dispatcher import dispatch_reviews, drive_review
 
 
@@ -160,3 +162,89 @@ async def test_timeout_subdivides_only_unfinished_pages_and_keeps_the_model(auth
     assert item["result"]["progress"]["completed_pages"] == 8
     assert item["result"]["model"] == review_worker.MODEL
     assert calls == [(1, 4), (5, 8), (5, 6), (7, 8)]
+
+
+def model_reply(valid=True):
+    payload = {"document_type": "contract", "observations": [], "components": [], "warnings": []} if valid else {}
+    return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=json.dumps(payload)))])
+
+
+@pytest.mark.parametrize("correction", [True, False])
+async def test_each_model_request_gets_full_deadline_and_renews_lease(auth_client, session, test_user, monkeypatch, correction):
+    add_document(session, test_user, "deadlines")
+    monkeypatch.setattr(document_review, "_read_bundle", AsyncMock(return_value=[pdf_bytes(1)]))
+    monkeypatch.setattr(review_worker, "STEP_TIMEOUT", .4)
+    monkeypatch.setattr(review_analysis, "get_client", lambda: object())
+    if not correction:
+        monkeypatch.setattr(review_analysis, "text_sections", lambda pages: iter(["first fragment", "second fragment"]))
+    async def ocr(*args):
+        await asyncio.sleep(.23)
+        return "ocr", "## Seite 1\nSOURCE"
+    monkeypatch.setattr(review_analysis, "_processed_document_payload", ocr)
+    run_id = auth_client.post("/ai/reviews", json={"start": True}).json()["id"]
+    leases = []
+    async def complete(*args, **kwargs):
+        with Session(session.get_bind()) as fresh:
+            leases.append(fresh.get(DocumentReviewRun, run_id).lease_until)
+        await asyncio.sleep(.23)
+        return model_reply(not correction or len(leases) > 1)
+    monkeypatch.setattr(review_analysis, "complete_chat_with_timeout", complete)
+    await drive_review(session.get_bind(), run_id)
+    item = auth_client.get(f"/ai/reviews/{run_id}").json()["items"][0]
+    assert item["status"] == "checked"
+    assert item["result"]["progress"]["completed_pages"] == 1
+    assert len(leases) == 2 and leases[1] > leases[0]
+    with Session(session.get_bind()) as fresh:
+        assert fresh.get(DocumentReviewRun, run_id).lease_until is None
+
+
+async def test_stuck_stage_still_times_out(auth_client, session, test_user, monkeypatch):
+    add_document(session, test_user, "stuck")
+    monkeypatch.setattr(document_review, "_read_bundle", AsyncMock(return_value=[pdf_bytes(1)]))
+    monkeypatch.setattr(review_worker, "STEP_TIMEOUT", .1)
+    async def analyze(section, owner, progress):
+        progress("analysis")
+        await asyncio.sleep(1)
+        return [extraction([])]
+    monkeypatch.setattr(review_worker, "analyze_section", analyze)
+    run_id = auth_client.post("/ai/reviews", json={"start": True}).json()["id"]
+    await drive_review(session.get_bind(), run_id)
+    item = auth_client.get(f"/ai/reviews/{run_id}").json()["items"][0]
+    assert item["status"] == "error"
+    assert item["result"]["diagnostic"]["code"] == "TIMEOUT"
+    assert item["result"]["progress"]["completed_pages"] == 0
+
+
+async def test_split_reuses_persisted_ocr_with_original_pages_and_clears_warning(auth_client, session, test_user, monkeypatch):
+    add_document(session, test_user, "cached")
+    monkeypatch.setattr(document_review, "_read_bundle", AsyncMock(return_value=[pdf_bytes(4)]))
+    monkeypatch.setattr(review_analysis, "get_client", lambda: object())
+    ocr = AsyncMock(return_value=("ocr", "\n".join(f"## Seite {page}\nPRIVATE_SOURCE_{page}" for page in range(1, 5))))
+    monkeypatch.setattr(review_analysis, "_processed_document_payload", ocr)
+    complete = AsyncMock(side_effect=[TimeoutError(), model_reply(), model_reply()])
+    monkeypatch.setattr(review_analysis, "complete_chat_with_timeout", complete)
+    run_id = auth_client.post("/ai/reviews", json={"start": True}).json()["id"]
+    endpoint = f"/ai/reviews/{run_id}"
+    await drive_review(session.get_bind(), run_id)
+    page = auth_client.get(endpoint)
+    assert page.json()["items"][0]["result"]["progress"]["retry_message"]
+    assert "PRIVATE_SOURCE" not in page.text
+    with Session(session.get_bind()) as fresh:
+        item = fresh.exec(select(DocumentReviewItem).where(DocumentReviewItem.run_id == run_id)).one()
+        assert set(json.loads(item.result_json)["checkpoint"]["ocr"]["pages"]) == {"1", "2", "3", "4"}
+    # Each drive creates a new worker/session, just like a later retry or restart.
+    await drive_review(session.get_bind(), run_id)
+    item = auth_client.get(endpoint).json()["items"][0]
+    assert item["result"]["progress"]["completed_pages"] == 2
+    assert "retry_message" not in item["result"]["progress"]
+    with Session(session.get_bind()) as fresh:
+        item = fresh.exec(select(DocumentReviewItem).where(DocumentReviewItem.run_id == run_id)).one()
+        assert set(json.loads(item.result_json)["checkpoint"]["ocr"]["pages"]) == {"3", "4"}
+    await drive_review(session.get_bind(), run_id)
+    item = auth_client.get(endpoint).json()["items"][0]
+    assert item["status"] == "checked"
+    assert item["result"]["progress"]["completed_pages"] == 4
+    assert ocr.await_count == 1 and complete.await_count == 3
+    first_child, second_child = [call.kwargs["messages"][1]["content"] for call in complete.call_args_list[1:]]
+    assert "## Seite 1\nPRIVATE_SOURCE_1" in first_child and "PRIVATE_SOURCE_3" not in first_child
+    assert "## Seite 3\nPRIVATE_SOURCE_3" in second_child and "PRIVATE_SOURCE_1" not in second_child

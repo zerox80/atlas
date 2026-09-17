@@ -42,6 +42,7 @@ class Section:
     first_page: int
     last_page: int
     pdf: bytes
+    ocr_pages: dict[int, str] | None = None
 
 
 def split_documents(documents: list[bytes], names: list[str]) -> tuple[list[Section], str]:
@@ -112,16 +113,18 @@ async def analyze_section(section: Section, owner_id: int, progress) -> list[dic
         reasoning = get_reasoning_options(MODEL)
     except ValueError as exc:
         raise ReviewProcessingError("MODEL_CONFIGURATION", str(exc)) from exc
-    progress("ocr")
-    _, text = await _processed_document_payload(section.pdf, owner_id)
-    if not isinstance(text, str):
-        raise ReviewProcessingError("OCR_REQUIRED", "OCR-Text fehlt. MISTRAL_USE_OCR=true konfigurieren.")
-    pages = section_pages(text, section)
+    if section.ocr_pages is None:
+        progress("ocr")
+        _, text = await _processed_document_payload(section.pdf, owner_id)
+        if not isinstance(text, str):
+            raise ReviewProcessingError("OCR_REQUIRED", "OCR-Text fehlt. MISTRAL_USE_OCR=true konfigurieren.")
+        section.ocr_pages = section_pages(text, section)
+    pages = section.ocr_pages
     results = []
     for fragment in text_sections(pages):
         prompt = extraction_prompt(fragment, section.document, section.first_page, section.last_page)
         feedback = ""
-        # One format correction, without repeating OCR or changing the worker deadline.
+        # Each bounded request, including the correction, gets its own deadline.
         for attempt in range(2):
             progress("analysis_retry" if attempt else "analysis")
             response = await complete_chat_with_timeout(

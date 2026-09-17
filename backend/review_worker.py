@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, col, select, update
 
@@ -15,7 +15,9 @@ from review_errors import error_details
 from review_schema import PIPELINE_VERSION
 from review_sections import expanded_sections, section_key
 
-STEP_TIMEOUT = AI_REQUEST_TIMEOUT_SECONDS * 2
+# Guard one stage, with time for local preparation/persistence around a request.
+# A section can contain multiple text fragments and a format correction per fragment.
+STEP_TIMEOUT = AI_REQUEST_TIMEOUT_SECONDS + 30
 logger = logging.getLogger(__name__)
 
 
@@ -41,12 +43,15 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
         document_type = document.document_type if document else "contract"
         session.rollback()
 
+    lease_until = datetime.now(UTC) + timedelta(seconds=STEP_TIMEOUT + 30)
+
     def save(status: str, error: str | None = None, release: bool = False):
         with Session(bind) as session:
             # The token also prevents a canceled or expired worker overwriting a retry.
             owned = session.exec(update(DocumentReviewRun).where(
                 col(DocumentReviewRun.id) == run_id, col(DocumentReviewRun.lease_token) == token,
-            ).values(**({"lease_token": None, "lease_until": None} if release else {"lease_token": token})))
+            ).values(**({"lease_token": None, "lease_until": None} if release else
+                        {"lease_token": token, "lease_until": lease_until})))
             if owned.rowcount != 1:
                 session.rollback()
                 raise ReviewProcessingError("LEASE_LOST", "Dieser Verarbeitungsschritt wurde bereits von einem anderen Versuch übernommen.")
@@ -64,11 +69,20 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
             return status
 
     def progress(stage: str):
-        now = datetime.now(UTC).isoformat()
+        nonlocal lease_until
+        started = datetime.now(UTC)
+        now = started.isoformat()
+        # Only actual stage transitions renew the deadline/lease. Heartbeats must
+        # never keep a stuck provider call alive indefinitely.
+        step_deadline.reschedule(asyncio.get_running_loop().time() + STEP_TIMEOUT)
+        lease_until = started + timedelta(seconds=STEP_TIMEOUT + 30)
         result["progress"].update(stage=stage, stage_started_at=now, heartbeat_at=now,
                                   request_timeout_seconds=AI_REQUEST_TIMEOUT_SECONDS)
         if stage in {"analysis", "analysis_retry"} and section is not None:
             result["progress"]["ocr_completed_pages"] = result["progress"]["completed_pages"] + section.last_page - section.first_page + 1
+            if section.ocr_pages is not None:
+                cached = checkpoint.setdefault("ocr", {"document": section.document, "pages": {}})
+                cached["pages"].update({str(page): text for page, text in section.ocr_pages.items()})
         if save("processing") != "processing":
             raise ReviewProcessingError("DOCUMENT_CHANGED", "Dokument wurde geändert oder ist nicht mehr zugänglich.")
 
@@ -85,9 +99,9 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
     try:
         if document is None or owner_id is None:
             raise ReviewProcessingError("DOCUMENT_UNAVAILABLE", "Dokument ist nicht mehr zugänglich.")
-        async with asyncio.timeout(STEP_TIMEOUT):
-            result["progress"].update(section_started_at=datetime.now(UTC).isoformat(),
-                                      section_timeout_seconds=STEP_TIMEOUT)
+        async with asyncio.timeout(STEP_TIMEOUT) as step_deadline:
+            result["progress"].pop("section_timeout_seconds", None)
+            result["progress"].update(section_started_at=datetime.now(UTC).isoformat())
             progress("read")
             heartbeat_task = asyncio.create_task(heartbeat())
             documents = await _read_bundle(paths)
@@ -107,6 +121,16 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
             if not sections or completed >= len(sections):
                 raise ReviewProcessingError("INVALID_CHECKPOINT", "Zwischenstand passt nicht zu den Dokumenten. Bitte einen neuen Prüflauf starten.")
             section = sections[completed]
+            # Restore OCR only after checking the file fingerprint and model plan.
+            # Retain the remaining parent pages when an AI timeout split its PDF.
+            cached = checkpoint.get("ocr", {})
+            if cached.get("document") == section.document:
+                pages = cached.get("pages", {})
+                expected = range(section.first_page, section.last_page + 1)
+                if all(isinstance(pages.get(str(page)), str) for page in expected):
+                    section.ocr_pages = {page: pages[str(page)] for page in expected}
+            else:
+                checkpoint.pop("ocr", None)
             files = [{"name": name, "pages": sum(part.last_page - part.first_page + 1 for part in sections if part.document == number)}
                      for number, name in enumerate(names, 1)]
             result["progress"].update(completed_sections=completed, total_sections=len(sections),
@@ -117,6 +141,12 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
             extractions = await analyze_section(section, owner_id, progress)
             checkpoint["extractions"].extend(extractions)
             checkpoint["completed"] = completed + 1
+            if "ocr" in checkpoint:
+                checkpoint["ocr"]["pages"] = {page: text for page, text in checkpoint["ocr"]["pages"].items()
+                                               if int(page) > section.last_page}
+                if not checkpoint["ocr"]["pages"]:
+                    checkpoint.pop("ocr")
+            result["progress"].pop("retry_message", None)
             result["progress"]["completed_sections"] = completed + 1
             result["progress"]["completed_pages"] += section.last_page - section.first_page + 1
             if completed + 1 == len(sections):
@@ -148,6 +178,7 @@ async def process_review_section(bind, run_id: str, item_id: int, token: str,
                 result.pop("diagnostic", None)
                 save("pending", release=True)
             else:
+                result["progress"].pop("retry_message", None)
                 save("error", result["diagnostic"]["message"], release=True)
         except ReviewProcessingError:
             pass  # A newer token owns the item now.
