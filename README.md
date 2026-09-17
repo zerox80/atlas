@@ -123,12 +123,14 @@ beschrieben.
 
 Für den Betrieb ist die Konfiguration der Umgebungsvariablen in einer .env Datei erforderlich, insbesondere der MISTRAL_API_KEY.
 
-### Mistral OCR 4
+### Mistral-Modelle, Thinking und OCR 4
 
 Die KI Analyse nutzt standardmäßig Mistral OCR 4 über das Modell `mistral-ocr-4-0`. Der OCR Aufruf extrahiert Markdown, Tabellen im Markdown Format, strukturierte OCR 4 Blöcke sowie Seiten Konfidenzwerte. Diese Defaults können per `.env` angepasst werden:
 
 ```env
 MISTRAL_CHAT_MODEL=mistral-medium-3-5
+MISTRAL_REASONING_EFFORT=high
+MISTRAL_REQUEST_TIMEOUT_SECONDS=300
 MISTRAL_OCR_MODEL=mistral-ocr-4-0
 MISTRAL_OCR_TABLE_FORMAT=markdown
 MISTRAL_OCR_INCLUDE_BLOCKS=true
@@ -139,9 +141,25 @@ MISTRAL_MAX_IMAGE_PDF_PAGES=8
 MISTRAL_DOCUMENT_PROCESSING_ENABLED=true
 ```
 
+Analyse und Vertragschat verwenden für Mistral Medium 3.5 standardmäßig `reasoning_effort="high"`, dessen höchste Reasoning-Stufe. Mit `MISTRAL_REASONING_EFFORT=none` lässt sich der ausführliche Thinking-Modus deaktivieren. Thinking-Blöcke werden getrennt von der eigentlichen Antwort verarbeitet; JSON-Auswertung und Chat zeigen nur den Antworttext. Details: [Mistral Reasoning](https://docs.mistral.ai/studio/conversations/reasoning).
+
+Alternativ unterstützt Atlas **GLM 5.3 als von Mistral gehostetes Modell**. Dafür ersetzen Sie die entsprechenden Werte in Ihrer `.env`:
+
+```env
+MISTRAL_CHAT_MODEL=zai-glm-5-3
+MISTRAL_REASONING_EFFORT=max
+MISTRAL_USE_OCR=true
+```
+
+Beide Chatmodelle und OCR verwenden ausschließlich `https://api.mistral.ai` mit demselben `MISTRAL_API_KEY`. Laut [Mistrals Modellbeschreibung](https://docs.mistral.ai/models/zai-glm-5-3) ist `zai-glm-5-3` ein Textmodell. Atlas benötigt deshalb für PDFs `MISTRAL_USE_OCR=true`; bei deaktiviertem OCR wird diese Kombination vor einem API-Aufruf abgelehnt.
+
+Atlas sendet für GLM 5.3 `reasoning_effort="max"` unverändert an Mistral. Für Medium 3.5 wird `max` abgelehnt. Mit `MISTRAL_REASONING_EFFORT=auto` oder ohne gesetzte Variable wählt Atlas modellabhängig `max` für `zai-glm-5-3` und `high` für Medium 3.5. Explizite Werte haben Vorrang: Beim Wechsel von Medium zu GLM müssen Sie ein vorhandenes `high` deshalb auf `max` oder `auto` ändern. Die GLM-Übertragung von `max` wird mit dem echten Mistral-SDK und simulierten HTTP-Antworten getestet; eine Live-Bestätigung durch Mistrals API steht aus.
+
+Ausführliches Reasoning benötigt zusätzliche Tokens und kann länger dauern. Das Zeitlimit pro Mistral-Aufruf beträgt standardmäßig 300 Sekunden. Wenn eine vorhandene `.env` noch `MISTRAL_REQUEST_TIMEOUT_SECONDS=120` enthält, setzen Sie den Wert auf `300`. Die mitgelieferten Nginx-Konfigurationen erlauben 660 Sekunden ohne Antwortdaten, damit OCR und anschließende Analyse ausreichend Zeit haben. Übernehmen Sie dieses `proxy_read_timeout` auch in bereits eingerichteten externen Reverse-Proxys; bei höheren API-Zeitlimits muss es entsprechend erhöht werden.
+
 Setzen Sie `MISTRAL_DOCUMENT_PROCESSING_ENABLED=false`, um die externe KI Dokumentverarbeitung vollständig zu deaktivieren.
 
-Wenn `MISTRAL_USE_OCR=false` gesetzt ist, werden PDFs als Bilder verarbeitet und
+Bei Mistral Medium 3.5 können mit `MISTRAL_USE_OCR=false` PDFs als Bilder verarbeitet werden. Sie werden dann
 bereits bei der Validierung auf `MISTRAL_MAX_IMAGE_PDF_PAGES` begrenzt.
 
 Starten Sie die Anwendung mit folgendem Befehl im Hauptverzeichnis:

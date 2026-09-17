@@ -17,7 +17,9 @@ from ai_client import (
     Mistral,
     SDKError,
     complete_chat_with_timeout,
+    extract_response_text,
     get_client,
+    get_reasoning_options,
     stream_chunks_with_timeout,
 )
 from ai_document_processing import (
@@ -296,15 +298,14 @@ async def analyze_contract_pdf(
     response = await complete_chat_with_timeout(
         client,
         model=MODEL,
+        **get_reasoning_options(MODEL),
         messages=[
             {"role": "system", "content": CONTRACT_ANALYSIS_SYSTEM_PROMPT},
             {"role": "user", "content": content},
         ],
         response_format={"type": "json_object"},
     )
-    response_content = response.choices[0].message.content
-    if not isinstance(response_content, str):
-        response_content = "" if response_content is None else str(response_content)
+    response_content = extract_response_text(response.choices[0].message.content)
     result = _parse_analysis_response(response_content)
 
     defaults: dict = {
@@ -376,15 +377,13 @@ async def chat_about_contract(
     response = await complete_chat_with_timeout(
         client,
         model=MODEL,
+        **get_reasoning_options(MODEL),
         messages=[
             {"role": "system", "content": CONTRACT_ASSISTANT_PROMPT},
             {"role": "user", "content": content},
         ],
     )
-    response_content = response.choices[0].message.content
-    if not isinstance(response_content, str):
-        response_content = "" if response_content is None else str(response_content)
-    return response_content
+    return extract_response_text(response.choices[0].message.content)
 
 
 async def chat_about_contract_stream(
@@ -411,6 +410,7 @@ async def chat_about_contract_stream(
     stream_response = await asyncio.wait_for(
         client.chat.stream_async(
             model=MODEL,
+            **get_reasoning_options(MODEL),
             messages=[
                 {"role": "system", "content": CONTRACT_ASSISTANT_PROMPT},
                 {"role": "user", "content": content},
@@ -421,5 +421,6 @@ async def chat_about_contract_stream(
     async for chunk in stream_chunks_with_timeout(stream_response):
         if chunk.data.choices and len(chunk.data.choices) > 0:
             delta = chunk.data.choices[0].delta
-            if hasattr(delta, "content") and delta.content:
-                yield delta.content
+            text = extract_response_text(getattr(delta, "content", None))
+            if text:
+                yield text

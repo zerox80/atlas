@@ -11,6 +11,7 @@ from typing import Any
 
 from ai_client import (
     AI_REQUEST_TIMEOUT_SECONDS,
+    MODEL,
     OCR_MODEL,
     get_client,
     retry_on_rate_limit,
@@ -42,8 +43,14 @@ _executor = ThreadPoolExecutor(max_workers=3)
 
 
 def use_ocr_mode() -> bool:
-    """Check whether OCR mode is enabled."""
-    return os.getenv("MISTRAL_USE_OCR", "true").lower() == "true"
+    """Select PDF input mode and reject images for Mistral's text-only GLM."""
+    enabled = os.getenv("MISTRAL_USE_OCR", "true").strip().lower() == "true"
+    if MODEL == "zai-glm-5-3" and not enabled:
+        raise ValueError(
+            "zai-glm-5-3 unterstützt nur Text. Für die PDF-Verarbeitung "
+            "MISTRAL_USE_OCR=true setzen."
+        )
+    return enabled
 
 
 def _env_bool(name: str, default: bool = False) -> bool:

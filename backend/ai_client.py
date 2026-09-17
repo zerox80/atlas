@@ -4,7 +4,9 @@ import asyncio
 import logging
 import os
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
+
+from ai_mistral_transport import MAX_REASONING_HEADER, create_mistral_http_client
 
 try:
     from mistralai import Mistral  # type: ignore[attr-defined]
@@ -21,13 +23,59 @@ MODEL = os.getenv("MISTRAL_CHAT_MODEL", "mistral-medium-3-5")
 OCR_MODEL = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-4-0")
 AI_REQUEST_TIMEOUT_SECONDS = max(
     10,
-    int(os.getenv("MISTRAL_REQUEST_TIMEOUT_SECONDS", "120")),
+    int(os.getenv("MISTRAL_REQUEST_TIMEOUT_SECONDS", "300")),
 )
 MAX_RETRIES = 5
 BASE_DELAY = 2
 
 logger = logging.getLogger(__name__)
 _client = None
+
+
+def get_reasoning_effort(
+    model: str = MODEL,
+) -> Literal["none", "high", "max"]:
+    """Resolve model-specific effort without downgrading GLM's max to high."""
+    effort = os.getenv("MISTRAL_REASONING_EFFORT", "auto").strip().lower()
+    if effort == "auto":
+        effort = "max" if model == "zai-glm-5-3" else "high"
+    if effort == "high":
+        return "high"
+    if effort == "none":
+        return "none"
+    if effort == "max" and model == "zai-glm-5-3":
+        return "max"
+    allowed = "auto, none, high, max" if model == "zai-glm-5-3" else "auto, none, high"
+    raise ValueError(
+        f"MISTRAL_REASONING_EFFORT für {model} muss einer dieser Werte sein: {allowed}."
+    )
+
+
+def get_reasoning_options(model: str = MODEL) -> dict[str, Any]:
+    """Use SDK-native options or the transport override for GLM max."""
+    effort = get_reasoning_effort(model)
+    if effort == "max":
+        return {"http_headers": {MAX_REASONING_HEADER: "max"}}
+    return {"reasoning_effort": effort}
+
+
+def extract_response_text(content: Any) -> str:
+    """Extract answer text from Mistral content, excluding thinking chunks."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+
+    parts = []
+    for chunk in content:
+        if isinstance(chunk, dict):
+            chunk_type, text = chunk.get("type"), chunk.get("text")
+        else:
+            chunk_type = getattr(chunk, "type", None)
+            text = getattr(chunk, "text", None)
+        if chunk_type == "text" and isinstance(text, str):
+            parts.append(text)
+    return "".join(parts)
 
 
 async def retry_on_rate_limit(func: Callable, *args, **kwargs) -> Any:
@@ -68,7 +116,12 @@ def get_client() -> Mistral:
     if not api_key:
         raise ValueError("MISTRAL_API_KEY environment variable not set")
     if _client is None:
-        _client = Mistral(api_key=api_key)
+        _client = Mistral(
+            api_key=api_key,
+            server_url="https://api.mistral.ai",
+            async_client=create_mistral_http_client(),
+            timeout_ms=AI_REQUEST_TIMEOUT_SECONDS * 1000,
+        )
     return _client
 
 
