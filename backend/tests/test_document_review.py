@@ -69,7 +69,7 @@ def test_review_extracts_bundle_and_applies_only_selected_fields(auth_client, se
     page = auth_client.get(endpoint).json()
     assert page["remaining"] == 0
     item = page["items"][0]
-    assert item["status"] == "issues"
+    assert item["status"] == "hints"
     assert item["result"]["skipped_files"] == ["Notiz.txt"]
     assert session.get(Contract, doc_id).notice_period == 30
     assert session.get(Contract, doc_id).title == "Alt"
@@ -112,6 +112,20 @@ def test_foreign_review_is_private(auth_client, session, test_user, admin_user):
     app.dependency_overrides[get_current_user] = lambda: admin_user
     assert auth_client.get(f"/ai/reviews/{run['id']}").status_code == 404
     assert auth_client.post(f"/ai/reviews/{run['id']}/next").status_code == 404
+
+
+def test_repeated_review_creation_is_not_blocked_after_three_runs(auth_client):
+    for _ in range(5):
+        response = auth_client.post("/ai/reviews")
+        assert response.status_code == 200, response.text
+
+
+def test_review_creation_retains_short_burst_protection_with_explanation(auth_client):
+    for _ in range(30):
+        assert auth_client.post("/ai/reviews").status_code == 200
+    response = auth_client.post("/ai/reviews")
+    assert response.status_code == 429
+    assert "nach einer Minute" in response.json()["error"]
 
 
 def test_failures_are_resumable_leased_and_do_not_expose_provider_text(auth_client, session, test_user, monkeypatch):

@@ -126,7 +126,7 @@ def list_reviews(user: User = Depends(get_current_user), session: Session = Depe
 
 
 @router.post("")
-@limiter.limit("3/hour")
+@limiter.limit("30/minute", error_message="Zu viele neue Prüfläufe kurz hintereinander. Bitte nach einer Minute erneut versuchen oder den gespeicherten Prüflauf fortsetzen.")
 def create_review(request: Request, body: ReviewCreate | None = None,
                   user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     _require_ai_availability("Prüfung")

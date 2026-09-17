@@ -18,7 +18,6 @@ def get_default_db_path() -> str:
 
 DB_PATH = get_default_db_path()
 
-
 def table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
     cursor.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
