@@ -3,6 +3,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from sqlmodel import Session, select
 from test_review_pipeline import add_document, pdf_bytes
@@ -12,6 +13,7 @@ import ai_routes
 import document_review
 import review_analysis
 import review_worker
+from ai_client import SDKError
 from api_core import limiter
 from models import DocumentReviewControl, DocumentReviewItem, DocumentReviewRun
 from review_dispatcher import dispatch_reviews, drive_review
@@ -215,13 +217,16 @@ async def test_stuck_stage_still_times_out(auth_client, session, test_user, monk
     assert item["result"]["progress"]["completed_pages"] == 0
 
 
-async def test_split_reuses_persisted_ocr_with_original_pages_and_clears_warning(auth_client, session, test_user, monkeypatch):
+@pytest.mark.parametrize("status", [None, 504])
+async def test_split_reuses_persisted_ocr_with_original_pages_and_clears_warning(auth_client, session, test_user, monkeypatch, status):
     add_document(session, test_user, "cached")
     monkeypatch.setattr(document_review, "_read_bundle", AsyncMock(return_value=[pdf_bytes(4)]))
     monkeypatch.setattr(review_analysis, "get_client", lambda: object())
     ocr = AsyncMock(return_value=("ocr", "\n".join(f"## Seite {page}\nPRIVATE_SOURCE_{page}" for page in range(1, 5))))
     monkeypatch.setattr(review_analysis, "_processed_document_payload", ocr)
-    complete = AsyncMock(side_effect=[TimeoutError(), model_reply(), model_reply()])
+    error = TimeoutError() if status is None else SDKError(
+        "PRIVATE_PROVIDER_BODY", httpx.Response(status, request=httpx.Request("POST", "https://api.mistral.ai")), "PRIVATE_RAW_BODY")
+    complete = AsyncMock(side_effect=[error, model_reply(), model_reply()])
     monkeypatch.setattr(review_analysis, "complete_chat_with_timeout", complete)
     run_id = auth_client.post("/ai/reviews", json={"start": True}).json()["id"]
     endpoint = f"/ai/reviews/{run_id}"
@@ -229,6 +234,9 @@ async def test_split_reuses_persisted_ocr_with_original_pages_and_clears_warning
     page = auth_client.get(endpoint)
     assert page.json()["items"][0]["result"]["progress"]["retry_message"]
     assert "PRIVATE_SOURCE" not in page.text
+    assert "PRIVATE_PROVIDER_BODY" not in page.text and "PRIVATE_RAW_BODY" not in page.text
+    if status == 504:
+        assert "Anbieter-Zeitlimit (HTTP 504)" in page.json()["items"][0]["result"]["progress"]["retry_message"]
     with Session(session.get_bind()) as fresh:
         item = fresh.exec(select(DocumentReviewItem).where(DocumentReviewItem.run_id == run_id)).one()
         assert set(json.loads(item.result_json)["checkpoint"]["ocr"]["pages"]) == {"1", "2", "3", "4"}
