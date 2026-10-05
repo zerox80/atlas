@@ -6,7 +6,10 @@ from collections.abc import Callable, Iterable
 from uuid import UUID, uuid4
 
 from audit_identity_migration import migration_014_non_reusable_contract_ids
-from nullable_value_migration import migration_015_nullable_gross_value
+from nullable_value_migration import (
+    migration_015_nullable_gross_value,
+    migration_016_optional_contract_fields,
+)
 
 
 def get_default_db_path() -> str:
@@ -145,75 +148,12 @@ def migration_002_document_type(cursor: sqlite3.Cursor) -> None:
 
 
 def migration_003_contract_end_date_nullable(cursor: sqlite3.Cursor) -> None:
-    """Allow invoices and open-ended contracts without losing existing contract rows.
-
-    SQLite cannot remove a ``NOT NULL`` constraint with ``ALTER TABLE``.  For
-    legacy databases we therefore recreate the table from its own schema,
-    changing only the ``end_date`` column and copying every column and index.
-    """
+    """Allow missing dates and details without losing legacy data or identities."""
     if not table_exists(cursor, "contract"):
         return
-
-    columns = table_info(cursor, "contract")
-    end_date = next((column for column in columns if column[1] == "end_date"), None)
-
-    if end_date is None:
-        print("Adding nullable column 'contract.end_date'...")
+    if "end_date" not in existing_columns(cursor, "contract"):
         cursor.execute("ALTER TABLE contract ADD COLUMN end_date DATETIME")
-        return
-
-    # PRAGMA table_info: (cid, name, type, notnull, default_value, pk)
-    if not end_date[3]:
-        print("Column 'contract.end_date' is already nullable.")
-        return
-
-    row = cursor.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'contract'"
-    ).fetchone()
-    if row is None or row[0] is None:
-        raise RuntimeError("Could not read the existing contract table schema.")
-
-    original_schema = row[0]
-    nullable_schema, constraint_replacements = re.subn(
-        r"(\bend_date\b\s+[^,)]*?)\s+NOT\s+NULL\b",
-        r"\1",
-        original_schema,
-        count=1,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    if constraint_replacements != 1:
-        raise RuntimeError("Could not make the legacy contract.end_date column nullable.")
-
-    rebuilt_schema, table_replacements = re.subn(
-        r"^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\"contract\"|`contract`|\[contract\]|contract)\b",
-        "CREATE TABLE contract_rebuild",
-        nullable_schema,
-        count=1,
-        flags=re.IGNORECASE,
-    )
-    if table_replacements != 1:
-        raise RuntimeError("Could not prepare a replacement contract table.")
-
-    cursor.execute(
-        """
-        SELECT sql FROM sqlite_master
-        WHERE tbl_name = 'contract' AND type IN ('index', 'trigger') AND sql IS NOT NULL
-        """
-    )
-    schema_objects = [item[0] for item in cursor.fetchall()]
-    column_names = [column[1] for column in columns]
-    quoted_columns = ", ".join(quote_identifier(column) for column in column_names)
-
-    print("Rebuilding contract table so end_date can be empty...")
-    cursor.execute(rebuilt_schema)
-    cursor.execute(
-        f"INSERT INTO contract_rebuild ({quoted_columns}) "
-        f"SELECT {quoted_columns} FROM contract"
-    )
-    cursor.execute("DROP TABLE contract")
-    cursor.execute("ALTER TABLE contract_rebuild RENAME TO contract")
-    for statement in schema_objects:
-        cursor.execute(statement)
+    migration_016_optional_contract_fields(cursor)
 
 
 def migration_004_audit_contract_id(cursor: sqlite3.Cursor) -> None:
@@ -324,6 +264,9 @@ def migration_008_sanitize_contract_numeric_values(cursor: sqlite3.Cursor) -> No
     """Normalize legacy numeric values that cannot be represented safely in JSON."""
     if not table_exists(cursor, "contract"):
         return
+    # Older installations may not have reached the nullable-fields migration.
+    # Sanitizing invalid notice periods and annual values below can write NULL.
+    migration_016_optional_contract_fields(cursor)
 
     def normalize_financial(value: object, fallback: float | None) -> float | None:
         if not isinstance(value, (str, int, float, bytes, bytearray)):
@@ -758,6 +701,7 @@ MIGRATIONS: tuple[tuple[str, Callable[[sqlite3.Cursor], None]], ...] = (
     ("013_pending_file_deletion_queue", migration_013_pending_file_deletion_queue),
     ("014_non_reusable_contract_ids", migration_014_non_reusable_contract_ids),
     ("015_nullable_gross_value", migration_015_nullable_gross_value),
+    ("016_optional_contract_fields", migration_016_optional_contract_fields),
 )
 
 def migrate(db_path: str | None = None) -> None:

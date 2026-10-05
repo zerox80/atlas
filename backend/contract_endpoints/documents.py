@@ -137,7 +137,7 @@ async def create_contract(
         end_date=contract_data.end_date,
         file_path=file_path,
         document_type=contract_data.document_type,
-        value=contract_data.value if contract_data.value is not None else 0.0,
+        value=contract_data.value,
         annual_value=contract_data.annual_value,
         notice_period=contract_data.notice_period,
     )
@@ -276,7 +276,8 @@ async def update_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
 
     expected_version = version
-    notice_provided = "notice_period" in await request.form()
+    provided_fields = await request.form()
+    notice_provided = "notice_period" in provided_fields
     if expected_version != contract.version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -302,9 +303,9 @@ async def update_contract(
         notice_period=parse_int_form(notice_period),
         tags=parse_tags_form(tags) if tags is not None else None,
     )
-    if end_date is not None or notice_provided:
+    if "end_date" in provided_fields or notice_provided:
         validate_cancellation_date(
-            update_data.end_date if end_date is not None else contract.end_date,
+            update_data.end_date if "end_date" in provided_fields else contract.end_date,
             (
                 update_data.notice_period
                 if notice_provided
@@ -322,15 +323,8 @@ async def update_contract(
 
     check_and_update("title", update_data.title, title is not None)
     check_and_update("description", update_data.description, description is not None)
-    check_and_update("start_date", update_data.start_date, start_date is not None)
-    check_and_update("end_date", update_data.end_date, end_date is not None)
-    check_and_update(
-        "value",
-        update_data.value if update_data.value is not None else 0.0,
-        value is not None,
-    )
-    check_and_update("annual_value", update_data.annual_value, annual_value is not None)
-    check_and_update("notice_period", update_data.notice_period, notice_provided)
+    for field in ("start_date", "end_date", "value", "annual_value", "notice_period"):
+        check_and_update(field, getattr(update_data, field), field in provided_fields)
 
     new_file_path: str | None = None
     old_file_path: str | None = None

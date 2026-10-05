@@ -29,6 +29,55 @@ beforeEach(() => {
 });
 
 describe("UploadModal", () => {
+  it("creates a contract with unknown amounts, dates and notice period left empty", async () => {
+    const close = vi.fn();
+    render(<UploadModal isOpen onClose={close} />);
+    await upload([pdf("Vertrag ohne Laufzeit.pdf")]);
+    await userEvent.type(screen.getByLabelText("Vertragstitel"), "Inkasso-Mandantenvertrag");
+    for (const label of ["Gesamtbetrag (brutto, €)", "Jährlicher Preis (€)", "Startdatum", "Enddatum", "Kündigungsfrist (Tage)"]) {
+      expect(screen.getByLabelText(label)).not.toBeRequired();
+      expect(screen.getByLabelText(label)).toHaveValue("");
+    }
+
+    await userEvent.click(screen.getByRole("button", { name: "Vertrag hochladen" }));
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(mocks.post).toHaveBeenCalledOnce();
+    expect(mocks.post.mock.calls[0][0]).toBe("/contracts");
+    const saved = mocks.post.mock.calls[0][1] as FormData;
+    for (const field of ["value", "annual_value", "start_date", "end_date", "notice_period"]) {
+      expect(saved.get(field)).toBe("");
+    }
+  });
+
+  it("explicitly clears saved amounts, dates and notice period when editing", async () => {
+    render(<UploadModal isOpen initialData={{ ...existing, value: 1200, annual_value: 120,
+      start_date: "2026-01-01", end_date: "2026-12-31", notice_period: 30 }} onClose={vi.fn()} />);
+    for (const label of ["Gesamtbetrag (brutto, €)", "Jährlicher Preis (€)", "Startdatum", "Enddatum", "Kündigungsfrist (Tage)"]) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value: "" } });
+    }
+
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledOnce());
+    const saved = mocks.put.mock.calls[0][1] as FormData;
+    for (const field of ["value", "annual_value", "start_date", "end_date", "notice_period"]) {
+      expect(saved.get(field)).toBe("");
+    }
+  });
+
+  it("preserves explicit zero amounts and a zero-day notice period", async () => {
+    render(<UploadModal isOpen initialData={{ ...existing, value: 0, annual_value: 0, notice_period: 0 }} onClose={vi.fn()} />);
+    for (const label of ["Gesamtbetrag (brutto, €)", "Jährlicher Preis (€)", "Kündigungsfrist (Tage)"]) {
+      expect(screen.getByLabelText(label)).toHaveValue("0");
+    }
+
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledOnce());
+    const saved = mocks.put.mock.calls[0][1] as FormData;
+    for (const field of ["value", "annual_value", "notice_period"]) {
+      expect(saved.get(field)).toBe("0");
+    }
+  });
+
   it("keeps web research available while editing or clearing a saved notice period", async () => {
     mocks.get.mockImplementation(async (path) => ({ data: path === "/ai/notice-research"
       ? { available: true, provider: "mistral", model: "mistral-medium-latest" }
